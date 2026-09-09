@@ -80,11 +80,11 @@
 
   // ---------- Resurrect 64 rock ramps (shadow[0]→rim[5]); ore [dark,mid,hi]+shape ----------
   const MATERIALS = {
-    topsoil:   { name:'Topsoil',    ramp:['#2e222f','#45293f','#7a3045','#9e4539','#cd683d','#e6904e'] },
-    claystone: { name:'Clay',       ramp:['#2e222f','#3e3546','#694f62','#966c6c','#ab947a','#c7dcd0'] },
-    stone:     { name:'Stone',      ramp:['#25222c','#3e3546','#625565','#7f708a','#9babb2','#c7dcd0'] },
-    deepstone: { name:'Deep Stone', ramp:['#20202e','#323353','#484a77','#4d65b4','#4d9be6','#8fd3ff'] },
-    basalt:    { name:'Basalt',     ramp:['#211a2b','#45293f','#6b3e75','#905ea9','#a884f3','#eaaded'] },
+    topsoil:   { name:'Topsoil',    ramp:['#2e222f','#45293f','#7a3045','#9e4539','#cd683d','#e6904e'], accent:'#547e64' },
+    claystone: { name:'Clay',       ramp:['#2e222f','#3e3546','#694f62','#966c6c','#ab947a','#c7dcd0'], accent:'#676633' },
+    stone:     { name:'Stone',      ramp:['#25222c','#3e3546','#625565','#7f708a','#9babb2','#c7dcd0'], accent:'#547e64' },
+    deepstone: { name:'Deep Stone', ramp:['#20202e','#323353','#484a77','#4d65b4','#4d9be6','#8fd3ff'], accent:'#0eaf9b' },
+    basalt:    { name:'Basalt',     ramp:['#211a2b','#45293f','#6b3e75','#905ea9','#a884f3','#eaaded'], accent:'#6b3e75' },
   };
   const ORES = [
     { name:'Copper',  shape:'nugget', c:['#7a3045','#cd683d','#f79617'] },
@@ -118,9 +118,12 @@
   const clamp01=v=>v<0?0:v>1?1:v;
 
   // ---------- palettes ----------
-  // FG rock: top-lit, dark body. Only up-facing surfaces catch light.
-  function colorsFor(R){ const C={ rimB:R[5], rimA:R[4], lit:R[3], body2:R[2], body:R[1], deep:R[0],
-      center:mix(R[0],'#000000',0.4), gritDark:mix(R[2],R[0],0.5) };
+  // FG rock: top-lit, dark body. Rim is desaturated & varied (rocky/mossy, not molten).
+  function colorsFor(mat){ const R=mat.ramp; const C={
+      rimB:desat(R[5],0.22), rimA:desat(R[4],0.28), lit:desat(R[3],0.15), body2:R[2], body:R[1], deep:R[0],
+      center:mix(R[0],'#000000',0.4), black:mix(R[0],'#000000',0.55),
+      rimRock:desat(mix(R[4],R[2],0.45),0.35),                 // grayer rock, breaks the uniform orange
+      accent:desat(mat.accent,0.12), accentDark:mix(mat.accent,'#000000',0.35) };
     const rgb={}; for(const k in C) rgb[k]=hexRgb(C[k]); return rgb; }
   // BG layer: a lighter, cooler, desaturated wall — clearly distinct from dark FG rock.
   function bgFor(R){ const base=desat(mix(R[1],'#4a4864',0.64),0.52);
@@ -166,8 +169,14 @@
         L=clamp01(L);
         const f=L*5, lo=f|0, b=(BAYER[(px&3)|((py&3)<<2)]+0.5)/16;             // ordered dither between steps
         let c = LV[Math.min(5, lo + ((f-lo)>b?1:0))];
-        if(L>0.2 && L<0.82 && vnoise(px*0.75,py*0.75,TEX+5)>0.85) c=C.center;   // sparse crevice/crack detail
-        if(o.rim && L>0.86 && vnoise(px*0.7,py*0.5,TEX)>0.55) c=C.rimB;         // sparse rim sparkle
+        if(L>0.6){                                                              // lit rim: rocky/mossy variation, not molten
+          const rn=vnoise(px*0.5+2,py*0.5,TEX+8);
+          if((td<=ed+0.8) && rn>0.74) c=C.accent;                              // moss/crust clumps on up-facing rims
+          else if(rn<0.40) c=C.rimRock;                                        // grayer rock breaks the orange
+        }
+        // dark body beyond the rim stays clean/empty (reads calmer than random grit)
+        if(L>0.25 && L<0.72 && vnoise(px*0.75,py*0.75,TEX+5)>0.86) c=C.center;  // sparse crevice only in the transition band
+        if(o.rim && L>0.88 && vnoise(px*0.7,py*0.5,TEX)>0.6) c=C.rimB;          // sparse rim sparkle
         set(i,c,255);
       } else {
         const dr=rock[i];
@@ -279,7 +288,7 @@
       mask[py*PW+px] = dmin > thr ? 1 : 0; }
     return mask; }
 
-  function renderScene(){ const S=parseInt(document.getElementById('zoom').value,10), o=opts(), C=colorsFor(M().ramp), BG=bgFor(M().ramp);
+  function renderScene(){ const S=parseInt(document.getElementById('zoom').value,10), o=opts(), C=colorsFor(M()), BG=bgFor(M().ramp);
     const PW=COLS*T, PH=ROWS*T; lbuf.width=PW; lbuf.height=PH; lb.imageSmoothingEnabled=false;
     renderBackground(BG, PW, PH, o);
     shadeRock(buildMask(PW,PH,o), PW, PH, C, o, false);
@@ -303,7 +312,7 @@
 
   // ---------- mining strip ----------
   const mine=document.getElementById('mine'), mctx=mine.getContext('2d');
-  function renderMine(){ const S=6, gap=8, o=opts(), C=colorsFor(M().ramp), BG=bgFor(M().ramp);
+  function renderMine(){ const S=6, gap=8, o=opts(), C=colorsFor(M()), BG=bgFor(M().ramp);
     const oreI=({topsoil:0,claystone:2,stone:1,deepstone:5,basalt:6})[matSel.value]||0;
     const stages=[0,0.4,0.65,0.9,'broken'], solid=new Uint8Array(T*T).fill(1);
     mine.width=stages.length*(T*S+gap)-gap; mine.height=T*S; mctx.imageSmoothingEnabled=false; mctx.clearRect(0,0,mine.width,mine.height);
@@ -318,10 +327,10 @@
   function renderAtlas(){ const S=5,gap=6, o=opts(); const mats=Object.values(MATERIALS);
     atlas.width=Math.max(mats.length,ORES.length)*(T*S+gap)-gap; atlas.height=2*(T*S)+gap+8; actx.imageSmoothingEnabled=false; actx.clearRect(0,0,atlas.width,atlas.height);
     const topMask=()=>{ const m=new Uint8Array(T*T); for(let py=0;py<T;py++)for(let px=0;px<T;px++){ const d=py-4+0.5; const thr=o.stones?0.6+2.6*vnoise(px*0.3+9,py*0.3,TEX+2):0; m[py*T+px]= (py>=4 && d>thr) ?1:0; } return m; };
-    mats.forEach((mm,i)=>{ const C=colorsFor(mm.ramp), BG=bgFor(mm.ramp); lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
+    mats.forEach((mm,i)=>{ const C=colorsFor(mm), BG=bgFor(mm.ramp); lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
       renderBackground(BG,T,T,o); shadeRock(topMask(),T,T,C,o,false); lb.drawImage(fbuf,0,0);
       actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); });
-    const C=colorsFor(M().ramp), BG=bgFor(M().ramp), solid=new Uint8Array(T*T).fill(1), oy=T*S+gap;
+    const C=colorsFor(M()), BG=bgFor(M().ramp), solid=new Uint8Array(T*T).fill(1), oy=T*S+gap;
     ORES.forEach((ore,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
       renderBackground(BG,T,T,o); shadeRock(solid,T,T,C,o,true); lb.drawImage(fbuf,0,0); drawOre(lb,i,0,0, i+5,6, 0.85, o);
       actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),oy, T*S,T*S); }); }
