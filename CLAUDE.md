@@ -1,10 +1,13 @@
 # Building games in this workspace
 
-Shared, engine-agnostic design lessons for every game here. This is a
-pnpm-workspace monorepo: games live in `games/*`, cross-game code in `shared/*`.
-Game-specific rules, tuning values, and stack choices live in each game's own
-package under `games/`; this file is only the stuff that carries across all of
-them, regardless of genre, engine, or platform. DRIFT (`games/drift/`) is cited
+Shared design lessons for every game here. **Every game in this workspace is a
+browser game** — it runs on the open web platform (HTML, CSS, JavaScript,
+Canvas/WebGL/WebGPU, Web Audio, and the rest) and nowhere else. There is no other
+target, engine, native runtime, or console; assume the browser in every decision.
+This is a pnpm-workspace monorepo: games live in `games/*`, cross-game code in
+`shared/*`. Game-specific rules, tuning values, and stack choices live in each
+game's own package under `games/`; this file is only the stuff that carries
+across all of them, regardless of genre. DRIFT (`games/drift/`) is cited
 occasionally as an example, not as a rule.
 
 The through-line: **a game is correct logic wrapped in feedback.** The rules
@@ -15,6 +18,27 @@ Everything below is a direction to tune, not a fixed number. Feel is found by
 playing and adjusting; treat any specific value you see as a starting point.
 
 ---
+
+## What you're building (non-negotiables)
+
+Read this before writing any code — it overrides convenient assumptions.
+
+- **A real, playable game a human sits down and plays** — not a headless
+  simulation, not a script that prints the outcome. There is always a human
+  player. The deliverable is something you launch and *play*, with a visible
+  presentation layer, real controls, and feedback, from the very first version.
+- **"Separate simulation from presentation" never means skip the presentation.**
+  It means the two are cleanly separated — the sim is pure and testable, the
+  presentation renders it. Both always ship. A game with no rendering layer is
+  unfinished, not minimal.
+- **Create every asset yourself.** All art, sprites, backgrounds, icons, and
+  effects are authored by the agent — drawn in code (canvas/SVG/shapes),
+  generated, or synthesized. **Never use emoji, clip art, or found/placeholder
+  images as game assets.** Emoji are not art. If a real asset isn't ready yet,
+  draw a deliberate primitive (a shaded shape) as a stand-in, not a glyph.
+- **The game always renders to a `<canvas>`** (2D, WebGL, or WebGPU) — the game
+  field is drawn, not assembled from DOM elements or text characters. HTML/CSS is
+  for surrounding chrome (menus, HUD, buttons), not the play area.
 
 ## Game feel
 
@@ -64,17 +88,19 @@ player see, hear, and feel here?"
 
 ## Sound design
 
-- **Prefer generated/synthesized audio for small games** where the toolchain
-  allows — it means zero load time, no binary assets, and instant iteration. Fall
-  back to sampled audio when you need richness synthesis can't reach.
+- **Synthesize audio with the Web Audio API.** Oscillators, noise buffers, and
+  filters cover an entire game's SFX with zero load time, no binary assets, and
+  instant iteration. Fall back to sampled audio only when you need richness
+  synthesis can't reach.
 - **Map timbre to meaning.** Rising pitch reads as good, falling as bad; short
   and bright for small events, low and bodied for heavy ones, noise for
   friction/whooshes. Consistency matters more than realism.
 - **Fire sound with the visual, not the input** — at the moment of contact/impact
   in the animation, not the button press that caused it.
-- **Respect the platform's audio rules** (e.g. browsers require a user gesture
-  before playing). Route everything through a single mute switch so muting is
-  instant and total.
+- **Unlock audio on the first user gesture.** Browsers keep the `AudioContext`
+  suspended until an input, so create/resume it on the first key or tap, not at
+  load. Route everything through a single mute switch so muting is instant and
+  total.
 
 ## Input handling
 
@@ -132,6 +158,10 @@ player see, hear, and feel here?"
 
 ## Art direction
 
+- **You author every asset — no emoji, no clip art, no stock images.** All art is
+  created by the agent (drawn in code, generated, or synthesized) to fit the
+  game's style guide. A glyph or found image dropped in as a game object is never
+  acceptable, even as a placeholder — use a deliberate primitive shape instead.
 - **Codify the direction into a concrete style guide.** When a game adopts an art
   direction — whether the user specified it or you chose one — write it down as
   explicit, reusable rules in the game's folder: exact color palette (with
@@ -215,18 +245,24 @@ player see, hear, and feel here?"
 
 ## General engineering notes
 
-- **Prefer the simplest stack that delivers the feel** — no build step, no
-  framework, no dependencies until the game genuinely outgrows going without.
-- **Drive animation from elapsed time, not frame counts,** so motion is a pure
-  function of a timestamp: framerate-independent, trivially interruptible, and
-  resume-safe.
+- **Prefer the simplest stack that delivers the feel** — vanilla HTML + JS +
+  Canvas is usually enough. No build step, no framework, no dependencies until the
+  game genuinely outgrows going without.
+- **Drive animation from elapsed time, not frame counts,** in a
+  `requestAnimationFrame` loop, so motion is a pure function of a timestamp:
+  framerate-independent, trivially interruptible, and resume-safe.
 - **Invalidate stale scheduled effects.** When the game resets, reloads, or
   branches, deferred callbacks (delayed sounds, particle bursts, timers) from the
   abandoned state must abort instead of firing on the new state — a generation/
   epoch counter is a simple, reliable guard.
 
-## Browser games (when the target is the web)
+## Web platform
 
+Every game is a browser game, so these apply to all of them.
+
+- **The play area is a `<canvas>`, always** (2D/WebGL/WebGPU) — never DOM
+  elements, text characters, or emoji standing in for game objects. Surrounding
+  chrome (menus, HUD, buttons) can be HTML/CSS.
 - **Be responsive and mobile-first-capable.** The game should scale to fit any
   viewport (fluid canvas/layout, not fixed pixel sizes) and stay playable from
   phone to desktop. Detect the device (e.g. `matchMedia('(pointer: coarse)')`)

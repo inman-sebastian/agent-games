@@ -1,6 +1,7 @@
 # agent-game
 
-A pnpm-workspace monorepo of small games built agentically.
+A pnpm-workspace monorepo of small **browser games** built agentically — each
+runs on the open web platform (HTML/CSS/JS, Canvas), no other target.
 
 - **`games/*`** — each game in its own package (source, docs, deployment config).
 - **`shared/*`** — cross-game modules, imported by any game (see `shared/README.md`).
