@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DELVE — dig deeper</title>
+<style>
+  :root {
+    --bg:#0b0e13; --panel:#141922; --panel2:#1b2230; --ink:#e8eef5; --dim:#7c8899;
+    --gold:#f2c14e; --line:#ffffff14; --good:#77dd8f;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; }
+  body {
+    background:radial-gradient(1000px 700px at 50% -20%, #131a24, var(--bg));
+    color:var(--ink); font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center;
+    height:100%; -webkit-user-select:none; user-select:none; touch-action:none;
+  }
+  header {
+    width:100%; max-width:560px; padding:10px 14px 6px; display:flex;
+    align-items:center; gap:12px; justify-content:space-between;
+  }
+  h1 { font-size:13px; letter-spacing:.5em; font-weight:700; margin:0; color:var(--dim); }
+  h1 b { color:var(--ink); }
+  .btns { display:flex; gap:8px; }
+  button {
+    font:inherit; font-weight:600; color:var(--ink); background:var(--panel2);
+    border:1px solid var(--line); border-radius:8px; padding:7px 11px; cursor:pointer;
+    transition:.12s; }
+  button:hover { background:#26304200; border-color:#ffffff33; filter:brightness(1.15); }
+  button:active { transform:translateY(1px); }
+  button:disabled { opacity:.4; cursor:default; filter:none; }
+
+  .hud {
+    width:100%; max-width:560px; padding:0 14px 8px; display:flex; gap:16px;
+    align-items:center; font-variant-numeric:tabular-nums; flex-wrap:wrap;
+  }
+  .stat { color:var(--dim); font-size:12px; }
+  .stat b { color:var(--ink); font-weight:700; font-size:15px; }
+  .stat.coin b { color:var(--gold); }
+
+  .stage { flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 8px 8px; }
+  canvas { image-rendering:pixelated; image-rendering:crisp-edges; border-radius:10px;
+    box-shadow:0 10px 40px #000a, 0 0 0 1px var(--line); background:#0d0d15; display:block; }
+
+  .hint { color:var(--dim); font-size:11.5px; padding:0 0 10px; text-align:center; letter-spacing:.02em; }
+
+  /* shop overlay */
+  .overlay { position:fixed; inset:0; background:#070a0fcc; backdrop-filter:blur(3px);
+    display:none; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .overlay.on { display:flex; }
+  .shop { width:100%; max-width:440px; max-height:88vh; overflow:auto; background:var(--panel);
+    border:1px solid var(--line); border-radius:14px; padding:16px; box-shadow:0 20px 60px #000c; }
+  .shop h2 { margin:0 0 2px; font-size:15px; letter-spacing:.08em; }
+  .shop .sub { color:var(--dim); font-size:12px; margin-bottom:12px; }
+  .row { display:flex; align-items:center; gap:12px; padding:10px; border-radius:10px;
+    background:var(--panel2); margin-bottom:8px; }
+  .row .info { flex:1; min-width:0; }
+  .row .nm { font-weight:700; }
+  .row .ds { color:var(--dim); font-size:12px; }
+  .row .lv { color:var(--gold); font-size:12px; font-weight:700; }
+  .row button { min-width:96px; }
+  .sect { color:var(--dim); font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin:12px 2px 6px; }
+  .close { width:100%; margin-top:10px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>DE<b>L</b>VE</h1>
+    <div class="btns">
+      <button id="shopBtn">⛏ Upgrades</button>
+      <button id="muteBtn" title="Mute">♪</button>
+      <button id="newBtn" title="New game">↺</button>
+    </div>
+  </header>
+
+  <div class="hud">
+    <div class="stat">DEPTH <b><span id="depth">0</span>m</b></div>
+    <div class="stat coin">◈ <b id="coins">0</b></div>
+    <div class="stat found">DEEPEST FIND <b id="found" style="color:var(--dim)">—</b></div>
+  </div>
+
+  <div class="stage"><canvas id="c"></canvas></div>
+  <div class="hint" id="hint"></div>
+
+  <div class="overlay" id="overlay">
+    <div class="shop">
+      <h2>Upgrades</h2>
+      <div class="sub">Coins: <b id="shopCoins" style="color:var(--gold)">0</b> ◈ &nbsp;·&nbsp; sell ore at the surface to earn</div>
+      <div id="upgrades"></div>
+      <div class="sect">Technology</div>
+      <div id="tech"></div>
+      <button class="close" id="closeBtn">Back to the mine</button>
+    </div>
+  </div>
+
+<script src="engine.js"></script>
+<script>
+(function () {
+  'use strict';
+  const D = window.Delve;
+  // Higher logical resolution than the tile grid → finer pixels, less "blocky".
+  const TILE = 24, VIEW_ROWS = 13, W = D.WIDTH, u = 2;
+  const LW = W * TILE, LH = VIEW_ROWS * TILE;          // logical buffer size
+
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  cv.width = LW; cv.height = LH;
+  ctx.imageSmoothingEnabled = false;
+
+  // ---------- state / persistence ----------
+  const SAVE = 'delve.save.v1';
+  let s = load() || fresh();
+  function fresh() { return D.newGame((Math.random() * 2 ** 31) >>> 0); }
+  function load() {
+    try {
+      const o = JSON.parse(localStorage.getItem(SAVE));
+      if (!o || !o.seed) return null;
+      const base = D.newGame(o.seed);                 // fill any fields added since the save was written
+      return { ...base, ...o, up: { ...base.up, ...o.up }, tech: { ...base.tech, ...o.tech } };
+    } catch (e) { return null; }
+  }
+  function save() { try { localStorage.setItem(SAVE, JSON.stringify(s)); } catch (e) {} }
+  setInterval(save, 2500);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+
+  // display position (lerped) & camera
+  let dispC = s.c, dispR = s.r, camY = 0;
+
+  // ---------- audio (synth) ----------
+  let AC = null, muted = false, master = null;
+  function audio() {
+    if (AC) return AC;
+    try { AC = new (window.AudioContext || window.webkitAudioContext)();
+      master = AC.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(AC.destination);
+    } catch (e) {}
+    return AC;
+  }
+  function env(node, g, a, d) { const t = AC.currentTime; node.gain.setValueAtTime(0, t);
+    node.gain.linearRampToValueAtTime(g, t + a); node.gain.exponentialRampToValueAtTime(0.0001, t + a + d); }
+  function tone(freq, a, d, type, g) {
+    if (!audio() || muted) return; const o = AC.createOscillator(), gn = AC.createGain();
+    o.type = type || 'square'; o.frequency.value = freq; o.connect(gn); gn.connect(master);
+    env(gn, g == null ? 0.3 : g, a, d); o.start(); o.stop(AC.currentTime + a + d + 0.02);
+  }
+  function noise(dur, cut, g) {
+    if (!audio() || muted) return; const n = AC.createBufferSource();
+    const buf = AC.createBuffer(1, AC.sampleRate * dur, AC.sampleRate); const dat = buf.getChannelData(0);
+    for (let i = 0; i < dat.length; i++) dat[i] = Math.random() * 2 - 1; n.buffer = buf;
+    const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cut; const gn = AC.createGain();
+    n.connect(f); f.connect(gn); gn.connect(master); env(gn, g == null ? 0.4 : g, 0.002, dur); n.start();
+  }
+  const sfx = {
+    dig(depth) { noise(0.06, 800 - Math.min(600, depth * 2), 0.18); },
+    chip() { noise(0.04, 1200, 0.12); },
+    break(rar) { noise(0.12, 500 + rar * 120, 0.4); },
+    ore(rar) { const base = 520 + rar * 90; tone(base, 0.005, 0.14, 'triangle', 0.28);
+      setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); },
+    sell(n) { const notes = [523, 659, 784, 1047]; for (let i = 0; i < Math.min(4, 1 + Math.floor(n / 40)); i++)
+      setTimeout(() => tone(notes[i], 0.005, 0.22, 'triangle', 0.3), i * 70); },
+    buy() { tone(440, 0.005, 0.09, 'square', 0.25); setTimeout(() => tone(660, 0.005, 0.12, 'square', 0.22), 70); },
+  };
+
+  // ---------- juice ----------
+  let particles = [], floaties = [], shake = 0;
+  function chips(cx, cy, n, col, spd) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = (0.4 + Math.random()) * (spd || 40);
+      particles.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20,
+        life: 0.4 + Math.random() * 0.4, t: 0, col, sz: Math.random() < 0.5 ? u : u * 1.5 });
+    }
+  }
+  function floaty(x, y, text, col, big) { floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big }); }
+
+  // ---------- color / world helpers ----------
+  const ROCK_STOPS = [ [1,[107,74,47]], [10,[74,74,82]], [45,[52,52,70]], [110,[36,36,54]], [210,[28,28,42]], [320,[20,20,32]] ];
+  function rockColor(r) {
+    let a = ROCK_STOPS[0], b = ROCK_STOPS[ROCK_STOPS.length - 1];
+    for (let i = 0; i < ROCK_STOPS.length - 1; i++) if (r >= ROCK_STOPS[i][0] && r <= ROCK_STOPS[i + 1][0]) { a = ROCK_STOPS[i]; b = ROCK_STOPS[i + 1]; break; }
+    if (r <= ROCK_STOPS[0][0]) return ROCK_STOPS[0][1];
+    if (r >= b[0]) b = a = ROCK_STOPS[ROCK_STOPS.length - 1];
+    const f = a[0] === b[0] ? 0 : (r - a[0]) / (b[0] - a[0]);
+    return [0,1,2].map(i => Math.round(a[1][i] + (b[1][i] - a[1][i]) * f));
+  }
+  const rgb = (a) => `rgb(${a[0]},${a[1]},${a[2]})`;
+  const shade = (a, m) => `rgb(${Math.round(a[0]*m)},${Math.round(a[1]*m)},${Math.round(a[2]*m)})`;
+
+  const isOpen = (c, r) => (r <= D.SURFACE) || (c >= 0 && c < W && D.isDug(s, c, r));
+
+  // ---------- rendering ----------
+  // Rock is drawn as a cohesive MASS: flat depth-tinted fill, gentle mottling,
+  // and shadow only on faces exposed to open tunnels — no per-tile bevel grid.
+  function drawTile(c, r, sx, sy) {
+    if (r <= D.SURFACE) { drawSurface(c, r, sx, sy); return; }
+    if (D.isDug(s, c, r)) return;                 // dug: leave the void background
+    const info = D.tileInfo(s.seed, c, r);
+    const base = rockColor(r);
+    ctx.fillStyle = rgb(base); ctx.fillRect(sx, sy, TILE, TILE);
+    // low-contrast mottling (two soft patches) so the mass isn't a flat plane
+    ctx.fillStyle = shade(base, 0.9);
+    ctx.fillRect(sx + (Math.floor(D.tileRand(s.seed, c, r) * 6) + 1) * u, sy + (Math.floor(D.tileRand(s.seed, c + 31, r) * 4) + 1) * u, u * 2, u * 2);
+    ctx.fillStyle = shade(base, 1.08);
+    ctx.fillRect(sx + (Math.floor(D.tileRand(s.seed, c + 91, r) * 6) + 1) * u, sy + (Math.floor(D.tileRand(s.seed, c, r + 71) * 5) + 2) * u, u, u);
+    // shadow lip on faces touching open space (defines tunnel walls, not tiles)
+    edgeShade(sx, sy, isOpen(c, r - 1), isOpen(c, r + 1), isOpen(c - 1, r), isOpen(c + 1, r));
+    if (info.ore) drawOre(info.ore, sx, sy, 'in');
+    const dmg = s.dmg[D.key(c, r)] || 0;
+    if (dmg > 0) drawCracks(sx, sy, dmg / info.maxHp);
+  }
+
+  function edgeShade(sx, sy, up, dn, lf, rt) {
+    const steps = [[0, 0.34], [1, 0.18], [2, 0.08]];
+    for (const [i, a] of steps) { ctx.fillStyle = `rgba(0,0,0,${a})`;
+      if (up) ctx.fillRect(sx, sy + i * u, TILE, u);
+      if (dn) ctx.fillRect(sx, sy + TILE - (i + 1) * u, TILE, u);
+      if (lf) ctx.fillRect(sx + i * u, sy, u, TILE);
+      if (rt) ctx.fillRect(sx + TILE - (i + 1) * u, sy, u, TILE);
+    }
+  }
+
+  // A small faceted gem centered in the tile. mode: 'in' (embedded in lit rock),
+  // 'glow' (scanner hint through dark rock).
+  function drawOre(id, sx, sy, mode) {
+    const col = D.ORE_BY_ID[id].color;
+    const cx = sx + TILE / 2, cy = sy + TILE / 2;
+    if (mode === 'glow') { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.5;
+      const rg = ctx.createRadialGradient(cx, cy, 0, cx, cy, TILE * 0.45);
+      rg.addColorStop(0, col); rg.addColorStop(1, 'transparent'); ctx.fillStyle = rg;
+      ctx.fillRect(sx, sy, TILE, TILE); ctx.restore(); }
+    ctx.fillStyle = col;
+    ctx.fillRect(cx - u, cy - u * 2, u * 2, u);       // top
+    ctx.fillRect(cx - u * 2, cy - u, u * 4, u * 2);   // middle
+    ctx.fillRect(cx - u, cy + u, u * 2, u);           // bottom
+    ctx.fillStyle = shade(hexRgb(col), 0.6); ctx.fillRect(cx, cy, u, u);      // facet shadow
+    ctx.fillStyle = '#ffffffdd'; ctx.fillRect(cx - u, cy - u, u, u);          // highlight
+  }
+  function hexRgb(h) { return [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); }
+
+  function drawCracks(sx, sy, f) {
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; const n = Math.min(6, Math.floor(f * 7));
+    const pts = [[4,4],[7,5],[3,8],[8,8],[5,3],[4,7]];
+    for (let i = 0; i < n; i++) ctx.fillRect(sx + pts[i][0] * u, sy + pts[i][1] * u, u, u);
+  }
+
+  let cloudSeed = [];
+  for (let i = 0; i < 8; i++) cloudSeed.push({ x: Math.random() * LW, y: Math.random() * TILE * 1.4, r: 1 + Math.random() * 2 });
+  const motes = [];
+  for (let i = 0; i < 10; i++) motes.push({ x: Math.random(), y: Math.random(), s: 0.3 + Math.random() });
+  function drawSurface(c, r, sx, sy) {
+    const g = ctx.createLinearGradient(0, sy, 0, sy + TILE);
+    g.addColorStop(0, '#2a4368'); g.addColorStop(1, '#5578a6');
+    ctx.fillStyle = g; ctx.fillRect(sx, sy, TILE, TILE);
+    if (r === D.SURFACE) {                            // soil + grass cap
+      ctx.fillStyle = '#6b4a2f'; ctx.fillRect(sx, sy + TILE - u * 4, TILE, u * 4);
+      ctx.fillStyle = '#5a8f4a'; ctx.fillRect(sx, sy + TILE - u * 4, TILE, u * 1.5);
+    }
+  }
+
+  function drawMiner(x, y, facing, t) {
+    const ox = x + (TILE - 8 * u) / 2, oy = y + (TILE - 8 * u);
+    const bob = Math.sin(t * 8) * (moving ? u * 0.5 : u * 0.2);
+    const P = (col, cx, cy, wd, ht) => { ctx.fillStyle = col; ctx.fillRect(ox + cx * u, oy + cy * u + bob, (wd||1) * u, (ht||1) * u); };
+    const H = '#f2a03b', F = '#e8b58c', B = '#3b6ea5', DB = '#2c568a';
+    const lampX = facing === 'left' ? 0 : facing === 'right' ? 6 : 3;
+    P(H, 2, 1, 4, 1); P(H, 1, 2, 6, 1);
+    P('#fff6c0', lampX, 1, 2, 1);
+    P(F, 2, 2, 4, 2); P(shade([232,181,140], 0.85), 2, 3, 4, 1);
+    P(B, 1, 4, 6, 2); P(DB, 1, 5, 6, 1);
+    P(B, 1, 6, 2, 2); P(B, 5, 6, 2, 2);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const gx = ox + (lampX + 1) * u, gy = oy + 1.5 * u + bob, pr = (0.72 + Math.sin(t * 3) * 0.1);
+    const rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, TILE * 3 * pr);
+    rg.addColorStop(0, 'rgba(255,238,180,0.5)'); rg.addColorStop(0.5, 'rgba(255,210,140,0.14)'); rg.addColorStop(1, 'rgba(255,210,140,0)');
+    ctx.fillStyle = rg; ctx.fillRect(gx - TILE * 3.5, gy - TILE * 3.5, TILE * 7, TILE * 7); ctx.restore();
+  }
+
+  function render(t) {
+    ctx.clearRect(0, 0, LW, LH);
+    const targetCam = dispR * TILE - LH / 2 + TILE / 2;
+    camY += (targetCam - camY) * 0.16;
+    if (camY < -LH * 0.45) camY = -LH * 0.45;
+    const shx = (Math.random() * 2 - 1) * shake, shy = (Math.random() * 2 - 1) * shake;
+
+    // background: sky above y=0, deep void below (void darkens with depth)
+    const skyH = Math.max(0, -camY);
+    if (skyH > 0) { const g = ctx.createLinearGradient(0, 0, 0, skyH);
+      g.addColorStop(0, '#1a2740'); g.addColorStop(1, '#5578a6'); ctx.fillStyle = g; ctx.fillRect(0, 0, LW, skyH); }
+    const voidShade = Math.max(6, 16 - dispR * 0.03);
+    ctx.fillStyle = `rgb(${voidShade|0},${voidShade|0},${(voidShade+4)|0})`;
+    ctx.fillRect(0, Math.max(0, skyH), LW, LH);
+
+    if (skyH > 4) { ctx.save(); ctx.translate(shx, shy);
+      ctx.fillStyle = '#f5d98c'; ctx.beginPath(); ctx.arc(LW - 30, 18, 11, 0, 7); ctx.fill();
+      ctx.fillStyle = '#ffffff1c'; for (const cl of cloudSeed) { const cx = (cl.x + t * 4) % (LW + 40) - 20;
+        ctx.fillRect(cx, cl.y % Math.max(4, skyH), cl.r * 9, cl.r * 3); } ctx.restore(); }
+
+    ctx.save(); ctx.translate(shx, shy - camY);
+
+    const rTop = Math.floor(camY / TILE) - 1, rBot = rTop + VIEW_ROWS + 2;
+    const st = D.stats(s);
+    for (let r = rTop; r <= rBot; r++) {
+      for (let c = 0; c < W; c++) {
+        const sx = c * TILE, sy = r * TILE;
+        drawTile(c, r, sx, sy);
+        // smooth-ish lighting: darken by distance from the lamp
+        let light = 1;
+        if (r > D.SURFACE) {
+          const dist = Math.hypot(c - dispC, r - dispR);
+          light = Math.max(0.1, 1 - Math.max(0, dist - 1) / (st.vision + 0.5));
+          light = Math.round(light * 7) / 7;
+        }
+        if (light < 1) { ctx.fillStyle = `rgba(5,6,14,${(1 - light) * 0.95})`; ctx.fillRect(sx, sy, TILE, TILE); }
+        if (s.tech.scanner && r > D.SURFACE && !D.isDug(s, c, r) && light < 0.7) {
+          const info = D.tileInfo(s.seed, c, r);
+          if (info.ore) drawOre(info.ore, sx, sy, 'glow');
+        }
+      }
+    }
+    // drifting dust motes in the lit area (idle life)
+    ctx.fillStyle = '#fff';
+    for (const m of motes) {
+      const mx = (dispC + (m.x - 0.5) * st.vision * 1.6) * TILE + TILE / 2;
+      const my = (dispR + ((m.y + t * 0.03 * m.s) % 1 - 0.5) * st.vision * 1.4) * TILE + TILE / 2;
+      ctx.globalAlpha = 0.12 * m.s * (dispR > 0 ? 1 : 0);
+      ctx.fillRect(Math.round(mx + Math.sin(t + m.x * 9) * u), Math.round(my), u, u);
+    }
+    ctx.globalAlpha = 1;
+    for (const p of particles) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
+      ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x), Math.round(p.y), p.sz, p.sz); }
+    ctx.globalAlpha = 1;
+    drawMiner(dispC * TILE, dispR * TILE, s.facing, t);
+    ctx.textAlign = 'center';
+    for (const f of floaties) { const a = Math.max(0, 1 - f.t / f.life);
+      ctx.globalAlpha = a; ctx.font = `700 ${f.big ? 13 : 10}px ui-monospace,monospace`;
+      ctx.fillStyle = '#000'; ctx.fillText(f.text, f.x + 1, f.y + 1);
+      ctx.fillStyle = f.col; ctx.fillText(f.text, f.x, f.y); }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // vignette for depth/atmosphere (screen space)
+    const vg = ctx.createRadialGradient(LW / 2, LH / 2, LH * 0.3, LW / 2, LH / 2, LH * 0.72);
+    vg.addColorStop(0, 'transparent'); vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, LW, LH);
+  }
+
+  // ---------- input ----------
+  const held = {};                 // dir -> true
+  let moving = false;
+  const KEYMAP = { ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
+    ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
+  addEventListener('keydown', e => {
+    if (overlay.classList.contains('on')) return;
+    const d = KEYMAP[e.code]; if (!d) return; e.preventDefault(); held[d] = true; audio();
+  });
+  addEventListener('keyup', e => { const d = KEYMAP[e.code]; if (d) held[d] = false; });
+
+  // pointer-hold-to-dig-toward-pointer (works for mouse AND touch = big target)
+  let pointerDir = null;
+  function pointerToDir(clientX, clientY) {
+    const rect = cv.getBoundingClientRect();
+    const lx = (clientX - rect.left) / rect.width * LW;
+    const ly = (clientY - rect.top) / rect.height * LH;
+    const mx = dispC * TILE + TILE / 2, my = dispR * TILE - camY + TILE / 2;
+    const dx = lx - mx, dy = ly - my;
+    if (Math.abs(dx) < u && Math.abs(dy) < u) return null;
+    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  }
+  function setPointer(e) { const t = e.touches ? e.touches[0] : e; if (!t) return;
+    pointerDir = pointerToDir(t.clientX, t.clientY); }
+  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return;
+    e.preventDefault(); audio(); setPointer(e); });
+  cv.addEventListener('pointermove', e => { if (pointerDir !== null || e.pressure > 0) if (e.buttons) setPointer(e); });
+  addEventListener('pointerup', () => { pointerDir = null; });
+  addEventListener('pointercancel', () => { pointerDir = null; });
+
+  function currentDir() {
+    if (held.up) return 'up'; if (held.down) return 'down';
+    if (held.left) return 'left'; if (held.right) return 'right';
+    return pointerDir;
+  }
+
+  // ---------- game loop ----------
+  let last = 0, acc = 0;
+
+  function step() {
+    const dir = currentDir();
+    if (!dir) { moving = false; return; }
+    const ev = D.attemptStep(s, dir);
+    const cx = ev.c != null ? ev.c * TILE + TILE / 2 : 0, cy = ev.c != null ? ev.r * TILE + TILE / 2 : 0;
+    if (ev.type === 'move') { moving = true; }
+    else if (ev.type === 'dig') {
+      if (!ev.broke) { sfx.chip(); chips(cx, cy, 2, '#8a7a66', 25); shake = Math.min(3, shake + 0.5); }
+      else {
+        const rar = ev.ore ? D.rarityOf(ev.ore) : 0;
+        sfx.dig(ev.r); sfx.break(rar);
+        chips(cx, cy, 5 + rar, ev.ore ? D.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
+        shake = Math.min(7, shake + 1.2 + rar * 0.5 + (ev.rich ? 2 : 0));
+        if (ev.ore) {                                  // ore sells instantly, in place
+          sfx.ore(rar + (ev.rich ? 2 : 0)); if (ev.rich) sfx.sell(ev.coin);
+          const col = ev.rich ? '#f2c14e' : D.ORE_BY_ID[ev.ore].color;
+          floaty(cx, cy - 4, '+' + ev.coin + (ev.rich ? '!' : ''), col, rar >= 4 || ev.rich);
+          for (let i = 0; i < 4 + rar + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
+        }
+      }
+    }
+  }
+
+  function frame(now) {
+    if (!last) last = now; let dt = (now - last) / 1000; last = now; if (dt > 0.1) dt = 0.1;
+    const t = now / 1000;
+    // step cadence gated by agility
+    acc += dt * 1000;
+    const interval = D.stats(s).interval;
+    let guard = 0;
+    while (acc >= interval && guard++ < 4) { acc -= interval; if (overlay.classList.contains('on')) { acc = 0; break; } step(); }
+
+    // lerp display position toward logical grid pos
+    const rate = Math.min(1, dt * 16);
+    dispC += (s.c - dispC) * rate; dispR += (s.r - dispR) * rate;
+
+    // update particles / floaties / shake
+    for (const p of particles) { p.t += dt; p.vy += 120 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
+    particles = particles.filter(p => p.t < p.life);
+    for (const f of floaties) { f.t += dt; f.y -= (f.big ? 22 : 16) * dt; }
+    floaties = floaties.filter(f => f.t < f.life);
+    shake *= Math.pow(0.001, dt);
+    if (shake < 0.05) shake = 0;
+
+    render(t);
+    updateHUD();
+    requestAnimationFrame(frame);
+  }
+
+  // ---------- HUD / shop ----------
+  const el = (id) => document.getElementById(id);
+  const overlay = el('overlay');
+  function updateHUD() {
+    el('depth').textContent = s.depth;
+    el('coins').textContent = Math.floor(s.coins).toLocaleString();
+    const found = el('found'), ore = D.ORES[s.best];
+    found.textContent = ore ? ore.name : '—';
+    found.style.color = ore && s.best > 0 ? ore.color : 'var(--dim)';
+  }
+
+  function buildShop() {
+    const uc = el('upgrades'); uc.innerHTML = '';
+    for (const k in D.UPGRADES) {
+      const uu = D.UPGRADES[k];
+      const row = document.createElement('div'); row.className = 'row';
+      row.innerHTML = `<div class="info"><div class="nm">${uu.name} <span class="lv">Lv ${s.up[k]}${s.up[k]>=uu.max?' MAX':''}</span></div>
+        <div class="ds">${uu.desc}</div></div><button data-up="${k}"></button>`;
+      uc.appendChild(row);
+    }
+    const tc = el('tech'); tc.innerHTML = '';
+    for (const k in D.TECH) {
+      const tt = D.TECH[k];
+      const row = document.createElement('div'); row.className = 'row';
+      row.innerHTML = `<div class="info"><div class="nm">${tt.name}</div><div class="ds">${tt.desc}</div></div>
+        <button data-tech="${k}"></button>`;
+      tc.appendChild(row);
+    }
+    uc.addEventListener('click', e => { const k = e.target.dataset.up; if (!k) return;
+      if (D.buyUpgrade(s, k)) { sfx.buy(); save(); } refreshShop(); });
+    tc.addEventListener('click', e => { const k = e.target.dataset.tech; if (!k) return;
+      if (D.buyTech(s, k)) { sfx.buy(); save(); } refreshShop(); });
+  }
+  function refreshShop() {
+    el('shopCoins').textContent = Math.floor(s.coins).toLocaleString();
+    for (const b of el('upgrades').querySelectorAll('button')) {
+      const k = b.dataset.up, uu = D.UPGRADES[k];
+      b.querySelector; b.closest('.row').querySelector('.lv').textContent = 'Lv ' + s.up[k] + (s.up[k] >= uu.max ? ' MAX' : '');
+      if (s.up[k] >= uu.max) { b.textContent = 'MAX'; b.disabled = true; }
+      else { const c = D.upgradeCost(k, s.up[k]); b.textContent = c.toLocaleString() + ' ◈'; b.disabled = s.coins < c; }
+    }
+    for (const b of el('tech').querySelectorAll('button')) {
+      const k = b.dataset.tech, tt = D.TECH[k];
+      if (s.tech[k]) { b.textContent = 'OWNED'; b.disabled = true; }
+      else { b.textContent = tt.cost.toLocaleString() + ' ◈'; b.disabled = s.coins < tt.cost; }
+    }
+  }
+  function openShop() { audio(); for (const d in held) held[d] = false; pointerDir = null;
+    refreshShop(); overlay.classList.add('on'); }
+  function closeShop() { overlay.classList.remove('on'); }
+  el('shopBtn').onclick = openShop; el('closeBtn').onclick = closeShop;
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeShop(); });
+
+  el('muteBtn').onclick = function () { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.5;
+    this.textContent = muted ? '♪̸' : '♪'; this.style.opacity = muted ? .5 : 1; };
+  el('newBtn').onclick = function () {
+    if (!confirm('Start a new mine? Your current progress is lost.')) return;
+    s = fresh(); dispC = s.c; dispR = s.r; camY = 0; save(); refreshShop();
+  };
+
+  // block scroll/zoom gestures on the game
+  addEventListener('wheel', e => { if (!overlay.classList.contains('on')) e.preventDefault(); }, { passive: false });
+  document.addEventListener('gesturestart', e => e.preventDefault());
+
+  // ---------- responsive sizing ----------
+  function fit() {
+    const stage = document.querySelector('.stage');
+    const availW = stage.clientWidth, availH = stage.clientHeight;
+    const scale = Math.max(1, Math.min(availW / LW, availH / LH));
+    cv.style.width = Math.floor(LW * scale) + 'px';
+    cv.style.height = Math.floor(LH * scale) + 'px';
+  }
+  addEventListener('resize', fit);
+
+  // ---------- boot ----------
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  el('hint').textContent = coarse
+    ? 'Drag toward a wall to dig · fill your cargo, return to the surface to sell'
+    : 'Move & dig: WASD / arrows or hold the mouse · sell at the surface · ⛏ to spend coins';
+  buildShop(); fit(); updateHUD();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

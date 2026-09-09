@@ -1,0 +1,9 @@
+{
+  "name": "delve",
+  "version": "1.0.0",
+  "description": "A pixel-art incremental mining game — dig deeper, get richer.",
+  "private": true,
+  "scripts": {
+    "verify": "node verify.js"
+  }
+}
