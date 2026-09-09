@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>DRIFT — an ice puzzle</title>
+<style>
+  :root {
+    --bg:#0b0e13; --panel:#141922; --ink:#e8eef5; --dim:#7c8899;
+    --ice:#1f3a52; --ice2:#274a68; --sand:#6f6145; --sand2:#8a784f;
+    --wall:#0e1219; --target:#f2c14e; --block:#35c2b0; --done:#77dd8f; --you:#f5f7fa;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body {
+    background:radial-gradient(1200px 800px at 50% -10%, #131a24, var(--bg));
+    color:var(--ink); font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100%; gap:14px; padding:18px; -webkit-user-select:none; user-select:none;
+  }
+  h1 { font-size:15px; letter-spacing:.42em; font-weight:600; margin:0; color:var(--dim); }
+  h1 b { color:var(--ink); }
+  .hud { display:flex; gap:20px; align-items:baseline; font-variant-numeric:tabular-nums; flex-wrap:wrap; justify-content:center; }
+  .hud .lv { font-weight:600; }
+  .hud .stat { color:var(--dim); font-size:13px; }
+  .hud .stat b { color:var(--ink); font-weight:600; }
+  .dots { display:flex; gap:7px; }
+  .dot { width:15px; height:15px; border-radius:50%; border:2px solid #ffffff26; background:transparent; padding:0; cursor:pointer; transition:.15s; position:relative; }
+  .dot.solved { background:var(--done); border-color:var(--done); }
+  .dot.current { border-color:var(--you); box-shadow:0 0 0 3px #f5f7fa22; transform:scale(1.15); }
+  .dot.locked { border-color:#ffffff18; cursor:not-allowed; }
+  .dot.locked::after { content:''; position:absolute; inset:3px; border-radius:50%; background:#ffffff10; }
+  .stage { position:relative; margin:22px 0; }
+  canvas { border-radius:14px; box-shadow:0 24px 60px -20px #000, inset 0 0 0 1px #ffffff10; display:block; touch-action:none; max-width:92vw; height:auto; }
+  .over {
+    position:absolute; inset:0; display:none; flex-direction:column; gap:6px;
+    align-items:center; justify-content:center; border-radius:14px;
+    background:linear-gradient(#0b0e13cc,#0b0e13ee); backdrop-filter:blur(2px); text-align:center;
+  }
+  .over.show { display:flex; animation:fade .3s; }
+  @keyframes fade { from { opacity:0; } }
+  .over .big { font-size:22px; font-weight:700; letter-spacing:.02em; }
+  .over .sub { color:var(--dim); }
+  .over .go { margin-top:10px; color:var(--target); font-weight:600; letter-spacing:.14em; font-size:13px; animation:pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity:.4; } }
+  .legend { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; color:var(--dim); font-size:12.5px; }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .swatch { width:15px; height:15px; border-radius:4px; display:inline-block; }
+  .sw-you { border-radius:50%; background:var(--you); box-shadow:0 0 0 2px #f5f7fa33; }
+  .sw-block { background:var(--block); }
+  .sw-goal { border-radius:50%; border:2.5px solid var(--target); width:15px; height:15px; }
+  .sw-sand { background:var(--sand2); }
+  .sw-pit { background:radial-gradient(#000, #152130); box-shadow:inset 0 0 0 1.5px rgba(226,118,92,.6); }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }
+  button.btn {
+    background:var(--panel); color:var(--ink); border:1px solid #ffffff14; border-radius:9px;
+    padding:8px 12px; font:inherit; font-size:13px; cursor:pointer; transition:.12s; touch-action:manipulation;
+  }
+  @media (max-width:520px) {
+    body { gap:10px; padding:10px; }
+    .stage { margin:14px 0; }
+    h1 { letter-spacing:.3em; }
+    .hud { gap:14px; }
+    .legend { gap:12px; font-size:12px; }
+    button.btn { padding:10px 13px; }   /* bigger tap targets */
+  }
+  button.btn:hover { border-color:#ffffff33; transform:translateY(-1px); }
+  button.btn:active { transform:translateY(0); }
+  button.btn kbd { color:var(--dim); font-size:11px; margin-left:6px; }
+  @media (pointer: coarse) { button.btn kbd { display:none; } }   /* touch devices don't have keys */
+  .toast { height:18px; color:var(--target); font-size:12.5px; font-weight:600; opacity:0; transition:opacity .2s; text-align:center; }
+  .toast.show { opacity:1; }
+  .tip { color:var(--dim); font-size:12.5px; text-align:center; max-width:440px; line-height:1.5; }
+  .mute { position:absolute; top:10px; right:12px; background:none; border:none; color:var(--dim); cursor:pointer; font-size:16px; }
+</style>
+</head>
+<body>
+  <h1><b>D</b>RIFT</h1>
+  <div class="hud">
+    <span class="lv" id="lvname">—</span>
+    <span class="stat">moves <b id="moves">0</b></span>
+    <span class="stat">par <b id="par">0</b></span>
+    <span class="stat">best <b id="best">–</b></span>
+  </div>
+  <div class="dots" id="dots"></div>
+
+  <div class="stage">
+    <canvas id="c" width="400" height="400"></canvas>
+    <button class="mute" id="muteBtn" title="mute" onclick="toggleMute()">♪</button>
+    <div class="over" id="over">
+      <div class="big" id="overbig">Solved</div>
+      <div class="sub" id="oversub"></div>
+      <div class="go" id="overgo">PRESS N FOR NEXT →</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch sw-you"></i> You</span>
+    <span><i class="swatch sw-block"></i> Block</span>
+    <span><i class="swatch sw-goal"></i> Goal</span>
+    <span><i class="swatch sw-sand"></i> Sand (stops slides)</span>
+    <span><i class="swatch sw-pit"></i> Pit (fatal — fill with a block)</span>
+  </div>
+
+  <div class="bar">
+    <button class="btn" onclick="game.undo()">Undo<kbd>Z</kbd></button>
+    <button class="btn" onclick="game.restart()">Restart<kbd>R</kbd></button>
+    <button class="btn" onclick="game.hint()">Hint<kbd>H</kbd></button>
+    <button class="btn" onclick="game.go(-1)">Prev<kbd>[</kbd></button>
+    <button class="btn" onclick="game.go(1)">Next<kbd>]</kbd></button>
+  </div>
+  <div class="tip" id="tip"></div>
+  <div class="toast" id="toast"></div>
+
+<script src="engine.js"></script>
+<script src="levels.js"></script>
+<script>
+const { LEVELS } = LEVELDATA;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const KEY = {
+  ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right',
+  w:'up', s:'down', a:'left', d:'right', W:'up', S:'down', A:'left', D:'right',
+};
+const TOUCH = window.matchMedia('(pointer: coarse)').matches; // phone/tablet → swipe + tap hints
+const CELL_MS = 40;   // slide speed: ms per cell traveled
+const POP = 140;      // squash duration on impact
+const MIN_MOVE_MS = 200; // minimum time a move locks input, so taps stay discrete
+const SHAKE_MS = 240;    // wall-bump screen-shake duration
+const TRAIL_FADE = 240;  // how long a trail lingers and fades after the slide lands
+const WIN_OVERLAY_MS = 1000; // delay the win overlay so the fireworks are seen first
+const DEATH_FALL_MS = 320;   // how long the fall-into-a-pit animation takes
+const DEATH_HOLD_MS = 520;   // pause after the fall before the level retries
+const FILL_MS = 260;         // block's fall-into-pit (becoming floor) animation
+const FILL_HOLD = 380;       // player pauses this long while the block drops in — gives the fill weight
+const store = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const best = store('drift-best') || {};
+let unlocked = store('drift-unlocked') || 0;      // highest level index the player may enter
+let muted = store('drift-muted') || false;
+
+/* ---------------- audio (synthesized, no assets) ---------------- */
+let AC = null;
+function actx() { if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended') AC.resume(); return AC; }
+function tone(freq, dur, type, gain, slideTo) {
+  if (muted) return; const ac = actx(), o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = freq;
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, ac.currentTime + dur);
+  g.gain.value = gain; g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + dur);
+}
+function sfxWhoosh() {
+  if (muted) return; const ac = actx(), dur = 0.16;
+  const buf = ac.createBuffer(1, ac.sampleRate * dur, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const s = ac.createBufferSource(); s.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1100;
+  f.frequency.exponentialRampToValueAtTime(380, ac.currentTime + dur);
+  const g = ac.createGain(); g.gain.value = 0.05;
+  s.connect(f).connect(g).connect(ac.destination); s.start();
+}
+const sfxClack = () => tone(190, 0.06, 'square', 0.045, 130);
+const sfxSeat  = () => { tone(680, 0.10, 'sine', 0.09, 1000); setTimeout(() => tone(1020, 0.14, 'sine', 0.06), 55); };
+const sfxWin   = () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.24, 'triangle', 0.08), i * 95));
+const sfxBonk  = () => tone(90, 0.09, 'square', 0.04);
+function sfxThump() {   // a block lands in a pit: low body + a filtered-noise impact
+  if (muted) return; const ac = actx();
+  tone(150, 0.2, 'sine', 0.13, 52);
+  const dur = 0.13, buf = ac.createBuffer(1, ac.sampleRate * dur, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  const s = ac.createBufferSource(); s.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 520;
+  const g = ac.createGain(); g.gain.value = 0.15; g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  s.connect(f).connect(g).connect(ac.destination); s.start();
+}
+const sfxFail  = () => { tone(330, 0.14, 'sawtooth', 0.07, 130); setTimeout(() => tone(140, 0.34, 'sawtooth', 0.07, 60), 90); }; // player falls
+function toggleMute() { muted = !muted; localStorage.setItem('drift-muted', JSON.stringify(muted)); $('muteBtn').textContent = muted ? '🔇' : '♪'; }
+// haptics (mobile) — shares the mute toggle as an all-feedback off switch
+function haptic(pattern) { if (!muted && navigator.vibrate) { try { navigator.vibrate(pattern); } catch (e) {} } }
+
+/* ---------------- game ---------------- */
+const game = {
+  i: 0, level: null, state: null, stack: [], moves: 0, won: false,
+  anim: null, buffered: null, hintDir: null, hintT: -1e9, winT: -1e9, TS: 56,
+  parts: [], trails: [], shake: null, lastNow: 0, epoch: 0, dying: false, deathFlash: -1e9,
+
+  load(i) {
+    i = Math.max(0, Math.min(i, LEVELS.length - 1));
+    this.i = i;
+    const def = LEVELS[i];
+    this.level = Engine.parse(def.map);
+    this.state = { player: this.level.player.slice(), blocks: this.level.blocks.map(b => b.slice()), filled: [] };
+    this.stack = []; this.moves = 0; this.won = false; this.anim = null; this.buffered = null; this.hintDir = null;
+    this.parts = []; this.trails = []; this.shake = null; this.dying = false; this.epoch++; // invalidate any pending scheduled effects
+    cv.width = this.level.w * this.TS; cv.height = this.level.h * this.TS;
+    $('lvname').textContent = def.name;
+    $('moves').textContent = 0;
+    $('par').textContent = def.par;
+    $('best').textContent = best[i] != null ? best[i] : '–';
+    $('over').classList.remove('show');
+    renderDots();
+  },
+
+  coveredTargets(state) { return this.level.targets.filter(t => Engine.blockAt(state.blocks, t[0], t[1]) >= 0); },
+  isTarget(pos) { return this.level.targets.some(t => t[0] === pos[0] && t[1] === pos[1]); },
+  isFilled(r, c) { return Engine.cellIn(this.state.filled, r, c); },
+  isFilling(r, c, now) { // a block is still dropping into this pit → keep it looking open
+    const a = this.anim; if (!a) return false;
+    const el = now - a.t0;
+    return a.blocks.some(s => s.consumed && s.to[0] === r && s.to[1] === c && el < s.startT + s.dur + FILL_MS);
+  },
+  segPos(seg, el) {   // position of a segment at elapsed `el` (respects its startT delay + dur)
+    if (seg.dur === 0) return seg.from;
+    const p = Math.min(1, Math.max(0, (el - seg.startT) / seg.dur));
+    return [seg.from[0] + (seg.to[0] - seg.from[0]) * p, seg.from[1] + (seg.to[1] - seg.from[1]) * p];
+  },
+  segPop(seg, el) { if (seg.dur === 0) return 0; const dt = el - (seg.startT + seg.dur); return (dt < 0 || dt > POP) ? 0 : Math.sin(dt / POP * Math.PI); },
+  // player elapsed with the fill-hold inserted: the player freezes while a block drops in
+  playerElapsed(now) { const el = now - this.anim.t0, h = this.anim.hold; if (h < 0 || el <= h) return el; return el <= h + FILL_HOLD ? h : el - FILL_HOLD; },
+  playerPos(now) { return this.anim ? this.segPos(this.anim.player, this.playerElapsed(now)) : this.state.player; },
+
+  // "In motion" until the slide has travelled AND fully settled — input is
+  // dead this whole time, so one keypress = exactly one slide, no chaining.
+  moving() { return this.anim && performance.now() < this.anim.restAt; },
+
+  // Fire a queued input the moment the piece is free to move again.
+  flushBuffer() {
+    if (this.buffered && !this.won && !this.dying && !this.moving()) { const d = this.buffered; this.buffered = null; this.move(d); }
+  },
+
+  move(dir) {
+    if (this.won || this.dying) return;
+    if (this.moving()) { this.buffered = dir; return; } // locked mid-slide → queue the next input any time
+                                                        // (latest wins); it fires only once fully stopped, so
+                                                        // no diagonal — you just can't chain mid-slide.
+    const before = this.state;
+    const ns = Engine.move(this.level, before, dir);
+    if (!ns) { sfxBonk(); this.bump(dir); haptic(18); return; } // hit a wall — bonk + shake + buzz
+    this.stack.push(before);
+    const coveredBefore = this.coveredTargets(before);
+    this.state = { player: ns.player, blocks: ns.blocks, filled: ns.filled };
+    this.hintDir = null;
+    this.startAnim(before, ns, dir, coveredBefore);
+    if (ns.dead) { this.die(); return; }            // slid into a pit — fatal
+    this.moves++; $('moves').textContent = this.moves;
+    if (Engine.isWin(this.level, ns)) this.win();
+  },
+
+  // Build a visual slide from before→after. Motion is colinear, so a linear
+  // tween per piece at constant speed reproduces the slide exactly. Blocks keep
+  // identity via `before` positions + the engine's move events (so a block that
+  // falls into a pit animates falling rather than vanishing).
+  startAnim(before, ns, dir, coveredBefore) {
+    const man = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+    const events = ns.events || [];
+    const pFrom = before.player, pTo = ns.player;
+    const player = { from: pFrom.slice(), to: pTo.slice(), dist: man(pFrom, pTo), startT: 0, dur: man(pFrom, pTo) * CELL_MS };
+    // each pushed block starts moving only when the player actually reaches it
+    const bSegs = before.blocks.map(b => {
+      const ev = events.find(e => e.from[0] === b[0] && e.from[1] === b[1]);
+      if (!ev) return { from: b.slice(), to: b.slice(), dist: 0, startT: 0, dur: 0, consumed: false };
+      const contact = Math.max(0, man(pFrom, b) - 1) * CELL_MS;
+      return { from: b.slice(), to: ev.to.slice(), dist: man(b, ev.to), startT: contact, dur: man(b, ev.to) * CELL_MS, consumed: ev.consumed };
+    });
+    // a fill pauses the player just before it crosses, so the block visibly drops in first
+    const fill = bSegs.find(s => s.consumed);
+    const hold = fill ? fill.startT + fill.dur : -1;             // moment the block reaches the pit
+    const t0 = performance.now();
+    const playerEnd = player.dur + (hold >= 0 ? FILL_HOLD : 0);
+    const blockEnd = Math.max(0, ...bSegs.map(s => s.startT + s.dur + (s.consumed ? FILL_MS : 0)));
+    const total = Math.max(playerEnd, blockEnd);
+    this.anim = { t0, dir, player, blocks: bSegs, hold, total, restAt: t0 + Math.max(total + POP, MIN_MOVE_MS), deathCell: ns.dead ? ns.player.slice() : null };
+
+    // fading gradient trails behind player + non-consumed moving blocks (start when the block starts)
+    if (player.dist > 0) this.trails.push({ from: player.from.slice(), to: player.to.slice(), rgb: '245,247,250', t0, dur: player.dur, hold });
+    for (const s of bSegs) if (s.dist > 0 && !s.consumed) this.trails.push({ from: s.from.slice(), to: s.to.slice(), rgb: '53,194,176', t0: t0 + s.startT, dur: s.dur });
+
+    sfxWhoosh();
+    const epoch = this.epoch;
+    const newlySeated = this.coveredTargets(ns).filter(c => !coveredBefore.some(b => b[0] === c[0] && b[1] === c[1]));
+    const fills = bSegs.filter(s => s.consumed);
+    // THUMP + dust kickup when each block hits the bottom of its pit
+    for (const s of fills) {
+      const landAt = s.startT + s.dur + FILL_MS * 0.6;
+      setTimeout(() => { if (this.epoch === epoch) { sfxThump(); this.dustKick(s.to); this.shake = { t0: performance.now(), mag: 4.5, dir: null }; haptic(35); } }, landAt);
+    }
+    // seat sparkles + settle puff once everything has come to rest (death has its own feedback)
+    setTimeout(() => {
+      if (this.epoch !== epoch || ns.dead) return;
+      if (newlySeated.length) { sfxSeat(); haptic(14); } else if (!fills.length) sfxClack();
+      for (const c of newlySeated) this.burstSeat((c[1] + 0.5) * this.TS, (c[0] + 0.5) * this.TS);
+      const [pr, pc] = ns.player;
+      this.spawnBurst((pc + 0.5) * this.TS, (pr + 0.5) * this.TS, '201,214,227', 4, 0.05, { life: 260, size: 2, grav: 0.00012 });
+    }, total);
+  },
+
+  // The player slid into a pit: play the fall, flash, then retry the level.
+  die() {
+    this.dying = true;
+    const epoch = this.epoch, arriveT = this.anim.player.dur + (this.anim.hold >= 0 ? FILL_HOLD : 0);
+    setTimeout(() => {
+      if (this.epoch !== epoch) return;
+      sfxFail(); haptic([0, 45, 55, 110]); this.deathFlash = performance.now();
+      const [pr, pc] = this.state.player;
+      this.spawnBurst((pc + 0.5) * this.TS, (pr + 0.5) * this.TS, '120,150,175', 10, 0.09, { life: 360, size: 2.4, grav: 0.0003 });
+    }, arriveT);
+    setTimeout(() => { if (this.epoch === epoch) { toast('You fell in — retrying'); this.restart(); } }, arriveT + DEATH_FALL_MS + DEATH_HOLD_MS);
+  },
+
+  win() {
+    this.won = true;
+    const total = this.anim.total;
+    this.winT = performance.now() + total;    // shimmer + fireworks begin when the slide lands
+    const par = LEVELS[this.i].par, prev = best[this.i];
+    if (prev == null || this.moves < prev) { best[this.i] = this.moves; localStorage.setItem('drift-best', JSON.stringify(best)); }
+    if (this.i === unlocked && this.i < LEVELS.length - 1) { unlocked = this.i + 1; localStorage.setItem('drift-unlocked', JSON.stringify(unlocked)); }
+
+    // as the piece lands: jingle + a few staggered firework bursts over every target
+    const epoch = this.epoch;
+    setTimeout(() => {
+      if (this.epoch !== epoch) return;   // skipped to next level before the show — abort it
+      sfxWin(); haptic([0, 30, 45, 30, 45, 70]);
+      for (const [r, c] of this.level.targets)
+        for (let k = 0; k < 3; k++)
+          setTimeout(() => { if (this.epoch === epoch) this.burstSeat((c + 0.5) * this.TS, (r + 0.5) * this.TS); }, k * 190);
+    }, total);
+
+    // hold the overlay back so the fireworks are actually enjoyed first
+    setTimeout(() => {
+      if (this.epoch !== epoch) return;   // already advanced — don't flash a stale overlay
+      $('best').textContent = best[this.i];
+      $('overbig').textContent = this.moves <= par ? 'Par!' : 'Solved';
+      $('oversub').textContent = `${this.moves} moves · par ${par}`;
+      $('overgo').textContent = this.i === LEVELS.length - 1 ? 'ALL LEVELS CLEAR 🎉' : (TOUCH ? 'TAP FOR NEXT →' : 'PRESS SPACE FOR NEXT →');
+      $('over').classList.add('show');
+      renderDots();
+    }, total + WIN_OVERLAY_MS);
+  },
+
+  undo() { if (!this.stack.length || this.won || this.dying) return; this.state = this.stack.pop(); this.moves--; $('moves').textContent = this.moves; this.hintDir = null; this.anim = null; this.buffered = null; this.epoch++; },
+  restart() { this.load(this.i); },
+  go(d) {
+    const target = this.i + d;
+    if (d > 0 && target > unlocked) { toast('Solve this level to unlock the next'); return; }
+    if (target < 0 || target >= LEVELS.length) return;
+    this.load(target);
+  },
+  next() { this.go(1); },
+  jump(i) { if (i <= unlocked) this.load(i); else toast('Locked — solve earlier levels first'); },
+
+  hint() {
+    if (this.won || this.dying) return;
+    // bake already-filled pits into floor so the solver sees the current board
+    const terrain = this.level.terrain.map(row => row.slice());
+    for (const [r, c] of this.state.filled) terrain[r][c] = Engine.ICE;
+    const sub = Object.assign({}, this.level, { terrain, player: this.state.player.slice(), blocks: this.state.blocks.map(b => b.slice()) });
+    const res = Engine.solve(sub);
+    this.hintDir = (res.moves && res.moves.length) ? res.moves[0] : 'stuck';
+    this.hintT = performance.now();
+  },
+
+  /* ---------------- render ---------------- */
+  draw(now) {
+    const TS = this.TS, L = this.level;
+    if (!L) return;
+    if (this.anim && now > this.anim.restAt && !this.dying) this.anim = null;
+    const a = this.anim;               // capture AFTER the settle-clear so helpers stay in sync
+    this.stepParticles(now);
+    const css = getComputedStyle(document.documentElement), col = n => css.getPropertyValue(n).trim();
+
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = col('--wall'); ctx.fillRect(0, 0, cv.width, cv.height); // background stays put
+
+    const [shx, shy] = this.shakeOffset(now);
+    ctx.save(); ctx.translate(shx, shy);                                    // everything else jolts on a bump
+
+    // terrain
+    for (let r = 0; r < L.h; r++) for (let c = 0; c < L.w; c++) {
+      const t = L.terrain[r][c], x = c * TS, y = r * TS;
+      if (t === Engine.WALL) continue;
+      // keep the hole open while a block is still dropping into it
+      if (t === Engine.PIT && (!this.isFilled(r, c) || this.isFilling(r, c, now))) { this.drawPit(x, y, TS, now); continue; }
+      const filled = t === Engine.PIT; // filled, and the fall has finished
+      if (t === Engine.SAND) grad(ctx, x, y, TS, col('--sand2'), col('--sand'));
+      else if (filled) grad(ctx, x, y, TS, '#33506a', '#22394c'); // patched-over pit: solid, slightly greyer ice
+      else grad(ctx, x, y, TS, col('--ice2'), col('--ice'));
+      roundRect(ctx, x + 1.5, y + 1.5, TS - 3, TS - 3, 8); ctx.fill();
+      if (t === Engine.SAND) { ctx.fillStyle = '#00000022'; for (let k = 0; k < 5; k++) ctx.fillRect(x + 12 + (k * 9) % (TS - 20), y + 14 + (k * 13) % (TS - 22), 2, 2); }
+      else if (filled) { ctx.strokeStyle = '#ffffff18'; ctx.lineWidth = 1; ctx.strokeRect(x + 10, y + 10, TS - 20, TS - 20); } // seam of the patch
+      else { ctx.strokeStyle = '#ffffff14'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + 10, y + 8); ctx.lineTo(x + TS - 14, y + 8); ctx.stroke(); }
+    }
+
+    // targets
+    for (const [r, c] of L.targets) {
+      const cx = c * TS + TS / 2, cy = r * TS + TS / 2;
+      const covered = Engine.blockAt(this.state.blocks, r, c) >= 0;
+      const pulse = covered ? 1 : 0.72 + 0.28 * Math.sin(now / 480);
+      ctx.strokeStyle = covered ? col('--done') : col('--target');
+      ctx.globalAlpha = pulse; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(cx, cy, TS * 0.22, 0, 7); ctx.stroke();
+      ctx.globalAlpha = pulse * 0.4; ctx.beginPath(); ctx.arc(cx, cy, TS * 0.10, 0, 7); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    this.drawTrails(now, TS);
+
+    // blocks (identity-stable: animate segments; a consumed block falls into its pit)
+    if (a) {
+      const el = now - a.t0;
+      for (const s of a.blocks) {
+        if (s.consumed) {
+          const arriveT = s.startT + s.dur;
+          const fall = el <= arriveT ? 0 : Math.min(1, (el - arriveT) / FILL_MS);
+          this.drawBlock(col, this.segPos(s, el), false, 0, null, fall);   // spin+shrink+fade into the pit
+        } else {
+          this.drawBlock(col, this.segPos(s, el), this.isTarget(s.to), this.segPop(s, el), a.dir, 0);
+        }
+      }
+    } else {
+      for (const b of this.state.blocks) this.drawBlock(col, b, this.isTarget(b), 0, null, 0);
+    }
+
+    // player
+    const ppos = this.playerPos(now);
+    let fall = 0;
+    if (a && a.deathCell) { const dt = this.playerElapsed(now) - a.player.dur; fall = dt <= 0 ? 0 : Math.min(1, dt / DEATH_FALL_MS); }
+    const px = ppos[1] * TS + TS / 2, py = ppos[0] * TS + TS / 2;
+    if (fall === 0) { // living halo
+      ctx.strokeStyle = col('--you'); ctx.globalAlpha = 0.18 + 0.12 * Math.sin(now / 360); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(px, py, TS * 0.36 + 2 * Math.sin(now / 360), 0, 7); ctx.stroke(); ctx.globalAlpha = 1;
+    }
+    if (fall > 0) {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(fall * 1.4); ctx.scale(1 - 0.85 * fall, 1 - 0.85 * fall); ctx.globalAlpha = 1 - fall;
+      ctx.fillStyle = col('--you'); ctx.beginPath(); ctx.arc(0, 0, TS * 0.26, 0, 7); ctx.fill();
+      ctx.fillStyle = '#0b0e13'; ctx.beginPath(); ctx.arc(0, 0, TS * 0.10, 0, 7); ctx.fill();
+      ctx.restore(); ctx.globalAlpha = 1;
+    } else {
+      this.drawSquashed(ppos, TS * 0.52, a ? this.segPop(a.player, this.playerElapsed(now)) : 0, a && a.dir, () => {
+        ctx.save(); ctx.shadowColor = '#000c'; ctx.shadowBlur = 14; ctx.shadowOffsetY = 4;
+        ctx.fillStyle = col('--you'); ctx.beginPath(); ctx.arc(0, 0, TS * 0.26, 0, 7); ctx.fill(); ctx.restore();
+        ctx.fillStyle = '#0b0e13'; ctx.beginPath(); ctx.arc(0, 0, TS * 0.10, 0, 7); ctx.fill();
+      });
+    }
+
+    // particles (dust + sparkles) ride the board, above the pieces
+    for (const p of this.parts) {
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = `rgb(${p.rgb})`;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.35 + 0.65 * p.life), 0, 7); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // hint arrow
+    if (this.hintDir && this.hintDir !== 'stuck' && now - this.hintT < 2600 && !this.won) this.drawArrow(px, py, this.hintDir, col('--target'), now);
+    if (this.hintDir === 'stuck' && now - this.hintT < 2600) { ctx.fillStyle = col('--target'); ctx.font = 'bold 13px system-ui'; ctx.textAlign = 'center'; ctx.fillText('no solution from here — undo (Z)', cv.width / 2, 18); }
+
+    ctx.restore(); // end shake transform
+
+    // win shimmer (full-canvas, unshaken)
+    if (this.won && now - this.winT < 1500 && now > this.winT) {
+      const el = now - this.winT; ctx.save();
+      ctx.globalAlpha = Math.max(0, 0.45 - el / 1600) * (0.5 + 0.5 * Math.sin(el / 80));
+      ctx.fillStyle = col('--done'); ctx.fillRect(0, 0, cv.width, cv.height); ctx.restore();
+    }
+    // death flash (red) when the player falls
+    if (now - this.deathFlash < 500) {
+      const el = now - this.deathFlash; ctx.save();
+      ctx.globalAlpha = Math.max(0, 0.4 - el / 700); ctx.fillStyle = '#d3495b';
+      ctx.fillRect(0, 0, cv.width, cv.height); ctx.restore();
+    }
+  },
+
+  // draw a block centered on grid cell `pos`; `fall` (0..1) spins/shrinks/fades it into a pit
+  drawBlock(col, pos, on, pop, dir, fall) {
+    const TS = this.TS, x = pos[1] * TS + TS / 2, y = pos[0] * TS + TS / 2;
+    if (fall > 0) {
+      // pulled straight down into the hole (ease-in accelerates), stretching as it's sucked under
+      const e = fall * fall;
+      const dy = TS * 0.5 * e;
+      const sx = 1 - 0.72 * fall, sy = 1 - 0.42 * fall; // shrinks less vertically → stretched downward
+      ctx.save(); ctx.translate(x, y + dy); ctx.scale(sx, sy); ctx.globalAlpha = 1 - e;
+      ctx.fillStyle = col('--block'); roundRect(ctx, -TS * 0.34, -TS * 0.34, TS * 0.68, TS * 0.68, 7); ctx.fill();
+      ctx.restore(); ctx.globalAlpha = 1; return;
+    }
+    this.drawSquashed(pos, TS * 0.68, pop, dir, () => {
+      ctx.save(); ctx.shadowColor = '#000a'; ctx.shadowBlur = 12; ctx.shadowOffsetY = 4;
+      ctx.fillStyle = on ? col('--done') : col('--block');
+      roundRect(ctx, -TS * 0.34, -TS * 0.34, TS * 0.68, TS * 0.68, 7); ctx.fill(); ctx.restore();
+      ctx.strokeStyle = '#ffffff2a'; ctx.lineWidth = 1.5;
+      roundRect(ctx, -TS * 0.34 + 3, -TS * 0.34 + 3, TS * 0.68 - 6, TS * 0.68 - 6, 5); ctx.stroke();
+    });
+  },
+
+  // a menacing recessed hole — defined edge + lit lip for depth, plus a pulsing
+  // warm hazard ring so it reads clearly on any monitor (not dark-on-dark)
+  drawPit(x, y, TS, now) {
+    const cx = x + TS / 2, cy = y + TS / 2;
+    roundRect(ctx, x + 1.5, y + 1.5, TS - 3, TS - 3, 8);
+    const g = ctx.createRadialGradient(cx, cy - TS * 0.06, 1, cx, cy, TS * 0.62);
+    g.addColorStop(0, '#000000'); g.addColorStop(0.65, '#05090e'); g.addColorStop(1, '#152130');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = '#2a3d50';                     // crisp edge vs ice neighbours
+    roundRect(ctx, x + 1.5, y + 1.5, TS - 3, TS - 3, 8); ctx.stroke();
+    ctx.strokeStyle = '#00000066'; ctx.lineWidth = 2;                     // inner shadow ring = depth
+    ctx.beginPath(); ctx.arc(cx, cy, TS * 0.3, 0, 7); ctx.stroke();
+    ctx.strokeStyle = '#a8bccdaa'; ctx.lineWidth = 1.5;                   // light on the top lip
+    ctx.beginPath(); ctx.arc(cx, cy, TS * 0.3, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    const pulse = 0.5 + 0.5 * Math.sin(now / 400);                        // pulsing danger ring (motion + warm hue)
+    ctx.strokeStyle = `rgba(226,118,92,${0.3 + 0.45 * pulse})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(cx, cy, TS * 0.15 + pulse * 2.5, 0, 7); ctx.stroke();
+  },
+
+  drawSquashed(pos, size, pop, dir, paint) {
+    const TS = this.TS, x = pos[1] * TS + TS / 2, y = pos[0] * TS + TS / 2;
+    let sx = 1, sy = 1;
+    if (pop > 0 && dir) {
+      const along = 1 - 0.22 * pop, perp = 1 + 0.22 * pop;
+      if (dir === 'left' || dir === 'right') { sx = along; sy = perp; } else { sy = along; sx = perp; }
+    }
+    ctx.save(); ctx.translate(x, y); ctx.scale(sx, sy); paint(); ctx.restore();
+  },
+
+  drawTrails(now, TS) {
+    if (this.trails.length) this.trails = this.trails.filter(tr => now - tr.t0 < tr.dur + (tr.hold >= 0 ? FILL_HOLD : 0) + TRAIL_FADE);
+    ctx.lineCap = 'round'; ctx.lineWidth = TS * 0.34;
+    for (const tr of this.trails) {
+      let el = now - tr.t0;
+      if (tr.hold >= 0) el = el <= tr.hold ? el : (el <= tr.hold + FILL_HOLD ? tr.hold : el - FILL_HOLD); // freeze with the paused player
+      const p = Math.min(1, el / tr.dur);
+      const hx = (tr.from[1] + (tr.to[1] - tr.from[1]) * p + 0.5) * TS;   // head follows the piece
+      const hy = (tr.from[0] + (tr.to[0] - tr.from[0]) * p + 0.5) * TS;
+      const fx = (tr.from[1] + 0.5) * TS, fy = (tr.from[0] + 0.5) * TS;   // tail anchored at the start
+      const fade = el <= tr.dur ? 1 : Math.max(0, 1 - (el - tr.dur) / TRAIL_FADE);
+      const a = 0.22 * fade;
+      const g = ctx.createLinearGradient(hx, hy, fx, fy);                 // opaque at head → transparent at tail
+      g.addColorStop(0, `rgba(${tr.rgb},${a})`);
+      g.addColorStop(1, `rgba(${tr.rgb},0)`);
+      ctx.strokeStyle = g;
+      ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(hx, hy); ctx.stroke();
+    }
+  },
+
+  stepParticles(now) {
+    const dt = Math.min(48, now - (this.lastNow || now)); this.lastNow = now;
+    for (const p of this.parts) { p.life -= dt * p.decay; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += (p.grav || 0) * dt; p.vx *= 0.985; p.vy *= 0.985; }
+    if (this.parts.length) this.parts = this.parts.filter(p => p.life > 0);
+  },
+
+  spawnBurst(cx, cy, rgb, n, speed, opts = {}) {
+    for (let i = 0; i < n; i++) {
+      const ang = Math.random() * Math.PI * 2, s = speed * (0.4 + Math.random() * 0.7);
+      this.parts.push({
+        x: cx, y: cy, vx: Math.cos(ang) * s + (opts.vx || 0), vy: Math.sin(ang) * s + (opts.vy || 0),
+        life: 1, decay: 1 / (opts.life || 360), size: (opts.size || 3) * (0.6 + Math.random() * 0.8),
+        rgb: Array.isArray(rgb) ? rgb[i % rgb.length] : rgb, grav: opts.grav || 0,
+      });
+    }
+  },
+
+  burstSeat(cx, cy) {   // celebratory pop when a block locks onto a target
+    this.spawnBurst(cx, cy, ['119,221,143', '242,193,78'], 18, 0.17, { life: 460, size: 3, grav: 0.00016 });
+  },
+
+  dustKick([r, c]) {    // dirt kicked up as a block lands in a pit
+    const x = (c + 0.5) * this.TS, y = (r + 0.5) * this.TS;
+    this.spawnBurst(x, y, '165,180,198', 16, 0.13, { vy: -0.06, life: 460, size: 2.8, grav: 0.00045 });
+    this.spawnBurst(x, y, '110,128,148', 8, 0.05, { life: 560, size: 3.6, grav: 0.0003 });
+  },
+
+  bump(dir) {           // wall recoil: quick shake + dust kicked off the wall
+    this.shake = { t0: performance.now(), mag: 7, dir };
+    const d = Engine.DIRS[dir], [pr, pc] = this.state.player, TS = this.TS;
+    const cx = (pc + 0.5 + d[1] * 0.5) * TS, cy = (pr + 0.5 + d[0] * 0.5) * TS;
+    this.spawnBurst(cx, cy, '159,179,200', 8, 0.11, { vx: -d[1] * 0.05, vy: -d[0] * 0.05, life: 320, size: 2.4, grav: 0.00015 });
+  },
+
+  shakeOffset(now) {
+    if (!this.shake) return [0, 0];
+    const el = now - this.shake.t0;
+    if (el > SHAKE_MS) { this.shake = null; return [0, 0]; }
+    const k = 1 - el / SHAKE_MS;
+    if (!this.shake.dir) return [this.shake.mag * k * Math.sin(el / 15), this.shake.mag * k * Math.cos(el / 13)]; // centralized impact rattle
+    const amp = this.shake.mag * k * Math.sin(el / 16), d = Engine.DIRS[this.shake.dir];
+    return [amp * d[1], amp * d[0]];
+  },
+
+  drawArrow(x, y, dir, color, now) {
+    const d = Engine.DIRS[dir], a = Math.atan2(d[0], d[1]);
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a); ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.lineWidth = 4; ctx.globalAlpha = 0.5 + 0.5 * Math.abs(Math.sin(now / 220));
+    const r = this.TS * 0.42;
+    ctx.beginPath(); ctx.moveTo(r - 14, 0); ctx.lineTo(r + 2, 0); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(r + 6, 0); ctx.lineTo(r - 6, -7); ctx.lineTo(r - 6, 7); ctx.closePath(); ctx.fill();
+    ctx.restore();
+  },
+};
+
+/* ---------------- ui glue ---------------- */
+function renderDots() {
+  const box = $('dots'); box.innerHTML = '';
+  LEVELS.forEach((_, i) => {
+    const b = document.createElement('button'); b.className = 'dot';
+    if (best[i] != null) b.classList.add('solved');
+    if (i > unlocked) b.classList.add('locked');
+    if (i === game.i) b.classList.add('current');
+    b.title = i > unlocked ? 'Locked' : LEVELS[i].name;
+    b.onclick = () => game.jump(i);
+    box.appendChild(b);
+  });
+}
+let toastT;
+function toast(msg) { const el = $('toast'); el.textContent = msg; el.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 1800); }
+
+function roundRect(ctx, x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function grad(ctx, x, y, TS, top, bot) { const g = ctx.createLinearGradient(x, y, x, y + TS); g.addColorStop(0, top); g.addColorStop(1, bot); ctx.fillStyle = g; }
+
+addEventListener('keydown', e => {
+  if (e.key === ' ') { e.preventDefault(); if (game.won) game.next(); return; } // space advances after a win
+  if (KEY[e.key]) { e.preventDefault(); actx(); game.move(KEY[e.key]); return; }
+  const k = e.key.toLowerCase();
+  if (k === 'z' || k === 'u') game.undo();
+  else if (k === 'r') game.restart();
+  else if (k === 'h') game.hint();
+  else if (k === ']') game.next();
+  else if (k === '[') game.go(-1);
+  else if (k === 'm') toggleMute();
+});
+
+// touch: swipe anywhere (except on a button) to move; a tap advances after a win
+let sw = null;
+const onButton = e => { const el = e.target; return el && el.closest && el.closest('button'); };
+addEventListener('touchstart', e => { if (onButton(e)) return; const t = e.changedTouches[0]; sw = { x: t.clientX, y: t.clientY }; }, { passive: true });
+addEventListener('touchend', e => {
+  if (!sw || onButton(e)) { sw = null; return; }
+  actx();                                            // first gesture unlocks audio
+  const t = e.changedTouches[0], dx = t.clientX - sw.x, dy = t.clientY - sw.y, adx = Math.abs(dx), ady = Math.abs(dy);
+  sw = null;
+  if (Math.max(adx, ady) < 24) { if (game.won) game.next(); return; }   // tap (not a swipe)
+  game.move(adx > ady ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+}, { passive: true });
+
+$('tip').innerHTML = (TOUCH ? '<b>Swipe</b> to move' : 'Arrow keys / WASD to move')
+  + '. You <b>slide until you hit something</b>. Sand stops a slide; <b>pits are fatal</b> — fill them by shoving a block in.';
+$('muteBtn').textContent = muted ? '🔇' : '♪';
+game.load(0);
+(function frame(now) { game.flushBuffer(); game.draw(now); requestAnimationFrame(frame); })(0);
+</script>
+</body>
+</html>
