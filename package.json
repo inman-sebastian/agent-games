@@ -1,0 +1,9 @@
+{
+  "name": "agent-game",
+  "version": "1.0.0",
+  "description": "A workspace of small games built agentically.",
+  "private": true,
+  "scripts": {
+    "verify": "pnpm -r --if-present verify"
+  }
+}

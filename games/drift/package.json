@@ -1,0 +1,10 @@
+{
+  "name": "drift",
+  "version": "1.0.0",
+  "description": "A minimalist ice-sliding puzzle game.",
+  "private": true,
+  "scripts": {
+    "generate": "node generate.js",
+    "verify": "node verify.js"
+  }
+}
