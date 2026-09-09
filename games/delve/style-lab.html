@@ -51,6 +51,7 @@
       <label><input type="checkbox" id="ore" checked> ore</label>
       <label><input type="checkbox" id="lamp" checked> lamp</label>
       <label><input type="checkbox" id="vignette" checked> vignette</label>
+      <label><input type="checkbox" id="grid"> grid</label>
     </div>
     <div class="grp">
       <label>zoom <input type="range" id="zoom" min="2" max="6" step="1" value="4"><span class="val" id="zoomv">4×</span></label>
@@ -253,7 +254,7 @@
   matSel.value='topsoil';
   const chk=id=>document.getElementById(id).checked;
   const opts=()=>({ rim:chk('rim'), stones:chk('stones'), ao:chk('ao'), stalac:chk('stalac'),
-    bgLayer:chk('bgLayer'), bgDetail:chk('bgDetail'), ore:chk('ore'), lamp:chk('lamp'), vignette:chk('vignette') });
+    bgLayer:chk('bgLayer'), bgDetail:chk('bgDetail'), ore:chk('ore'), lamp:chk('lamp'), vignette:chk('vignette'), grid:chk('grid') });
   const M=()=>MATERIALS[matSel.value];
 
   // ---------- cave ----------
@@ -309,7 +310,10 @@
       lb.fillStyle=rg; lb.fillRect(gx-T*4,gy-T*4,T*8,T*8); lb.restore(); }
     if(o.vignette){ const v=lb.createRadialGradient(PW/2,PH/2,PH*0.36,PW/2,PH/2,PH*0.85);
       v.addColorStop(0,'transparent'); v.addColorStop(1,'rgba(0,0,0,0.5)'); lb.fillStyle=v; lb.fillRect(0,0,PW,PH); }
-    present(scene, sctx, PW, PH, S); }
+    present(scene, sctx, PW, PH, S);
+    if(o.grid){ sctx.strokeStyle='#ffffff22'; sctx.lineWidth=1;
+      for(let x=0;x<=COLS;x++){ sctx.beginPath(); sctx.moveTo(x*T*S+0.5,0); sctx.lineTo(x*T*S+0.5,PH*S); sctx.stroke(); }
+      for(let y=0;y<=ROWS;y++){ sctx.beginPath(); sctx.moveTo(0,y*T*S+0.5); sctx.lineTo(PW*S,y*T*S+0.5); sctx.stroke(); } } }
 
   // ---------- mining strip ----------
   const mine=document.getElementById('mine'), mctx=mine.getContext('2d');
