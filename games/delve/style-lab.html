@@ -179,8 +179,8 @@
         set(i,c,255);
       } else {
         const dr=rock[i];
-        if(o.ao && dr<1.4) set(i,[0,0,0],150);        // contact shadow the rock casts on the bg
-        else if(o.ao && dr<2.7) set(i,[0,0,0],75);
+        if(o.ao && dr<1.4) set(i,[0,0,0],105);        // contact shadow the rock casts on the bg (subtle)
+        else if(o.ao && dr<2.7) set(i,[0,0,0],48);
         else set(i,[0,0,0],0);                         // transparent → background shows through
       } }
     fx.putImageData(img,0,0);
