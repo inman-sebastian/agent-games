@@ -169,11 +169,9 @@
         L=clamp01(L);
         const f=L*5, lo=f|0, b=(BAYER[(px&3)|((py&3)<<2)]+0.5)/16;             // ordered dither between steps
         let c = LV[Math.min(5, lo + ((f-lo)>b?1:0))];
-        if(L>0.6){                                                              // lit rim: rocky/mossy variation, not molten
-          const rn=vnoise(px*0.5+2,py*0.5,TEX+8);
-          if((td<=ed+0.8) && rn>0.74) c=C.accent;                              // moss/crust clumps on up-facing rims
-          else if(rn<0.40) c=C.rimRock;                                        // grayer rock breaks the orange
-        }
+        if(L>0.6 && vnoise(px*0.5+2,py*0.5,TEX+8)<0.40) c=C.rimRock;            // grayer rock breaks the uniform orange rim
+        // (surface flora/moss deliberately omitted — freshly-mined rock; a procedural
+        //  surface-decoration pass belongs on top of this, added later.)
         // dark body beyond the rim stays clean/empty (reads calmer than random grit)
         if(L>0.25 && L<0.72 && vnoise(px*0.75,py*0.75,TEX+5)>0.86) c=C.center;  // sparse crevice only in the transition band
         if(o.rim && L>0.88 && vnoise(px*0.7,py*0.5,TEX)>0.6) c=C.rimB;          // sparse rim sparkle
@@ -210,22 +208,25 @@
       pen1(x-w-1,y+dir*i,1,1,OUT); pen1(x+w+1,y+dir*i,1,1,OUT); pen1(x-w,y+dir*i,2*w+1,1,c[1]); pen1(x-w,y+dir*i,w,1,c[2]); }
       pen1(x-1,y+dir*(len-2),1,1,'#ffffff'); };
     spike(cx,cy+r,r+2,-1); spike(cx-r+1,cy+r,r,-1); spike(cx+r-1,cy+r,r-1,-1); }
-  function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r-1,cy+2,Math.max(1,r-2),c); gem(cx+r,cy+1,Math.max(1,r-2),c); }
+  function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r+1,cy+2,Math.max(1,r-2),c); gem(cx+r-1,cy+1,Math.max(1,r-2),c); }
   const SHAPES={gem,nugget,prism,shard,cluster};
 
   function drawOre(ctx, oreI, X, Y, x, y, damage, o){
-    const ore=ORES[oreI], c=ore.c, m=(T>>1);
+    const ore=ORES[oreI], c=ore.c, m=(T>>1), MAXR=5;            // keep the vein/crystal within MAXR of the tile centre
     const rnd=mulberry(hashXY(x,y,777)), px=(a,b,w,h,col)=>pen1(X+a,Y+b,w,h,col);
-    for(let i=0;i<8;i++){ const a=rnd()*6.283, rr=1.5+rnd()*4.5; const fxp=Math.round(m+Math.cos(a)*rr), fyp=Math.round(m+Math.sin(a)*rr);
-      px(fxp,fyp,1,1,c[1]); if(rnd()<0.4)px(fxp,fyp+1,1,1,c[0]); }
-    if(damage>0.12){ const cr=mulberry(hashXY(x,y,9)), nc=1+Math.floor(damage*4);
-      for(let k=0;k<nc;k++){ let a=cr()*6.283, cxp=m+Math.cos(a)*2, cyp=m+Math.sin(a)*2; const steps=2+Math.floor(damage*4);
-        for(let s=0;s<steps;s++){ px(Math.round(cxp),Math.round(cyp),1,1,c[0]); cxp+=Math.cos(a); cyp+=Math.sin(a); } } }
+    const inside=(dx,dy)=> dx*dx+dy*dy <= MAXR*MAXR;
+    // embedded flecks — a tight, centred cluster
+    for(let i=0;i<8;i++){ const a=rnd()*6.283, rr=1+rnd()*2.6, dx=Math.cos(a)*rr, dy=Math.sin(a)*rr;
+      if(!inside(dx,dy))continue; const fxp=Math.round(m+dx), fyp=Math.round(m+dy);
+      px(fxp,fyp,1,1,c[1]); if(rnd()<0.4 && inside(dx,dy+1))px(fxp,fyp+1,1,1,c[0]); }
+    if(damage>0.12){ const cr=mulberry(hashXY(x,y,9)), nc=1+Math.floor(damage*3);   // short cracks, clamped inside
+      for(let k=0;k<nc;k++){ let a=cr()*6.283, dx=Math.cos(a)*1.5, dy=Math.sin(a)*1.5; const steps=2+Math.floor(damage*3);
+        for(let s=0;s<steps;s++){ if(!inside(dx,dy))break; px(Math.round(m+dx),Math.round(m+dy),1,1,c[0]); dx+=Math.cos(a); dy+=Math.sin(a); } } }
     const reveal=Math.max(0,(damage-0.35)/0.65);
-    if(reveal>0.02){ const hole=Math.round(1+reveal*4.5);
-      for(let dy=-hole;dy<=hole;dy++)for(let dx=-hole;dx<=hole;dx++){ const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.2;
-        if(d<hole) px(m+dx,m+dy,1,1,c[0]); }
-      SHAPES[ore.shape](X+m, Y+m, Math.max(1,Math.round(reveal*3.6)), c); }
+    if(reveal>0.02){ const hole=1+reveal*3;                                          // socket bounded by MAXR
+      for(let dy=-MAXR;dy<=MAXR;dy++)for(let dx=-MAXR;dx<=MAXR;dx++){ if(!inside(dx,dy))continue;
+        const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.1; if(d<hole) px(m+dx,m+dy,1,1,c[0]); }
+      SHAPES[ore.shape](X+m, Y+m, Math.max(1,Math.round(reveal*2.8)), c); }
     if(o.ore!==false){ ctx.save(); ctx.globalCompositeOperation='lighter';
       const gx=X+m, gy=Y+m, rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
       rg.addColorStop(0,mix(c[2],'#ffffff',0.25)); rg.addColorStop(1,'transparent');
