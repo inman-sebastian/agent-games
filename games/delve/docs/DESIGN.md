@@ -20,8 +20,9 @@ the coins to delve deeper — where the rock is tougher and the ore is rarer.
 ## Core loop
 
 1. **Dig** — run and jump around; aim at nearby rock and hold to mine it — enough hits break the block.
-2. **Earn** — ore sells the instant its block breaks, **in place**. There is no
-   cargo and no hauling back to the surface; the loop never asks you to stop digging.
+2. **Collect** — mined ore drops into your **inventory** as per-type stacks (rich veins
+   yield 3× the ore). Sell it for coins anytime from the ⛏ Upgrades panel — no hauling
+   back to the surface, so the loop never strands you.
 3. **Spend** — the ⛏ Upgrades panel: leveled upgrades and one-time tech.
 4. **Descend** — deeper rock has more hp and rarer, richer ore.
 
@@ -71,9 +72,10 @@ truth for balance.
 
 ## Economy & progression
 
-- Coins are earned **only** by breaking ore and spent **only** on upgrades/tech.
-  Rich veins (Fortune crits) pay 3× and get the disproportionate reward beat (see
-  [JUICE.md](JUICE.md)).
+- Ore is **held in the inventory** and sold for coins (base value × Refinery multiplier)
+  from the Upgrades panel, anytime. Coins are spent **only** on upgrades/tech. Rich veins
+  (Fortune crits) drop **3× the ore** and get the disproportionate reward beat (see
+  [JUICE.md](JUICE.md)). *(No capacity cap yet — a cargo/economy rework is #6.)*
 - Base rock hp **grows with depth** (`rockHp` in `blocks.js`), so keeping the
   pickaxe upgraded is what lets you keep descending — the soft progression gate.
 - Progress and settings **persist to `localStorage`**, degrading to a sane default
@@ -82,10 +84,10 @@ truth for balance.
 ## Design pillars
 
 - **Platformer traversal; no fuel, no cargo.** Movement is real 2D platforming —
-  gravity, running, jumping — with mining coupled to it. The economy stays
-  **progress-only** where it counts: digging is free and ore sells in place, so there
-  is no economic soft-lock, and `tools/verify.js` proves a greedy bot reaches Mythril
-  within a sane budget. (Fuel and cargo — the classic soft-lock generators — stay out.)
+  gravity, running, jumping. The economy stays **progress-only** where it counts:
+  digging is free and ore can be sold anytime (no hauling), so there is no economic
+  soft-lock, and `tools/verify.js` proves a greedy bot reaches Mythril within a sane
+  budget. (Fuel and cargo — the classic soft-lock generators — stay out.)
   Climbing back up a sheer shaft isn't possible yet; dedicated upward traversal
   (ropes / platforms / ladders) is a future pass.
 - **Deterministic, infinite world.** Every cell's static contents are a pure
@@ -117,7 +119,8 @@ into them as it ships. Tracked as an epic in
 - **Mining decoupled from movement** *(shipped)* — its own aim/target action (mouse
   hold-to-mine or keyboard J), reach-limited, usable while moving; walking into rock no
   longer digs. [#3](https://github.com/inman-sebastian/agent-games/issues/3)
-- **Inventory system** — hold what you mine as items instead of instant coins.
+- **Inventory system** *(shipped)* — mined ore is held as per-type stacks and sold for
+  coins from the Upgrades panel, instead of auto-selling on break.
   [#4](https://github.com/inman-sebastian/agent-games/issues/4)
 - **Ores as distinct collectibles** — each ore is its own gathered item, not a single
   auto-sold currency.

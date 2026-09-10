@@ -38,7 +38,8 @@ function play(seed) {
   let frames = 0;
   const dt = 1 / 60, BUDGET = 3_000_000, TARGET = 520;   // rows; Mythril band starts at 480 (2× finer grid)
 
-  const shop = () => {                  // buy cheapest affordable upgrade repeatedly
+  const shop = () => {                  // sell the haul, then buy cheapest affordable upgrade repeatedly
+    D.sellAll(s);
     for (;;) {
       let best = null, bestCost = Infinity;
       for (const k in D.UPGRADES) {
@@ -58,7 +59,7 @@ function play(seed) {
       const target = { c: Math.floor(s.x), r: Math.floor(s.y) + 1 };   // the tile directly below
       const ev = D.physicsStep(s, { mine: target }, dt);
       frames++;
-      for (const e of ev.events) if (e.type === 'break' && e.coin > 0) seenTier[e.ore] = seenTier[e.ore] || frames;
+      for (const e of ev.events) if (e.type === 'break' && e.ore) seenTier[e.ore] = seenTier[e.ore] || frames;
     }
   }
   shop();

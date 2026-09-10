@@ -72,6 +72,7 @@
       dmg: {},           // "c,r" -> hp already dealt to a not-yet-broken cell
       coins: 0,
       earned: 0,         // lifetime coins (for progression display)
+      inv: {},           // inventory: oreId -> count (mined ore is held here until sold)
       depth: 0,          // deepest row reached
       best: 0,           // deepest ore rarity index discovered
       up: { pick: 0, speed: 0, refine: 0, fortune: 0 },
@@ -132,14 +133,14 @@
       if (dealt < b.hp) { s.dmg[k] = dealt; events.push({ type: 'chip', c, r, ore: b.ore, hp: b.hp - dealt, maxHp: b.hp }); }
       else {
         delete s.dmg[k]; s.dug[k] = true;
-        let coin = 0, rich = false;
-        if (b.ore) {                                       // ore sells instantly, in place
+        let qty = 0, rich = false;
+        if (b.ore) {                                       // ore goes into the inventory (sold later)
           rich = isRich(s.seed, c, r, st.fortune);
-          coin = Math.max(1, Math.floor(b.value * st.valueMult * (rich ? 3 : 1)));
-          s.coins += coin; s.earned += coin;
+          qty = rich ? 3 : 1;                              // rich vein → 3× the ore (value multiplies at sale)
+          s.inv[b.ore] = (s.inv[b.ore] || 0) + qty;
           const rar = rarityOf(b.ore); if (rar > s.best) s.best = rar;
         }
-        events.push({ type: 'break', c, r, ore: b.ore, coin, rich, maxHp: b.hp });
+        events.push({ type: 'break', c, r, ore: b.ore, qty, rich, maxHp: b.hp });
         s.digKey = null; s.digTime = 0; broke = true; break;
       }
     }
@@ -227,6 +228,13 @@
     return { events, grounded: s.grounded, jumped };
   }
 
+  // --- inventory / selling ---
+  const invCount = (s) => { let n = 0; for (const k in s.inv) n += s.inv[k]; return n; };
+  // total coins the current inventory would sell for (base value × refinery multiplier)
+  const invValue = (s) => { let v = 0; for (const k in s.inv) v += s.inv[k] * (ORE_BY_ID[k] ? ORE_BY_ID[k].value : 0); return Math.floor(v * stats(s).valueMult); };
+  // sell everything → coins. Available anytime (no hauling), so the loop can't soft-lock.
+  function sellAll(s) { const amt = invValue(s); if (amt > 0) { s.coins += amt; s.earned += amt; } s.inv = {}; return amt; }
+
   const atSurface = (s) => s.y <= SURFACE + 1;
 
   const PHYS = { HW, HH, GRAVITY, MAX_FALL, RUN_SPEED, JUMP_VEL, REACH };
@@ -236,7 +244,7 @@
     WIDTH, SURFACE, ORES, ORE_BY_ID, rarityOf, blockAt, solidAt, oreAt, rockHp, tileInfo,
     // sim
     UPGRADES, TECH, PHYS, isRich, newGame, stats, upgradeCost, buyUpgrade, buyTech,
-    physicsStep, mineTile, atSurface, isDug, solidCell, key,
+    physicsStep, mineTile, invCount, invValue, sellAll, atSurface, isDug, solidCell, key,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Delve;
   else root.Delve = Delve;

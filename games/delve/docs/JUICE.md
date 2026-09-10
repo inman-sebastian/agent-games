@@ -17,10 +17,10 @@ finer grid, animation) is queued for later.*
   gravity, jump); the camera eases to keep it centred; the lamp glow pulses.
 - **Chipping rock:** fine pixel debris (mostly 1px, shaded off the source colour toward
   a bright chip / dark fleck so it reads as chipped stone, not flat chunky squares).
-- **Breaking rock:** a debris burst scaled to ore rarity. **Ore sells the instant it
-  breaks, in place** — a rising `+N` coin floaty in the ore's colour, no travel. There
-  is no cargo and no hauling: the loop never asks the player to stop digging.
-- **Rich vein** (Fortune crit, 3× value): a gold `+N!` floaty, extra sparkle, bigger
+- **Breaking rock:** a debris burst scaled to ore rarity. Ore drops into the inventory
+  on break — a rising `+N <ore>` floaty in the ore's colour, no travel. Selling happens
+  later (Upgrades panel); there's no hauling, so the loop never asks you to stop digging.
+- **Rich vein** (Fortune crit, 3× the ore): a gold `+N!` floaty, extra sparkle, bigger
   shake, bright chime — the reward beat, overspent on purpose.
 - **Ore shimmer:** exposed ore breathes — the per-tile pulse drives its actual emitted
   light (see [LIGHTING.md](LIGHTING.md)), plus an occasional bright twinkle glint, each

@@ -95,6 +95,7 @@
     <div class="hud">
       <div class="stat">DEPTH <b><span id="depth">0</span>m</b></div>
       <div class="stat coin">◈ <b id="coins">0</b></div>
+      <div class="stat">CARGO <b id="cargo">0</b> ◈</div>
       <div class="stat found">DEEPEST FIND <b id="found" style="color:var(--dim)">—</b></div>
     </div>
   </div>
@@ -112,7 +113,11 @@
   <div class="overlay" id="overlay">
     <div class="shop">
       <h2>Upgrades</h2>
-      <div class="sub">Coins: <b id="shopCoins" style="color:var(--gold)">0</b> ◈ &nbsp;·&nbsp; ore sells the instant you break it</div>
+      <div class="sub">Coins: <b id="shopCoins" style="color:var(--gold)">0</b> ◈ &nbsp;·&nbsp; sell your cargo, then upgrade</div>
+      <div class="sect">Cargo</div>
+      <div id="cargoList" class="ds" style="margin:0 2px 8px">empty</div>
+      <button id="sellBtn" style="width:100%; margin-bottom:6px">Sell all</button>
+      <div class="sect">Upgrades</div>
       <div id="upgrades"></div>
       <div class="sect">Technology</div>
       <div id="tech"></div>
@@ -479,10 +484,10 @@
     sfx.dig(ev.r); sfx.break(rar);
     chips(cx, cy, 5 + rar, ev.ore ? D.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
     shake = Math.min(7, shake + 1.2 + rar * 0.5 + (ev.rich ? 2 : 0));
-    if (ev.ore) {                                      // ore sells instantly, in place
-      sfx.ore(rar + (ev.rich ? 2 : 0)); if (ev.rich) sfx.sell(ev.coin);
-      const col = ev.rich ? '#f2c14e' : D.ORE_BY_ID[ev.ore].color;
-      floaty(cx, cy - 4, '+' + ev.coin + (ev.rich ? '!' : ''), col, rar >= 4 || ev.rich);
+    if (ev.ore) {                                      // ore collected into the inventory (sold later)
+      sfx.ore(rar + (ev.rich ? 2 : 0));
+      const col = ev.rich ? '#f2c14e' : D.ORE_BY_ID[ev.ore].color, name = D.ORE_BY_ID[ev.ore].name;
+      floaty(cx, cy - 4, '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''), col, rar >= 4 || ev.rich);
       for (let i = 0; i < 4 + rar + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
     }
   }
@@ -537,7 +542,7 @@
       `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
       `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
       `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
-      `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}\n` +
+      `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}  cargo ${D.invCount(s)} (${D.invValue(s)} ◈)\n` +
       `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
       `up    pick ${s.up.pick} · speed ${s.up.speed} · refine ${s.up.refine} · fortune ${s.up.fortune}   tech ${s.tech.scanner ? 'scanner' : '—'}/${s.tech.lantern ? 'lantern' : '—'}\n` +
       `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}`;
@@ -549,6 +554,7 @@
   function updateHUD() {
     el('depth').textContent = s.depth;
     el('coins').textContent = Math.floor(s.coins).toLocaleString();
+    el('cargo').textContent = D.invValue(s).toLocaleString();
     const found = el('found'), ore = D.ORES[s.best];
     found.textContent = ore ? ore.name : '—';
     found.style.color = ore && s.best > 0 ? ore.color : 'var(--dim)';
@@ -575,9 +581,19 @@
       if (D.buyUpgrade(s, k)) { sfx.buy(); save(); } refreshShop(); });
     tc.addEventListener('click', e => { const k = e.target.dataset.tech; if (!k) return;
       if (D.buyTech(s, k)) { sfx.buy(); save(); } refreshShop(); });
+    el('sellBtn').addEventListener('click', () => {
+      const amt = D.sellAll(s); if (amt > 0) { sfx.sell(amt); save(); } refreshShop(); updateHUD();
+    });
   }
   function refreshShop() {
     el('shopCoins').textContent = Math.floor(s.coins).toLocaleString();
+    // cargo list + sell button
+    const ids = Object.keys(s.inv).filter(k => s.inv[k] > 0);
+    el('cargoList').textContent = ids.length
+      ? ids.map(k => `${D.ORE_BY_ID[k].name} ×${s.inv[k]}`).join('  ·  ') : 'empty';
+    const val = D.invValue(s), sb = el('sellBtn');
+    sb.textContent = val > 0 ? `Sell all  +${val.toLocaleString()} ◈` : 'Sell all';
+    sb.disabled = val <= 0;
     for (const b of el('upgrades').querySelectorAll('button')) {
       const k = b.dataset.up, uu = D.UPGRADES[k];
       b.querySelector; b.closest('.row').querySelector('.lv').textContent = 'Lv ' + s.up[k] + (s.up[k] >= uu.max ? ' MAX' : '');
