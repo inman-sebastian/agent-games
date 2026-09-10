@@ -39,13 +39,14 @@
     let LIGHTS = [], lightCount = 0;
     const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
 
-    const addCv = document.createElement('canvas'), addX = addCv.getContext('2d');
+    const glowCv = document.createElement('canvas'), glowX = glowCv.getContext('2d');   // small tile-res additive glow, GPU-upscaled
     const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
     const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
-    let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
-    let gxCol = null, txCol = null, tx1Col = null;   // per-x bilinear setup, precomputed once per frame
+    let glowImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+    let gxCol = null, txCol = null, tx1Col = null;   // per-x scrim bilinear setup, precomputed once per frame
     let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // lamp field (max-propagated)
     let ogR = null, ogG = null, ogB = null;              // ore-glow field (own colour, occlusion-aware)
+    let bright = null;                                   // per-tile scalar brightness → the dithered scrim
 
     // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
     function ensureVignette(LW, LH) {
@@ -67,7 +68,6 @@
       const SURFACE = (cfg.SURFACE == null ? -1 : cfg.SURFACE), solidTile = cfg.solidTile;
       ensureVignette(LW, LH);
       if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
-        addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
         scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH);
         gxCol = new Int32Array(LW); txCol = new Float32Array(LW); tx1Col = new Float32Array(LW); }
 
@@ -76,15 +76,16 @@
       const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = Math.ceil(LW / T) + 2 * LMARGIN;
       if (cols !== gw || rows !== gh) { gw = cols; gh = rows;
         tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh);
-        ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh); }
+        ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh);
+        bright = new Float32Array(gw * gh);
+        glowCv.width = gw; glowCv.height = gh; glowX.imageSmoothingEnabled = false; glowImg = glowX.createImageData(gw, gh); }
       tR.fill(0); tG.fill(0); tB.fill(0); ogR.fill(0); ogG.fill(0); ogB.fill(0);
       // seed: lamp (r=0) → lamp field; ore veins (r>0) → ore-glow field, at their own tile
-      let oreSeeded = false;   // skip the ore-glow field entirely when nothing seeds it (common)
       for (const L of LIGHTS) {
         const tc = Math.floor(L.x / T) - tileLeft, tr = Math.floor(L.y / T) - tileTop;
         if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
         const idx = tr * gw + tc;
-        if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; oreSeeded = true; }
+        if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; }
         else { tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i; }
       }
       // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
@@ -104,10 +105,28 @@
       for (let y = gh - 1; y >= 0; y--) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BL→TR
         if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
 
-      // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
-      // The x-dependent bilinear setup (column index + weights) is the same for every row,
-      // so precompute it once per frame; and skip the ore-glow field wholesale when unlit.
-      const ad = addImg.data, sd = scrimImg.data, skyY = (SURFACE + 1) * T;
+      // ---- build the tile-res buffers (proven pattern: compute per tile, upscale on the GPU) ----
+      // glow = additive colour (warm lamp + ore hue), interpolated smoothly by the GPU on
+      // upscale — the expensive per-pixel bilinear moves off the CPU. bright = a scalar the
+      // per-pixel scrim reads (1 channel) so the dithered pixel-art fog is preserved cheaply.
+      const gd = glowImg.data;
+      for (let i = 0, n = gw * gh; i < n; i++) {
+        const lr = tR[i] + AMB[0], lg = tG[i] + AMB[1], lb = tB[i] + AMB[2];
+        let cr = ogR[i]; if (cr > GLOW_CAP) cr = GLOW_CAP;
+        let cg = ogG[i]; if (cg > GLOW_CAP) cg = GLOW_CAP;
+        let cb = ogB[i]; if (cb > GLOW_CAP) cb = GLOW_CAP;
+        let sr = lr * ADD + cr; if (sr > ADD_MAX) sr = ADD_MAX;
+        let sg = lg * ADD + cg; if (sg > ADD_MAX) sg = ADD_MAX;
+        let sb = lb * ADD + cb; if (sb > ADD_MAX) sb = ADD_MAX;
+        const j = i * 4; gd[j] = sr * 255; gd[j + 1] = sg * 255; gd[j + 2] = sb * 255; gd[j + 3] = 255;
+        let br = lr > lg ? (lr > lb ? lr : lb) : (lg > lb ? lg : lb);
+        if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;
+        bright[i] = br;
+      }
+      glowX.putImageData(glowImg, 0, 0);
+
+      // ---- scrim: per-pixel dithered darkness from the 1-channel brightness field ----
+      const sd = scrimImg.data, skyY = (SURFACE + 1) * T;
       for (let x = 0; x < LW; x++) {
         const fx = (x + camX) / T - tileLeft - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
         const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx);
@@ -120,33 +139,26 @@
         const row0 = gy * gw, row1 = row0 + gw, rowJ = y * LW * 4;
         const aboveSky = (y + camY) <= skyY;
         for (let x = 0; x < LW; x++) {
-          const j = rowJ + x * 4;
           const gx = gxCol[x], tx = txCol[x], tx1 = tx1Col[x];
-          const a00 = row0 + gx, a10 = a00 + 1, a01 = row1 + gx, a11 = a01 + 1;
-          const w00 = tx1 * ty1, w10 = tx * ty1, w01 = tx1 * ty, w11 = tx * ty;
-          const r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
-          const g2 = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
-          const b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
-          let br = r > g2 ? (r > b ? r : b) : (g2 > b ? g2 : b);
-          let sr = r * ADD, sg = g2 * ADD, sb = b * ADD;
-          if (oreSeeded) {                                  // ore colour only where it exists
-            let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
-            let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
-            let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
-            sr += cr; sg += cg; sb += cb;
-            if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb;
-          }
-          // total additive (lamp warm + ore colour) capped so their overlap can't blow to a white sunspot
-          if (sr > ADD_MAX) sr = ADD_MAX; if (sg > ADD_MAX) sg = ADD_MAX; if (sb > ADD_MAX) sb = ADD_MAX;
-          ad[j] = sr * 255; ad[j + 1] = sg * 255; ad[j + 2] = sb * 255; ad[j + 3] = 255;
+          let br = (bright[row0 + gx] * tx1 + bright[row0 + gx + 1] * tx) * ty1
+                 + (bright[row1 + gx] * tx1 + bright[row1 + gx + 1] * tx) * ty;
           if (br > 1) br = 1;
           const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
           let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
+          const j = rowJ + x * 4;
           sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
         }
       }
-      addX.putImageData(addImg, 0, 0); scrimX.putImageData(scrimImg, 0, 0);
-      g.save(); g.globalCompositeOperation = 'lighter'; g.drawImage(addCv, 0, 0); g.restore();
+      scrimX.putImageData(scrimImg, 0, 0);
+
+      // ---- composite: GPU-upscaled additive glow (smooth) + dithered scrim + vignette ----
+      // The small glow texture's texel gx holds tile (tileLeft+gx)'s centre value; drawing it
+      // scaled by T at (tileLeft*T - camX) lands each texel centre on its tile centre, so the
+      // GPU's bilinear matches the scrim's sampling convention (fx = worldTile - tileLeft - 0.5).
+      g.save();
+      g.globalCompositeOperation = 'lighter'; g.imageSmoothingEnabled = true;
+      g.drawImage(glowCv, 0, 0, gw, gh, tileLeft * T - camX, tileTop * T - camY, gw * T, gh * T);
+      g.restore();                                       // reverts composite op + smoothing (back to nearest)
       g.drawImage(scrimCv, 0, 0);                         // dithered darkness
       g.drawImage(vigCv, 0, 0);                           // shared vignette frame
       lightCount = LIGHTS.length; LIGHTS.length = 0;      // reset emitters for next frame
