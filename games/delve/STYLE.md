@@ -5,11 +5,17 @@ for the art. All art is drawn in code (canvas, no images/emoji/fonts-as-art) on
 a **logical-resolution buffer that is upscaled with `image-rendering: pixelated`**,
 so every effect — including gradients, glows and vignette — stays chunky pixels.
 
-> **Status:** the cave art direction below is developed and tuned in
-> `style-lab.html` (the standalone art lab). It has **not yet been ported into
-> the game** — `index.html` still renders an earlier flat-tile look. When the
-> renderer is ported, the game must be brought in line with this spec. Keep this
-> file in sync with `style-lab.html` as the direction evolves.
+> **Status:** this direction is **live in the game** — `index.html` renders the
+> layered cave (background + per-pixel top-lit rock + baked ore veins + per-frame
+> glow/lamp/fog) described here. `style-lab.html` remains the standalone tuning
+> sandbox where the look is iterated before changes land in the game; keep the
+> three (lab, game, this file) in sync as the direction evolves.
+>
+> In the game the rock field is expensive, so background + rock + baked ore veins
+> are cached in an offscreen buffer and only rebuilt when the camera crosses a
+> tile row or a tile is dug; the lamp, ore glow, fog-of-war, miner, particles and
+> vignette are drawn per-frame on top. All world-space noise is anchored to world
+> coordinates so eroded edges and texture stay put as the view scrolls.
 
 ## Grounding
 Derived from studying real references the user vetted: **Dome Keeper**,
@@ -95,6 +101,12 @@ are faceted/airier by design):
 - Gold `#4c3e24 #f9c22b #fbff86` — nugget · Emerald `#165a4c #1ebc73 #91db69` — prism
 - Ruby `#831c5d #f04f78 #f68181` — cluster · Diamond `#0b8a8f #30e1b9 #8ff8e2` — gem
 - Mythril `#484a77 #905ea9 #a884f3` — shard
+
+The engine has two more diggables the lab doesn't demo, mapped to nuggets in the
+game (`ORE_ART` in `index.html`, keyed by engine ore id): **Dirt** `#48371f
+#6d5230 #8f6b3c` — nugget, `dim` (a plain clod, no glow) · **Silver** `#625565
+#9babb2 #e8eef5` — nugget. Metals (Dirt/Copper/Iron/Silver/Gold) all use the
+lumpy `nugget`; the four gems keep their distinct crystal shapes.
 
 ## Ore veins (chip to reveal)
 - Undamaged rock shows **embedded flecks** of the ore colour — a tight, centred
