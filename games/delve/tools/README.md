@@ -1,7 +1,11 @@
 # DELVE dev tools
 
-Cheap headless verification so we don't lean on browser automation (Playwright) for
-everything — big token savings. All driven from the shell.
+Cheap headless verification, all driven from the shell. **Use these first — Playwright /
+MCP is a last resort.** Reading browser-automation screenshots (especially full-viewport
+or hi-DPI) is slow and burns tokens; these tools answer almost every question in text or a
+tiny cropped PNG. If something isn't covered, extend a tool rather than defaulting to
+Playwright. (Only genuinely live questions — input feel, real FPS — need the browser, and
+even then read the `?debug` overlay text, not screenshots.)
 
 ## `verify.js` — the balance gate
 
@@ -24,13 +28,14 @@ Runs the SAME pure engine the game uses (`scripts/engine.js`), so any logic / wo
 node tools/sim.js state  [--seed N] [--from save.json]      # raw state as JSON
 node tools/sim.js probe  --seed N --c C --r R               # tileInfo at one cell
 node tools/sim.js map    --seed N [--c C --r R --w W --h H] # ASCII ore/cluster map
-node tools/sim.js play   --seed N --do "d40 r5 d40" [--from save.json]
+node tools/sim.js play   --seed N --do "d600 r120" [--from save.json]
 ```
 
 - `map` prints an ASCII grid of the static world (`.` rock, letters = ore tiers) plus
   ore-coverage % and per-tier counts — ideal for eyeballing cluster shape/size/density.
-- `play` runs an action script (tokens `<dir><count>`, dir ∈ u/d/l/r) and dumps the
-  resulting state + a mined-ore summary — ideal for pacing/economy checks.
+- `play` runs an action script through the platformer physics (tokens `<key><frames>`,
+  key ∈ d = mine down / l = run left / r = run right / u = jump; frames are 1/60s) and
+  dumps the resulting state + a mined-ore summary — ideal for pacing/economy checks.
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
@@ -48,8 +53,24 @@ tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none&lamp=0' out.png  # raw ore-bloc
 
 Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in tiles),
 `scale` (px per art px), `cave` (`shaft`|`none`), `lamp` (1 apply lighting / 0 raw art),
-`miner` (0/1), `vision` (lamp reach). Window size is derived from `w`/`h`/`scale`, so the
-PNG is exactly the crop.
+`miner` (0/1), `vision` (lamp reach — crank it high to saturate the lighting). Window size
+is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
 
-**Rule of thumb:** reach for `sim.js` first (free); only render a crop when you truly
-need to see pixels, and keep `w`/`h`/`scale` small.
+`shot.sh` takes an optional third arg — the **page** to shoot (default `tools/render.html`)
+— so it also captures the style lab or the light lab headlessly:
+
+```sh
+tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png tools/light-lab.html   # the light lab
+```
+
+## `light-lab.html` — colored-light blending sandbox
+
+A live scene that drives the real lighting system with several coloured emitters over a
+rock chamber, so you can see how lights blend (additive per-channel, max-propagated
+flood-fill), how occluders shadow, and how the additive cap reads. Open it in a browser,
+or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
+· **O** toggle occluders.
+
+**Rule of thumb:** reach for `sim.js`/`verify.js` first (free, text); render a crop only
+when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
+resort.

@@ -66,6 +66,7 @@
     function render(cfg) {
       const g = cfg.g, LW = cfg.LW, LH = cfg.LH, T = cfg.T, camX = cfg.camX || 0, camY = cfg.camY || 0;
       const SURFACE = (cfg.SURFACE == null ? -1 : cfg.SURFACE), solidTile = cfg.solidTile;
+      const hueCap = cfg.hueCap !== false;   // true: cap RGB together (keep hue); false: per-channel clamp
       ensureVignette(LW, LH);
       if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
         scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH);
@@ -115,9 +116,13 @@
         let cr = ogR[i]; if (cr > GLOW_CAP) cr = GLOW_CAP;
         let cg = ogG[i]; if (cg > GLOW_CAP) cg = GLOW_CAP;
         let cb = ogB[i]; if (cb > GLOW_CAP) cb = GLOW_CAP;
-        let sr = lr * ADD + cr; if (sr > ADD_MAX) sr = ADD_MAX;
-        let sg = lg * ADD + cg; if (sg > ADD_MAX) sg = ADD_MAX;
-        let sb = lb * ADD + cb; if (sb > ADD_MAX) sb = ADD_MAX;
+        // cap the additive so many/overlapping lights can't blow past ADD_MAX. hueCap scales
+        // RGB together by the brightest channel (keeps the colour); otherwise clamp per channel
+        // (brightens toward white/grey at saturation).
+        let sr = lr * ADD + cr, sg = lg * ADD + cg, sb = lb * ADD + cb;
+        if (hueCap) { const m = sr > sg ? (sr > sb ? sr : sb) : (sg > sb ? sg : sb);
+          if (m > ADD_MAX) { const k = ADD_MAX / m; sr *= k; sg *= k; sb *= k; } }
+        else { if (sr > ADD_MAX) sr = ADD_MAX; if (sg > ADD_MAX) sg = ADD_MAX; if (sb > ADD_MAX) sb = ADD_MAX; }
         const j = i * 4; gd[j] = sr * 255; gd[j + 1] = sg * 255; gd[j + 2] = sb * 255; gd[j + 3] = 255;
         let br = lr > lg ? (lr > lb ? lr : lb) : (lg > lb ? lg : lb);
         if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;

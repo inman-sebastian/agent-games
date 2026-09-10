@@ -13,19 +13,36 @@ just the DELVE-specific working rules.
 - **`blocks.js` is the single source of truth for the world** (`f(seed,c,r)`), and it's
   static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.js`
   is the pure sim on top and has no DOM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- **Don't add gravity, fuel, cargo, or hauling** — they're deliberately absent to keep
-  the economy soft-lock-free (see the design pillars in DESIGN.md). Ore sells in place.
+- **Keep the economy soft-lock-free** — digging is free and ore can be sold anytime, so
+  the player can never get stranded. No fuel, no hauling requirement, no cargo cap yet.
+  (Movement is a gravity platformer as of #2; upward-traversal tools are a future pass.)
+  See the design pillars in DESIGN.md.
 - **All art is drawn in code** on the Resurrect 64 palette, at logical resolution
   upscaled with `image-rendering: pixelated`. No emoji, clip art, or found images.
 - **Update the docs *first*** when a rule or the art direction changes, then the code —
   the docs are the source of truth others read.
 
-## Workflow
+## Verifying your work — cheap tools first; Playwright is a LAST RESORT
 
-- After any logic / economy / world-gen change, run **`pnpm verify`** (or `node
-  tools/verify.js`) — the greedy-bot balance gate.
-- Prefer the cheap headless tools over Playwright/MCP: `tools/sim.js` (state / world
-  map / scripted play, no browser) and `tools/render.html` + `tools/shot.sh` (a tight
-  cropped PNG of exactly one region). See [tools/README.md](tools/README.md).
+Reading MCP/Playwright screenshots (especially full-viewport / hi-DPI) is slow and burns
+tokens. **Always** verify with the built headless tools, in this order — only reach for
+Playwright when a question is genuinely impossible headlessly, and even then read text,
+not images:
+
+1. **Logic / economy / world-gen** → `pnpm verify` (the greedy-bot balance gate) and
+   `tools/sim.js` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
+2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
+   via headless Chrome (no MCP). Works for `tools/render.html` (world crops),
+   `style-lab.html`, and `tools/light-lab.html`. Keep `w`/`h`/`scale` small so the image is
+   tiny; then `Read` it.
+3. **Only if neither can answer it** (live input feel, real FPS) → Playwright with `?debug`,
+   and read the **debug-overlay text** via `browser_evaluate` — never a full-viewport / 4K
+   screenshot when a small `shot.sh` crop would do.
+
+If no cheap tool covers what you need, **build or extend one** (that's why `shot.sh` takes a
+`page` arg and `light-lab.html` exists) rather than defaulting to Playwright. See
+[tools/README.md](tools/README.md).
+
+- After any logic / economy / world-gen change, run **`pnpm verify`**.
 
 Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).
