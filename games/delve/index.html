@@ -140,9 +140,14 @@
     </div>
   </div>
 
+<!-- cave-render first (art helpers use its rng), then the resource registry + every entity
+     resource file (synchronously, from the manifest), then the modules that read them. -->
+<script src="scripts/cave-render.js"></script>
+<script src="scripts/resources.js"></script>
+<script src="resources/manifest.js"></script>
+<script>DELVE_RESOURCE_FILES.forEach(function (f) { document.write('<script src="resources/' + f + '.js"><\/script>'); });</script>
 <script src="scripts/blocks.js"></script>
 <script src="scripts/engine.js"></script>
-<script src="scripts/cave-render.js"></script>
 <script src="scripts/ore-art.js"></script>
 <script src="scripts/sprites.js"></script>
 <script src="scripts/lighting.js"></script>
@@ -293,7 +298,7 @@
   if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && OffscreenCanvas.prototype.transferToImageBitmap) {
     try {
       worker = new Worker('scripts/chunk-worker.js');
-      worker.postMessage({ type: 'init', cfg: { T, CW, CH, SURFACE: D.SURFACE, MARGIN } });
+      worker.postMessage({ type: 'init', cfg: { T, CW, CH, SURFACE: D.SURFACE, MARGIN, strata: D.STRATA } });
       worker.onmessage = (e) => {
         const { cx, cy, bmp } = e.data, key = ckey(cx, cy);
         const queued = pending.get(key); pending.delete(key);
@@ -712,6 +717,7 @@
     bind('tL', 'left'); bind('tR', 'right'); bind('tJ', 'jump');
   }
 
+  CR.setStrata(D.STRATA);           // hand the strata palette to the rock renderer (main thread)
   buildShop(); fit(); snapCam(); updateHUD();
   requestAnimationFrame(frame);
 })();

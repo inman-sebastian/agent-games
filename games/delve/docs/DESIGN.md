@@ -47,9 +47,9 @@ shallow → deep:
 > Dirt · Copper · Iron · Silver · Gold · Emerald · Ruby · Diamond · Mythril
 
 Each tier is a first-class **item**: name, value, depth band, rarity (array order),
-bonus hp and a codex blurb, all defined in the `ORES` table in `scripts/blocks.js`
-(**the source of truth**), paired with the authored crystal art in `ore-art.js` under
-the same id. Deeper tiers are exponentially more valuable and tougher, and appear only
+bonus hp and a codex blurb, each defined in its own **resource file** under
+`resources/*.js` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
+which also carries the ore's art (shape + colour triad). Deeper tiers are exponentially more valuable and tougher, and appear only
 within their depth band, so descending is what unlocks the next tier. **Dirt** is a
 near-worthless surface filler; **Mythril** is the deep-end payoff.
 

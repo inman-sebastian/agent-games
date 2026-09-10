@@ -22,9 +22,12 @@
        miner 1 = draw the miner at centre | 0 (default 1)
        vision lamp reach seed (default 9)
      e.g. render.html?c=41&r=100&w=18&h=14&scale=3&cave=shaft -->
+<script src="../scripts/cave-render.js"></script>
+<script src="../scripts/resources.js"></script>
+<script src="../resources/manifest.js"></script>
+<script>DELVE_RESOURCE_FILES.forEach(function (f) { document.write('<script src="../resources/' + f + '.js"><\/script>'); });</script>
 <script src="../scripts/blocks.js"></script>
 <script src="../scripts/engine.js"></script>
-<script src="../scripts/cave-render.js"></script>
 <script src="../scripts/ore-art.js"></script>
 <script src="../scripts/sprites.js"></script>
 <script src="../scripts/lighting.js"></script>
@@ -32,6 +35,7 @@
 (function () {
   'use strict';
   const D = window.Delve, CR = window.CaveRender, T = CR.T, W = D.WIDTH, SURF = D.SURFACE;
+  CR.setStrata(D.STRATA);   // hand strata to the rock renderer
   const q = new URLSearchParams(location.search);
   const n = (k, d) => q.has(k) ? +q.get(k) : d;
   const seed = n('seed', 12345);

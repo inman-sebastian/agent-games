@@ -26,12 +26,36 @@ for Node (the `tools/`, including `verify.js`). No build step.
 
 | Module | Global | Responsibility |
 | --- | --- | --- |
-| `blocks.js` | `Blocks` | **World definition** — the single source of truth for "what is at a cell". Bounds, block types (depth `STRATA` + the ore table), procedural generation, and the canonical queries `blockAt(seed,c,r)` (full static descriptor) and cheap `solidAt(seed,c,r)`. Pure `f(seed,c,r)`; depends on nothing. *Static only* — dug/damage state lives in the save. |
+| `resources.js` | `DelveResources` | **Entity registry** — `register`/`all(type)`/`byId`, plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.js` (see below); this module just collects them. |
+| `blocks.js` | `Blocks` | **World definition** — the world-gen logic and the canonical queries `blockAt(seed,c,r)` / `solidAt(seed,c,r)`. Sources its block types (depth `STRATA` + the ore table) from the resource registry; owns the generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. *Static only* — dug/damage state lives in the save. |
 | `engine.js` | `Delve` | The pure **sim** — player state, dig/move resolution, economy, upgrades — layered over `Blocks`. Re-exports the world query for convenience. Required by the `tools/` (`verify.js`, `sim.js`). No DOM, no presentation. |
 | `cave-render.js` | `CaveRender` | The **rock renderer** (`composeBand`) plus colour/rng/noise helpers. Reads the depth `STRATA` ramps from `Blocks`. Used by the main thread, the Worker, and the lab. |
-| `ore-art.js` | `DelveOre` | Ore/gem **crystal art**: `ORE_ART` (per-id triad + shape), the `SHAPES`, and `drawOreBlock` (cluster-aware full-cell ore rendering). |
+| `ore-art.js` | `DelveOre` | Ore-**block** renderer (`drawOreBlock`, cluster-aware full-cell) + a thin facade (`ORE_ART`/`SHAPES`) over the registry. |
 | `sprites.js` | `DelveSprites` | The **miner** sprite (`drawMiner`) and future entities. |
 | `lighting.js` | `DelveLighting` | The geometry-aware **lighting system** as a config-driven instance: `create()` → push emitters via `addLight()`, then `render(cfg)`. See [LIGHTING.md](LIGHTING.md). |
+
+## Entity resources
+
+Every game entity — each depth **stratum** and each **ore** today, more types later — is
+its own **self-registering file** under `resources/*.js` that calls
+`DelveResources.register({ type, id, … })`. A resource is plain data plus its **art as a
+function** (ores declare `art: { shape, c:[dark,mid,hi] }`, reusing the registry's shared
+shapes). This keeps each entity individually tunable, gives new ones a single standard,
+and is a clean target for future tooling.
+
+Loading is synchronous and build-free in all three contexts:
+
+- **Browser** (`index.html`, `style-lab.html`, `tools/render.html`): `cave-render.js` →
+  `resources.js` → `resources/manifest.js` → the entity files (written out from the
+  manifest) → `blocks.js`. `blocks.js` reads `DelveResources.all('strata'|'ore')` at load.
+- **Node** (`tools/`, `verify.js`): requiring `resources.js` auto-discovers and requires
+  every `resources/*.js` via `fs`, so the registry is populated before `blocks.js` uses it.
+- **Worker** (`chunk-worker.js`): doesn't load the registry at all — it only renders rock,
+  and the strata palette is posted in its init message (`CaveRender.setStrata`).
+
+**Adding an entity:** create `resources/<name>.js` (self-registering), add its basename to
+`resources/manifest.js`, done — `verify.js` validates the schema and that the manifest
+matches the directory. Behaviour (world gen) is unchanged as long as the data matches.
 
 ## Who composes what
 

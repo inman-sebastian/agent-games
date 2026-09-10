@@ -24,13 +24,15 @@
     const sm = t => t * t * (3 - 2 * t), au = sm(tx), av = sm(ty), a = h(fx, fy), b = h(fx + 1, fy), c = h(fx, fy + 1), d = h(fx + 1, fy + 1);
     return (a * (1 - au) + b * au) * (1 - av) + (c * (1 - au) + d * au) * av; }
 
-  // Depth strata (the diggable rock's per-depth palette) are DEFINED in blocks.js — the
-  // single source of truth for a block. Here we just interpolate between adjacent bands
-  // for a smooth colour-by-depth. (blocks.js is loaded before this module everywhere it's
-  // used — index.html, the lab, and the chunk Worker's importScripts.)
+  // Depth strata (the diggable rock's per-depth palette) are DEFINED as resources
+  // (resources/*.js). The owning context hands them to the renderer via setStrata: the
+  // main thread / lab / tools pass Blocks.STRATA; the chunk Worker gets them posted in
+  // its init message (so it needn't load the registry). Here we just interpolate between
+  // adjacent bands for a smooth colour-by-depth.
+  let STRATA = [];
+  function setStrata(s) { STRATA = s || []; }
   const smoothstep = t => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
   function rampAt(row) {
-    const STRATA = root.Blocks.STRATA;
     let i = 0; while (i < STRATA.length - 1 && row >= STRATA[i + 1].top) i++;
     const a = STRATA[i], b = STRATA[Math.min(i + 1, STRATA.length - 1)];
     if (a === b) return a.ramp.slice();
@@ -129,5 +131,5 @@
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen(cx - w, Y + T - 1 - i, 2 * w + 1, 1, rgbHex(i < 1 ? C.center : C.deep)); } } }
   }
 
-  root.CaveRender = { T, TEX, composeBand, hexRgb, rgbHex, mix, desat, mulberry, hashXY, vnoise, clamp01, rampAt, colorsFor, bgFor };
+  root.CaveRender = { T, TEX, composeBand, setStrata, hexRgb, rgbHex, mix, desat, mulberry, hashXY, vnoise, clamp01, rampAt, colorsFor, bgFor };
 })(self);

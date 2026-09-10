@@ -15,7 +15,7 @@
   'use strict';
 
   const Blocks = (typeof module !== 'undefined' && module.exports) ? require('./blocks') : root.Blocks;
-  const { WIDTH, SURFACE, ORES, ORE_BY_ID, rarityOf, blockAt, solidAt, oreAt, rockHp, tileRand } = Blocks;
+  const { WIDTH, SURFACE, STRATA, ORES, ORE_BY_ID, rarityOf, blockAt, solidAt, oreAt, rockHp, tileRand } = Blocks;
 
   // Upgrade tracks: leveled, geometric cost. `apply` maps level→effect.
   const UPGRADES = {
@@ -244,7 +244,7 @@
 
   const Delve = {
     // world (re-exported from blocks.js for convenience)
-    WIDTH, SURFACE, ORES, ORE_BY_ID, rarityOf, blockAt, solidAt, oreAt, rockHp, tileInfo,
+    WIDTH, SURFACE, STRATA, ORES, ORE_BY_ID, rarityOf, blockAt, solidAt, oreAt, rockHp, tileInfo,
     // sim
     UPGRADES, TECH, PHYS, isRich, newGame, stats, upgradeCost, buyUpgrade, buyTech,
     physicsStep, mineTile, invCount, invValue, sellAll, atSurface, isDug, solidCell, key,

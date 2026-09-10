@@ -33,8 +33,9 @@ Hex list, in palette order (copy-paste friendly):
 ## Strata ramps
 
 Each depth stratum is a 6-step ramp, `shadow[0] → rim[5]`, with a distinct identity
-so **depth reads by colour**. Defined once in `scripts/blocks.js` (`STRATA`); the
-rock renderer reads them from there.
+so **depth reads by colour**. Each stratum is its own resource file under `resources/*.js`
+(type `strata`); the rock renderer reads the ramps from the registry (see
+[ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)).
 
 | Stratum | Top row | Identity | Ramp | Notes |
 | --- | --- | --- | --- | --- |
@@ -72,5 +73,5 @@ are faceted/airier by design.
 Metals (Dirt/Copper/Iron/Silver/Gold) all use the lumpy `nugget`; the four gems
 keep their distinct crystal shapes. **Dirt** is a `dim` ore — a plain clod with no
 glow, rendered as ordinary rock in the world (its shape is only the extracted icon).
-The authoritative bands/values/weights live in the `ORES` table in
-`scripts/blocks.js` — this table is a snapshot for art reference.
+The authoritative bands/values/weights/art live in the per-ore **resource files** under
+`resources/*.js` — this table is a snapshot for art reference.

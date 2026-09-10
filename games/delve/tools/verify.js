@@ -18,6 +18,27 @@ for (let i = 1; i < D.ORES.length; i++) {
 }
 for (const k in D.UPGRADES) chk(D.upgradeCost(k, 1) > D.upgradeCost(k, 0), `${k} cost is monotonic`);
 
+// --- resource validation: every entity file conforms + the manifest matches disk ---
+const RES = require('../scripts/resources');
+const fs = require('fs'), path = require('path');
+const resDir = path.join(__dirname, '..', 'resources');
+const onDisk = fs.readdirSync(resDir).filter(f => f.endsWith('.js') && f !== 'manifest.js').map(f => f.replace(/\.js$/, '')).sort();
+const manifest = require('../resources/manifest').slice().sort();
+chk(JSON.stringify(onDisk) === JSON.stringify(manifest), `manifest matches resources/ dir (${onDisk.length} files)`);
+const strata = RES.all('strata'), ores = RES.all('ore');
+chk(strata.length === 5, `5 strata resources (got ${strata.length})`);
+chk(ores.length === 9, `9 ore resources (got ${ores.length})`);
+for (const s of strata) {
+  chk(typeof s.id === 'string' && Number.isFinite(s.top) && s.top >= 0, `strata ${s.id}: id + top`);
+  chk(Array.isArray(s.ramp) && s.ramp.length === 6 && s.ramp.every(h => /^#[0-9a-f]{6}$/i.test(h)), `strata ${s.id}: 6-stop hex ramp`);
+}
+for (const o of ores) {
+  chk(Number.isFinite(o.id) && !!o.name && Array.isArray(o.band) && o.band.length === 2, `ore ${o.name || o.id}: id/name/band`);
+  chk(o.value > 0 && o.hp >= 0 && o.weight > 0 && /^#[0-9a-f]{6}$/i.test(o.color || ''), `ore ${o.name}: value/hp/weight/color`);
+  chk(o.art && RES.shapes[o.art.shape] && Array.isArray(o.art.c) && o.art.c.length === 3, `ore ${o.name}: art shape + colour triad`);
+  chk(typeof o.desc === 'string' && o.desc.length > 0, `ore ${o.name}: codex blurb`);
+}
+
 // --- world gen: every ore tier must be discoverable within its band ---
 for (const o of D.ORES) {
   const r0 = o.band[0], r1 = Math.min(o.band[1], r0 + 80);

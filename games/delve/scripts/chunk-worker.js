@@ -4,14 +4,16 @@
 // a transferable ImageBitmap (zero-copy). The world is unbounded in both axes, so a
 // chunk is a CW×CH tile tile-block addressed by (cx, cy); rock shape depends only on dug
 // state, so each request carries the dug tiles overlapping the chunk's region.
-importScripts('blocks.js', 'cave-render.js');
+// Only the renderer is needed here (no world queries) — the strata palette is posted in
+// the init message, so the Worker doesn't load the entity registry.
+importScripts('cave-render.js');
 
 let cfg = { T: 16, CW: 12, CH: 6, SURFACE: 0, MARGIN: 1 };
 let scratch = null, sctx = null, core = null, cctx = null;
 
 onmessage = (e) => {
   const m = e.data;
-  if (m.type === 'init') { cfg = m.cfg; return; }
+  if (m.type === 'init') { cfg = m.cfg; CaveRender.setStrata(cfg.strata); return; }
   if (m.type !== 'chunk') return;
 
   const { T, CW, CH, SURFACE, MARGIN } = cfg;

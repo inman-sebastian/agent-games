@@ -11,6 +11,12 @@
 (function (root) {
   'use strict';
 
+  // Entity definitions (strata + ores) come from the resource REGISTRY — one
+  // self-registering file per entity under resources/*.js. blocks.js owns only the
+  // world-generation logic; the data lives with the resources. (Node: requiring the
+  // registry auto-loads every resource file; browser: it's loaded before this script.)
+  const DelveResources = (typeof module !== 'undefined' && module.exports) ? require('./resources') : root.DelveResources;
+
   // The world is UNBOUNDED horizontally (see blockAt/solidAt) — there are no side walls.
   // WIDTH is retained only as a convenient default view span for the dev tools; it does
   // NOT bound the world.
@@ -36,36 +42,16 @@
   }
 
   // --- STRATA blocks (the diggable rock) --------------------------------------------
-  // Each depth band starts at row `top` and carries a 6-stop Resurrect-64 palette ramp.
-  // Appearance lives here so a block is defined once; renderers read STRATA for colour.
-  const STRATA = [
-    { id: 'topsoil',   top: 2,   ramp: ['#2e222f', '#45293f', '#7a3045', '#9e4539', '#cd683d', '#e6904e'] }, // red-brown
-    { id: 'clay',      top: 24,  ramp: ['#2a2018', '#48371f', '#6d5230', '#8f6b3c', '#b28a4e', '#d0aa66'] }, // ochre
-    { id: 'stone',     top: 84,  ramp: ['#2e222f', '#3e3546', '#625565', '#7f708a', '#9babb2', '#c7dcd0'] }, // gray
-    { id: 'deepstone', top: 190, ramp: ['#2e222f', '#323353', '#484a77', '#4d65b4', '#4d9be6', '#8fd3ff'] }, // blue
-    { id: 'basalt',    top: 370, ramp: ['#2e222f', '#45293f', '#6b3e75', '#905ea9', '#a884f3', '#eaaded'] }, // violet
-  ];
+  // Depth bands are defined in resources/*.js (type 'strata'): each has a row `top` and a
+  // 6-stop Resurrect-64 ramp. Here we just read them, sorted shallow→deep by the registry.
+  const STRATA = DelveResources.all('strata');
   function strataIndexAt(r) { let i = 0; while (i < STRATA.length - 1 && r >= STRATA[i + 1].top) i++; return i; }
 
   // --- ORE blocks (nodes) -----------------------------------------------------------
-  // The ORE table is the first-class ITEM DEFINITION for each ore: the single gameplay
-  // source of truth for name / value / depth band / rarity (array order) / flavour, paired
-  // with the authored crystal art in ore-art.js (keyed by the same id). Mined ore is held
-  // as these items in the inventory (see engine.js).
-  //   band=[minRow,maxRow] where it can appear; weight = spawn share within its band;
-  //   value = coins per unit when sold; hp = toughness on top of the rock hp; desc = codex
-  //   blurb. Ordered surface→deep, so the array index is the rarity/tier (see rarityOf).
-  const ORES = [
-    { id: 1, name: 'Dirt',    band: [2, 8],        weight: 60, value: 1,    hp: 0,  color: '#a06a3c', dim: true, desc: 'Loose surface clod. Worth almost nothing, but it counts.' },
-    { id: 2, name: 'Copper',  band: [4, 24],       weight: 26, value: 5,    hp: 1,  color: '#d67b40', desc: 'Ruddy starter metal, common in the shallows.' },
-    { id: 3, name: 'Iron',    band: [16, 52],      weight: 22, value: 12,   hp: 2,  color: '#c2ccd8', desc: 'Tough, dependable ore of the upper stone.' },
-    { id: 4, name: 'Silver',  band: [40, 92],      weight: 15, value: 34,   hp: 3,  color: '#f0f4fa', desc: 'Bright and soft, glinting in cool grey rock.' },
-    { id: 5, name: 'Gold',    band: [76, 156],     weight: 11, value: 95,   hp: 4,  color: '#f5c84e', desc: 'Heavy, radiant, and reliably valuable.' },
-    { id: 6, name: 'Emerald', band: [132, 240],    weight: 7,  value: 260,  hp: 6,  color: '#41cf76', desc: 'The first true gem — deep green, deeply prized.' },
-    { id: 7, name: 'Ruby',    band: [216, 370],    weight: 5,  value: 720,  hp: 8,  color: '#ee4f66', desc: 'A cluster of crimson fire from the deep stone.' },
-    { id: 8, name: 'Diamond', band: [330, 530],    weight: 3,  value: 2100, hp: 11, color: '#66e0ee', desc: 'Flawless and adamant. Few dig deep enough to find it.' },
-    { id: 9, name: 'Mythril', band: [480, 99999],  weight: 2,  value: 6200, hp: 15, color: '#bd77f5', desc: 'The legendary violet ore of the abyss.' },
-  ];
+  // Ore item definitions live in resources/*.js (type 'ore'): id / name / band / weight /
+  // value / hp / color / desc / art, ordered surface→deep so the array index is the
+  // rarity/tier (see rarityOf). blocks.js owns only the placement logic below.
+  const ORES = DelveResources.all('ore');
   const ORE_BY_ID = Object.fromEntries(ORES.map(o => [o.id, o]));
   const rarityOf = (id) => ORES.findIndex(o => o.id === id);
 
