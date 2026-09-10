@@ -381,35 +381,40 @@
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
 
-  // ---------- lighting system ----------
+  // ---------- lighting system (geometry-aware) ----------
   // One independent system: every light source — the miner's lamp, glowing ore veins,
-  // anything added later — is an emitter pushed via addLight() and obeys the SAME
-  // radial falloff rule. Each frame the emitters accumulate into a colour light buffer
-  // (screen space). The buffer is then composited in two passes that recreate the
-  // look we settled on: a SMOOTH additive colour glow (warm lamp, coloured ore), and
-  // a DITHERED darkness scrim derived from the same buffer's brightness (the pixel-art
-  // fog). Because the scrim reads from the accumulated light, a source lights its own
-  // surroundings out of the dark — the lamp and an ore vein carve visibility by the
-  // same rule. A shared dithered vignette frames it. Adding a light = one addLight().
+  // anything later — is an emitter pushed via addLight() and obeys the SAME rules.
+  //
+  // Light is OCCLUDED BY ROCK. Each frame the emitters seed a world-space per-tile
+  // colour field, which is then PROPAGATED across the visible tile window (Terraria's
+  // technique): open/dug tiles conduct light (OPEN_ATTEN per step), solid rock absorbs
+  // it fast (ROCK_ATTEN) — so light pools down the tunnels you carved and dies a couple
+  // tiles into rock. The lit region takes the SHAPE of the dug space, not a circle, and
+  // the first rock layer round a lit tunnel catches a warm rim for free. The tile field
+  // is then bilinear-sampled per pixel and composited exactly as before: a smooth
+  // additive colour glow (warm lamp, coloured ore) + a DITHERED darkness scrim derived
+  // from the same field (the pixel-art fog), plus a shared dithered vignette.
   //
   // Grounded in the reference miners (SteamWorld Dig 2, Terraria, Super Motherload):
-  //   warm colour temperature (a lantern, not a cool flashlight); many small local
-  //   sources, not one spotlight; deep dark beyond reach. (Still radial — true
-  //   geometry occlusion / warm rim on dug edges is the natural next layer.)
+  //   warm colour temperature; many small local sources; deep dark beyond reach; light
+  //   that respects the carved geometry.
   const DSTEP = 10;                                     // dither steps for the darkness scrim + vignette
   const LBY = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];  // 4×4 ordered dither, same as the rock
   const AMB = [0.05, 0.05, 0.08];                       // ambient floor — unlit rock stays dim, faintly cool
   const SCRIM = [6, 7, 14];                             // colour the darkness fades toward (deep, cool)
-  const ADD = 0.26;                                     // how strongly accumulated light shows as additive glow
+  const ADD = 0.26;                                     // how strongly the light field shows as additive glow
   const LAMP_COLOR = [1.0, 0.72, 0.42];                 // warm lantern (warmer than before, per feedback)
-  const LAMP_REACH = 1.6;                               // lamp radius = (vision+0.5) × this, in tiles
+  const OPEN_ATTEN = 0.70, ROCK_ATTEN = 0.45;           // per-step light conduction: open tunnel vs solid rock
+  const LMARGIN = 2;                                    // extra tile rows above/below the view for clean edges
+  const ORE_GLOW = 1.15;                                // extra additive colour halo for point emitters (r>0), so gems pop
   let LIGHTS = [], lightCount = 0;
   const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
 
   const addCv = document.createElement('canvas'), addX = addCv.getContext('2d');
   const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
   const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
-  let accR = null, accG = null, accB = null, addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+  let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+  let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // world-space per-tile light field
 
   // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
   function ensureVignette() {
@@ -428,35 +433,78 @@
   function drawLighting(t, st) {
     ensureVignette();
     if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
-      accR = new Float32Array(LW * LH); accG = new Float32Array(LW * LH); accB = new Float32Array(LW * LH);
       addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
       scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
-    // the miner's lamp is just another emitter (warm, wide)
-    addLight(dispC * T + 8, dispR * T - camY + 7, (st.vision + 0.5) * LAMP_REACH * T, LAMP_COLOR, 1.0);
+    // the miner's lamp is just another emitter (warm; seed brightness scales gently with
+    // vision so the Deep Lantern reaches further down the tunnel)
+    addLight(dispC * T + 8, dispR * T - camY + 7, 0, LAMP_COLOR, 0.9 + 0.16 * st.vision);
 
-    // accumulate every emitter with one shared falloff rule
-    accR.fill(AMB[0]); accG.fill(AMB[1]); accB.fill(AMB[2]);
+    // ---- world-space per-tile light field ----
+    const tileTop = Math.floor(camY / T) - LMARGIN;
+    const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = W;
+    if (cols !== gw || rows !== gh) { gw = cols; gh = rows; tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh); }
+    tR.fill(0); tG.fill(0); tB.fill(0);
+    // seed emitters into their tile (additive, so co-located sources sum)
     for (const L of LIGHTS) {
-      const r = L.r, invr2 = 1 / (r * r);
+      const tc = Math.floor(L.x / T), tr = Math.floor((L.y + camY) / T) - tileTop;
+      if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
+      const idx = tr * gw + tc; tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i;
+    }
+    // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
+    // tile's opacity, so light dims hard the moment it enters rock). One round converges
+    // because each sweep chains through already-updated neighbours in its direction.
+    const relax = (i, from, a) => { let v = tR[from] * a; if (v > tR[i]) tR[i] = v; v = tG[from] * a; if (v > tG[i]) tG[i] = v; v = tB[from] * a; if (v > tB[i]) tB[i] = v; };
+    const attenAt = (x, gy) => (x < 0 || x >= W || solidTile(x, gy + tileTop)) ? ROCK_ATTEN : OPEN_ATTEN;
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9;   // TL→BR
+      if (x > 0) relax(i, i - 1, a); if (y > 0) relax(i, i - gw, a); if (x > 0 && y > 0) relax(i, i - gw - 1, ad2); }
+    for (let y = 0; y < gh; y++) for (let x = gw - 1; x >= 0; x--) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // TR→BL
+      if (x < gw - 1) relax(i, i + 1, a); if (y > 0) relax(i, i - gw, a); if (x < gw - 1 && y > 0) relax(i, i - gw + 1, ad2); }
+    for (let y = gh - 1; y >= 0; y--) for (let x = gw - 1; x >= 0; x--) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BR→TL
+      if (x < gw - 1) relax(i, i + 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x < gw - 1 && y < gh - 1) relax(i, i + gw + 1, ad2); }
+    for (let y = gh - 1; y >= 0; y--) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BL→TR
+      if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
+
+    // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
+    const ad = addImg.data, sd = scrimImg.data, skyY = (D.SURFACE + 1) * T;
+    for (let y = 0; y < LH; y++) {
+      const fy = (y + camY) / T - tileTop - 0.5;         // tile-space (values live at tile centres)
+      let gy = fy | 0; if (gy < 0) gy = 0; else if (gy > gh - 2) gy = gh - 2;
+      const ty = fy - gy < 0 ? 0 : (fy - gy > 1 ? 1 : fy - gy), ty1 = 1 - ty;
+      const aboveSky = (y + camY) <= skyY;
+      for (let x = 0; x < LW; x++) {
+        const j = (y * LW + x) * 4;
+        const fx = x / T - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
+        const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx), tx1 = 1 - tx;
+        const a00 = gy * gw + gx, a10 = a00 + 1, a01 = a00 + gw, a11 = a01 + 1;
+        const w00 = tx1 * ty1, w10 = tx * ty1, w01 = tx1 * ty, w11 = tx * ty;
+        let r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
+        let g = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
+        let b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
+        let av = r * ADD * 255; ad[j] = av > 255 ? 255 : av;
+        av = g * ADD * 255; ad[j + 1] = av > 255 ? 255 : av;
+        av = b * ADD * 255; ad[j + 2] = av > 255 ? 255 : av; ad[j + 3] = 255;
+        let br = r > g ? (r > b ? r : b) : (g > b ? g : b); if (br > 1) br = 1;
+        const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
+        let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
+        sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
+      }
+    }
+    // point-emitter colour halos (gems): the occlusion field is max-propagated, so an
+    // ore's colour is swamped by the brighter lamp where they overlap. Give r>0 emitters
+    // a dedicated additive colour glow so gems pop with their own hue (and brighter as
+    // they're exposed, since intensity carries the reveal fraction). The lamp (r=0) is
+    // skipped — its glow comes from the field.
+    for (const L of LIGHTS) {
+      if (L.r <= 0) continue;
+      const r = L.r, invr2 = 1 / (r * r), gr = L.cr * L.i * ORE_GLOW, gg = L.cg * L.i * ORE_GLOW, gb = L.cb * L.i * ORE_GLOW;
       const x0 = Math.max(0, (L.x - r) | 0), x1 = Math.min(LW - 1, (L.x + r) | 0);
       const y0 = Math.max(0, (L.y - r) | 0), y1 = Math.min(LH - 1, (L.y + r) | 0);
-      const cr = L.cr * L.i, cg = L.cg * L.i, cb = L.cb * L.i;
-      for (let y = y0; y <= y1; y++) { const dy = y - L.y, row = y * LW;
-        for (let x = x0; x <= x1; x++) { const dx = x - L.x; let f = 1 - (dx * dx + dy * dy) * invr2;
-          if (f <= 0) continue; f *= f; const i = row + x; accR[i] += cr * f; accG[i] += cg * f; accB[i] += cb * f; } }
-    }
-    // composite: smooth additive colour glow + dithered darkness scrim (from the same buffer)
-    const ad = addImg.data, sd = scrimImg.data;
-    for (let i = 0, j = 0, n = LW * LH; i < n; i++, j += 4) {
-      const r = accR[i], g = accG[i], b = accB[i];
-      ad[j] = r * ADD * 255 > 255 ? 255 : r * ADD * 255;
-      ad[j + 1] = g * ADD * 255 > 255 ? 255 : g * ADD * 255;
-      ad[j + 2] = b * ADD * 255 > 255 ? 255 : b * ADD * 255;
-      ad[j + 3] = 255;
-      let br = r > g ? (r > b ? r : b) : (g > b ? g : b); if (br > 1) br = 1;
-      const x = i % LW, y = (i / LW) | 0, bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
-      let dark = (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
-      sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
+      for (let y = y0; y <= y1; y++) { const dy = y - L.y;
+        for (let x = x0; x <= x1; x++) { const dx = x - L.x; const f = 1 - (dx * dx + dy * dy) * invr2;
+          if (f <= 0) continue; const j = (y * LW + x) * 4;   // soft parabolic dome (no sharp core → no hotspot)
+          let v = ad[j] + gr * f * 255; ad[j] = v > 255 ? 255 : v;
+          v = ad[j + 1] + gg * f * 255; ad[j + 1] = v > 255 ? 255 : v;
+          v = ad[j + 2] + gb * f * 255; ad[j + 2] = v > 255 ? 255 : v; } }
     }
     addX.putImageData(addImg, 0, 0); scrimX.putImageData(scrimImg, 0, 0);
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(addCv, 0, 0); ctx.restore();
@@ -507,8 +555,8 @@
         // but casts no light, so it neither washes the dark nor floods the emitter list.
         if (lightAt(c, r) > 0.35 || frac > 0.1) {
           const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
-          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, T * 1.8,
-            [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.55 * vis * (0.45 + 0.9 * frac) * pulse);
+          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, T * 2.0,
+            [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.55 * vis * (0.5 + 0.85 * frac) * pulse);
         }
         const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
         if (tw > 0.8) { const a = ((tw - 0.8) / 0.2) * vis, gx = c * T + (T >> 1), gy = r * T + (T >> 1);

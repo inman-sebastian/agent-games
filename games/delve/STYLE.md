@@ -140,39 +140,48 @@ lumpy `nugget`; the four gems keep their distinct crystal shapes.
   open (reveals background). A soft additive glow scales with the reveal.
 
 ## Lighting
-Lighting is **its own independent system** (`drawLighting()` + `addLight()` in
-`index.html`), not a set of per-effect hacks. **Every** light source — the miner's
-lamp, glowing ore veins, anything added later — is an *emitter* pushed via
-`addLight(x, y, radius, colour, intensity)` and obeys the **same** radial falloff
-rule. Each frame the emitters accumulate into a colour light buffer (screen space,
-1-logical-px grain), which is then composited in two passes:
-- a **smooth additive colour glow** — the warm lamp, coloured ore light; and
-- a **dithered darkness scrim** derived from the *same buffer's* brightness — the
-  pixel-art fog, quantized with 4×4 ordered (Bayer) dither at high step count
-  (`DSTEP`) so the grain matches the rock rather than reading as coarse squares.
+Lighting is **its own independent, geometry-aware system** (`drawLighting()` +
+`addLight()` in `index.html`), not a set of per-effect hacks. **Every** light source
+— the miner's lamp, glowing ore veins, anything added later — is an *emitter* pushed
+via `addLight(x, y, _, colour, intensity)` and obeys the **same** rules.
 
-Because the scrim is derived from the accumulated light, **a source lights its own
-surroundings out of the dark** — the lamp and an ore vein carve visibility by the
-identical rule. A shared, cached **dithered vignette** frames the screen. Adding a
-new light is one `addLight()` call; nothing else changes.
+**Light is occluded by rock** (Terraria's technique). Each frame:
+1. Emitters seed a **world-space per-tile colour field** at their tile.
+2. The field is **propagated** across the visible tile window with four corner sweeps
+   (max-with-attenuation). Attenuation is the *destination tile's* opacity: **open/dug
+   tiles conduct** light (`OPEN_ATTEN`), **solid rock absorbs** it fast (`ROCK_ATTEN`).
+   So light pools down the tunnels you've carved and dies a couple tiles into rock —
+   the lit region takes the **shape of the dug space, not a circle**, and it bends
+   around corners (an L-shaped tunnel lights as an L).
+3. The tile field is **bilinear-sampled per pixel** (smooth across tiles, no grid) and
+   composited in two passes: a **smooth additive colour glow** (warm lamp, coloured
+   ore) + a **dithered darkness scrim** derived from the *same field's* brightness (the
+   pixel-art fog, 4×4 Bayer dither at high `DSTEP` so the grain matches the rock).
+
+Because the scrim is derived from the light field, **a source lights its own
+surroundings out of the dark** by the identical rule, and the **first rock layer round
+a lit tunnel catches a warm rim for free** (one attenuated step of warm light) — the
+SteamWorld dug-edge signature, emergent rather than special-cased. A shared, cached
+**dithered vignette** frames the screen. Adding a light is one `addLight()` call.
 
 Tuning knobs (all in `index.html`): `LAMP_COLOR` (warm lantern — a lantern reads
-**warm**, not a cool flashlight-from-above), `LAMP_REACH`, `ADD` (glow strength),
-`AMB` (ambient floor — unlit rock stays dim, never pure black), `SCRIM` (the deep
-cool colour the dark fades toward). Distant **Ore-Scanner**-revealed veins show their
-fleck art but **do not emit light** (gated on lamp reach / being mined), so they
-neither wash the dark nor flood the emitter list. The **Deep Lantern** widens reach.
+**warm**, not a cool flashlight-from-above), `OPEN_ATTEN`/`ROCK_ATTEN` (how far light
+runs down tunnels vs into rock), `ADD` (glow strength), `AMB` (ambient floor — unlit
+rock stays dim, never pure black), `SCRIM` (the deep cool colour the dark fades
+toward). The lamp's seed brightness scales gently with `vision`, so the **Deep
+Lantern** reaches further down the tunnel. Distant **Ore-Scanner**-revealed veins show
+their fleck art but **do not emit light** (gated on lamp reach / being mined), so they
+neither wash the dark nor flood the emitter list.
 
 **Grounded in the reference miners** (SteamWorld Dig 2, Terraria, Super Motherload,
-studied from real screenshots): warm colour temperature; **many small local sources**
-rather than one spotlight; deep dark beyond reach; baked directional tile shading
-carrying much of the depth (see the rock model). **Next layer (not yet done):** true
-geometry — light **occluded by rock** and a **warm rim on freshly-dug tunnel edges**
-(the SteamWorld signature) — which is what finally kills the residual "radial
-spotlight" read. The emitter system is the foundation that makes that additive.
+studied from real screenshots): warm colour temperature; many small local sources;
+deep dark beyond reach; light that respects the carved geometry; baked directional
+tile shading carrying much of the depth (see the rock model). *Possible future
+enhancement:* an explicit (not just emergent) warm edge highlight on exposed rock
+faces if the rim needs more punch.
 
-Ore also **shimmers**: the per-vein breathing pulse now drives its actual emitted
-light, plus an occasional bright twinkle glint, each phase-offset per tile.
+Ore also **shimmers**: the per-vein breathing pulse drives its actual emitted light,
+plus an occasional bright twinkle glint, each phase-offset per tile.
 
 ## Miner
 Small sprite with a dark cool outline: orange helmet + lamp, visor, blue overalls,
