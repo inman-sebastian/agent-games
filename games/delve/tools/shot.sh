@@ -21,10 +21,19 @@ for CHROME in \
   "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
   [ -x "$CHROME" ] && break
 done
-TO=""   # optional watchdog (not present on stock macOS)
-if command -v timeout >/dev/null 2>&1; then TO="timeout 30"; elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 30"; fi
 if [ -n "$SHOT_BASE" ]; then url="$SHOT_BASE/$page?$q"; else url="file://$dir/$page?$q"; fi
-$TO "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
-  --no-first-run --no-default-browser-check --virtual-time-budget=4000 \
-  --screenshot="$out" --window-size="$ww,$wh" "$url" 2>/dev/null
+# Plain load-then-capture (NO --virtual-time-budget). The budget hangs forever on continuously
+# animating pages (the game, the light lab): a busy requestAnimationFrame loop never lets virtual
+# time go idle, so Chrome never reaches the budget and never writes the file. Capturing at the
+# `load` event works for those AND for the finite render harness — a `<script type=module>` finishes
+# executing (so render.ts has drawn) before `load` fires. Stock macOS has no `timeout`, so we
+# background Chrome and hard-kill it after WATCHDOG seconds as a safety net. Override WATCHDOG=<s>.
+WATCHDOG="${WATCHDOG:-15}"
+"$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+  --no-first-run --no-default-browser-check \
+  --screenshot="$out" --window-size="$ww,$wh" "$url" 2>/dev/null &
+cpid=$!
+( sleep "$WATCHDOG"; kill "$cpid" 2>/dev/null ) & wpid=$!
+wait "$cpid" 2>/dev/null || true          # killed watchdog exit is fine; the file is already written
+kill "$wpid" 2>/dev/null || true          # cancel the watchdog if Chrome exited on its own
 echo "$out ($url  ${ww}x${wh})"

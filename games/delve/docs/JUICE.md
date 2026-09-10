@@ -6,7 +6,7 @@ impact, break, reward), not to steady state.
 
 ## Miner
 
-Small sprite (`drawMiner` in `scripts/sprites.js`) with a dark cool outline: orange
+Small sprite (`drawMiner` in `scripts/sprites.ts`) with a dark cool outline: orange
 helmet + lamp, visor, blue overalls, boots, and a pickaxe over the shoulder. Sits
 smaller inside the tile so the scene breathes. *A dedicated miner pass (redraw at the
 finer grid, animation) is queued for later.*

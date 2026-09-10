@@ -56,7 +56,7 @@ a comment saying **what it is and why it's that value**.
 ## DRY — don't repeat yourself
 
 - A rule, constant, formula, or shape lives in **exactly one place** and is imported/derived
-  everywhere else. This is already the project's spine (one shared engine, `blocks.js` as the
+  everywhere else. This is already the project's spine (one shared engine, `blocks.ts` as the
   single world source, entity resources, one-fact-one-home docs) — hold the line in TS.
 - Copied-and-tweaked code is a smell: extract a well-named helper the second time you'd write
   it (copying once is fine — extract on the second real use, per the root `CLAUDE.md`).

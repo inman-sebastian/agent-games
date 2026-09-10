@@ -10,8 +10,8 @@ just the DELVE-specific working rules.
   by the game (`index.html`), the style lab (`style-lab.html`), and the tools
   (`tools/`) alike. Never duplicate a rule in the presentation layer — if
   the game and the lab draw the same thing, they call the same module.
-- **`blocks.js` is the single source of truth for the world** (`f(seed,c,r)`), and it's
-  static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.js`
+- **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
+  static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.ts`
   is the pure sim on top and has no DOM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Keep the economy soft-lock-free** — digging is free and ore can be sold anytime, so
   the player can never get stranded. No fuel, no hauling requirement, no cargo cap yet.
@@ -34,7 +34,7 @@ Playwright when a question is genuinely impossible headlessly, and even then rea
 not images:
 
 1. **Logic / economy / world-gen** → `pnpm verify` (the greedy-bot balance gate) and
-   `tools/sim.js` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
+   `tools/sim.ts` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
    via headless Chrome (no MCP). Works for `tools/render.html` (world crops),
    `style-lab.html`, and `tools/light-lab.html`. Keep `w`/`h`/`scale` small so the image is

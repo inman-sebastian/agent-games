@@ -1,7 +1,7 @@
 # DELVE — lighting
 
 Lighting is **its own independent, geometry-aware system**, not a set of per-effect
-hacks. It lives in `scripts/lighting.js` (`DelveLighting`) and is shared by the game
+hacks. It lives in `scripts/lighting.ts` (`create` / `LAMP_COLOR`) and is shared by the game
 and the style lab's cave sample so the two light identically. It knows nothing about
 game state.
 
@@ -10,15 +10,16 @@ game state.
 
 ## API
 
-```js
-const L = DelveLighting.create();               // one instance, reused every frame
+```ts
+import { create, LAMP_COLOR } from '../scripts/lighting';
+const L = create(); // one instance, reused every frame
 L.addLight(x, y, r, colour, intensity);         // x,y in SCREEN pixels; colour = [r,g,b] 0..1
 //   r === 0  → seeds the LAMP field  (warm, drives the darkness scrim / visibility)
 //   r  >  0  → seeds the ORE-GLOW field (its own colour, kept separate so the lamp can't swamp it)
 L.render({ g, LW, LH, T, camY, SURFACE, W, solidTile });   // consumes + clears the emitters
 ```
 
-`DelveLighting.LAMP_COLOR` is exported for the caller to pass as the lamp's colour.
+`LAMP_COLOR` is exported for the caller to pass as the lamp's colour.
 `render(cfg)` needs the 2D context `g`, the logical size `LW`×`LH`, tile size `T`, the
 camera's world-Y `camY`, the `SURFACE` row, field width `W`, and a
 `solidTile(c, r)` predicate (which must fold in the dug overlay:
@@ -67,7 +68,7 @@ emitter list.
 
 ## Tuning knobs
 
-All constants live at the top of `scripts/lighting.js`:
+All constants live at the top of `scripts/lighting.ts`:
 
 | Knob | Meaning |
 | --- | --- |

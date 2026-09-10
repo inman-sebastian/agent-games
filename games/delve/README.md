@@ -3,7 +3,7 @@
 What DELVE is and how it plays: **[docs/DESIGN.md](docs/DESIGN.md)**.
 
 Open `index.html` in a browser. Progress auto-saves to `localStorage`. Run the
-balance gate with `pnpm verify` (or `node tools/verify.js`).
+balance gate with `pnpm verify` (or `node tools/verify.ts`).
 
 ## Docs
 
@@ -23,9 +23,9 @@ The design and art direction live in [`docs/`](docs/); this README is the index.
 ## Layout
 
 - **`scripts/`** — the shared modules (world, sim, renderers, lighting), imported by
-  the game, the style lab, and the tools alike; no build step.
+  the game, the style lab, and the tools alike (bundled by Vite; the Node tools import them directly).
 - **`index.html`** — the game (canvas render, input, audio, camera, save, shop chrome).
 - **`style-lab.html`** — the art tuning sandbox, rendering through the same modules.
-- **`tools/`** — headless dev tools: `verify.js` (greedy-bot balance gate), plus the
+- **`tools/`** — headless dev tools: `verify.ts` (greedy-bot balance gate), plus the
   sim + cropped-render checks.
 - **`CLAUDE.md`** — working rules for agents touching this game.

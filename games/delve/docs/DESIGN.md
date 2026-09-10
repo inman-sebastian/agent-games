@@ -72,7 +72,7 @@ One-time **tech** unlocks that change the sim:
 - **Deep Lantern** — widen your vision underground.
 
 Exact base costs, multipliers, caps and their derived effects live in the
-`UPGRADES` / `TECH` tables and `stats()` in `scripts/engine.js` — the source of
+`UPGRADES` / `TECH` tables and `stats()` in `scripts/engine.ts` — the source of
 truth for balance.
 
 ## Economy & progression
@@ -81,7 +81,7 @@ truth for balance.
   from the Upgrades panel, anytime. Coins are spent **only** on upgrades/tech. Rich veins
   (Fortune crits) drop **3× the ore** and get the disproportionate reward beat (see
   [JUICE.md](JUICE.md)). *(No capacity cap yet — a cargo/economy rework is #6.)*
-- Base rock hp **grows with depth** (`rockHp` in `blocks.js`), so keeping the
+- Base rock hp **grows with depth** (`rockHp` in `blocks.ts`), so keeping the
   pickaxe upgraded is what lets you keep descending — the soft progression gate.
 - Progress and settings **persist to `localStorage`**, degrading to a sane default
   if storage is missing or corrupt.
@@ -91,7 +91,7 @@ truth for balance.
 - **Platformer traversal; no fuel, no cargo.** Movement is real 2D platforming —
   gravity, running, jumping. The economy stays **progress-only** where it counts:
   digging is free and ore can be sold anytime (no hauling), so there is no economic
-  soft-lock, and `tools/verify.js` proves a greedy bot reaches Mythril within a sane
+  soft-lock, and `tools/verify.ts` proves a greedy bot reaches Mythril within a sane
   budget. (Fuel and cargo — the classic soft-lock generators — stay out.)
   Climbing back up a sheer shaft isn't possible yet; dedicated upward traversal
   (ropes / platforms / ladders) is a future pass.

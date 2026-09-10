@@ -40,7 +40,7 @@ with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome b
 3. **Overlays** — ore blocks, stalactites/stalagmites, the miner, the lamp glow, and
    a vignette. Lighting ([LIGHTING.md](LIGHTING.md)) draws last, per-frame.
 
-The rock (layers 1–2) is drawn by `composeBand` in `cave-render.js` and cached as
+The rock (layers 1–2) is drawn by `composeBand` in `cave-render.ts` and cached as
 chunks (see [ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays
 draw per-frame on top of the cached rock.
 
@@ -66,13 +66,13 @@ Ore is not embedded veins-in-rock — each ore cell **is** an ore **block** that
 the cell, and adjacent same-ore cells form a **node**: a contiguous cluster that
 reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
 
-- **Placement** is a pure `f(seed,c,r)` in `scripts/blocks.js` (`oreAt`): a
+- **Placement** is a pure `f(seed,c,r)` in `scripts/blocks.ts` (`oreAt`): a
   low-frequency value-noise field is thresholded into blobby pockets, and a coarse
   region grid gives each pocket a single ore type (weighted by depth band). Density is
   kept near the old per-cell value for now; a rarer/richer-cluster economy retune is a
   later pass.
-- **Rendering** — `DelveOre.drawOreBlock(g, art, X, Y, col, row, frac, sameOre)` in
-  `scripts/ore-art.js` (approach A): the rock body is drawn by `cave-render`; each ore
+- **Rendering** — `drawOreBlock(g, art, X, Y, col, row, frac, sameOre)` in
+  `scripts/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
   cell is overlaid with a **world-anchored faceted crystalline fill** (noise keyed to
   world coords, so it flows continuously across cells). Only **cluster-boundary** edges
   (where the neighbour isn't the same ore) get the dark outline + a top rim highlight —

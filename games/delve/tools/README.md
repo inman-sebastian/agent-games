@@ -7,7 +7,7 @@ tiny cropped PNG. If something isn't covered, extend a tool rather than defaulti
 Playwright. (Only genuinely live questions — input feel, real FPS — need the browser, and
 even then read the `?debug` overlay text, not screenshots.)
 
-## `verify.js` — the balance gate
+## `verify.ts` — the balance gate
 
 Drives a greedy bot through the SAME engine the player uses and asserts it reaches
 every ore tier down into Mythril within a sane action budget, plus static invariants
@@ -16,19 +16,19 @@ world-gen change:
 
 ```sh
 pnpm verify          # from games/delve/ (or the workspace: pnpm --filter delve verify)
-node tools/verify.js # equivalent, from games/delve/
+node tools/verify.ts # equivalent, from games/delve/
 ```
 
-## `sim.js` — headless sim & world inspection (no browser, no images)
+## `sim.ts` — headless sim & world inspection (no browser, no images)
 
-Runs the SAME pure engine the game uses (`scripts/engine.js`), so any logic / world-gen
+Runs the SAME pure engine the game uses (`scripts/engine.ts`), so any logic / world-gen
 / economy / cluster question is answerable in text.
 
 ```sh
-node tools/sim.js state  [--seed N] [--from save.json]      # raw state as JSON
-node tools/sim.js probe  --seed N --c C --r R               # tileInfo at one cell
-node tools/sim.js map    --seed N [--c C --r R --w W --h H] # ASCII ore/cluster map
-node tools/sim.js play   --seed N --do "d600 r120" [--from save.json]
+node tools/sim.ts state  [--seed N] [--from save.json]      # raw state as JSON
+node tools/sim.ts probe  --seed N --c C --r R               # tileInfo at one cell
+node tools/sim.ts map    --seed N [--c C --r R --w W --h H] # ASCII ore/cluster map
+node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 ```
 
 - `map` prints an ASCII grid of the static world (`.` rock, letters = ore tiers) plus
@@ -71,6 +71,6 @@ flood-fill), how occluders shadow, and how the additive cap reads. Open it in a 
 or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
 · **O** toggle occluders.
 
-**Rule of thumb:** reach for `sim.js`/`verify.js` first (free, text); render a crop only
+**Rule of thumb:** reach for `sim.ts`/`verify.ts` first (free, text); render a crop only
 when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
 resort.

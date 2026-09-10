@@ -52,7 +52,7 @@ desaturated version, **always lighter than the rock body** (see [RENDERING.md](R
 ## Ore triads & shapes
 
 Each ore has a `[dark, mid, highlight]` triad and a **crystal shape**, defined in
-`scripts/ore-art.js` (`ORE_ART`, keyed by engine ore id). Every shape is drawn
+`scripts/ore-art.ts` (`ORE_ART`, keyed by engine ore id). Every shape is drawn
 symmetric about its centre within the same `±(r+1)` box, so any ore icon centres
 cleanly in a square and they all read at roughly the same size. Metals are lumpy,
 misshapen **nuggets** (a per-ore seeded angular wobble, never perfect spheres); gems
