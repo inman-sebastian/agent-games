@@ -11,7 +11,7 @@
 (function (root) {
   'use strict';
 
-  const WIDTH = 21;         // columns; a wide field (0..WIDTH-1) that fills the viewport.
+  const WIDTH = 41;         // columns; a wide field (0..WIDTH-1) that fills the viewport.
                             // Bounded horizontally, infinite downward.
   const SURFACE = 0;        // row 0 is the open surface yard
 
