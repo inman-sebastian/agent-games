@@ -60,8 +60,9 @@
     <div class="card">
       <h2>Mining a vein — every ore × the 4 steps + the extracted ore</h2>
       <canvas id="mine"></canvas>
-      <div class="note">Drawn by the game's <code>DelveOre.drawOreVein</code>: Step 1 = faint specks; the crystal
-        emerges past ~⅓ damage. Metals = nuggets, emerald = prism, ruby = cluster, diamond = gem, mythril = shards.</div>
+      <div class="note">Drawn by the game's <code>DelveOre.drawOreBlock</code> — a full-cell crystalline ore block; the
+        4 steps show increasing mining <b>cracks</b> (no reveal, the block simply is ore). In the world, adjacent
+        same-ore cells tile into one <b>cluster mass</b>; the far-right column is the extracted crystal.</div>
       <h2 style="margin-top:16px">Depth strata</h2>
       <canvas id="atlas"></canvas>
     </div>
@@ -115,8 +116,18 @@
         const d = rnd(); if (d < 0.42) cx++; else if (d < 0.62) cx--; else if (d < 0.82) cy++; else cy--; cx = Math.max(1, Math.min(COLS - 2, cx)); cy = Math.max(1, Math.min(ROWS - 2, cy)); } }
     for (let xx = px - 3; xx <= px + 3; xx++) if (grid[py + 2]) grid[py + 2][xx] = true;
     const exposed = (x, y) => [[0, -1], [0, 1], [-1, 0], [1, 0]].some(([dx, dy]) => { const nx = x + dx, ny = y + dy; return nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && !grid[ny][nx]; });
-    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) if (grid[y][x] && exposed(x, y) && rnd() < 0.32) {
-      oreGrid[y][x] = DEMO_ORES[Math.floor(rnd() * DEMO_ORES.length)]; dmgGrid[y][x] = rnd() < 0.4 ? 0.3 + rnd() * 0.6 : 0; }
+    // scatter a handful of ore NODES — each a grown blob of a single ore, so the sample
+    // previews clustered ore blocks (the same idea as the game's noise-node placement).
+    for (let t = 0; t < 14; t++) {
+      let cx = 1 + Math.floor(rnd() * (COLS - 2)), cy = 1 + Math.floor(rnd() * (ROWS - 2));
+      if (!grid[cy][cx]) continue;
+      const id = DEMO_ORES[Math.floor(rnd() * DEMO_ORES.length)], n = 3 + Math.floor(rnd() * 8);
+      for (let k = 0; k < n; k++) {
+        if (grid[cy] && grid[cy][cx]) { oreGrid[cy][cx] = id; dmgGrid[cy][cx] = rnd() < 0.3 ? 0.3 + rnd() * 0.6 : 0; }
+        const d = rnd(); if (d < 0.25) cx++; else if (d < 0.5) cx--; else if (d < 0.75) cy++; else cy--;
+        cx = Math.max(1, Math.min(COLS - 2, cx)); cy = Math.max(1, Math.min(ROWS - 2, cy));
+      }
+    }
     miner = { px, py };
   }
 
@@ -129,7 +140,9 @@
     CR.composeBand(lb, solidTile, 0, top, COLS, ROWS, COLS, -1);
     // ore veins — the exact game vein renderer
     if (o.ore) for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { const id = oreGrid[y][x];
-      if (grid[y][x] && id) DelveOre.drawOreVein(lb, ORE_ART[id], x * T, y * T, x, top + y, dmgGrid[y][x], solidTile); }
+      if (grid[y][x] && id) {
+        const sameOre = (dc, dr) => { const nx = x + dc, ny = y + dr; return nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && grid[ny][nx] && oreGrid[ny][nx] === id; };
+        DelveOre.drawOreBlock(lb, ORE_ART[id], x * T, y * T, x, top + y, dmgGrid[y][x], sameOre); } }
     // miner
     DelveSprites.drawMiner(lb, miner.px * T, miner.py * T, 'right', 0);
     // lighting — the exact game system: lamp + ore emitters, occlusion, fog, vignette.
@@ -175,7 +188,7 @@
       steps.forEach((d, i) => {
         lbuf.width = T; lbuf.height = T; lb.imageSmoothingEnabled = false;
         CR.composeBand(lb, solidTile, 0, 1, 1, 1, 1, -1);        // single lit rock tile
-        DelveOre.drawOreVein(lb, art, 0, 0, 0, 1, d, solidTile);
+        DelveOre.drawOreBlock(lb, art, 0, 0, 0, 1, d, () => false);   // isolated block, cracks by damage
         blit(labelW + i * (cell + gx), y);
       });
       // the extracted crystal only, centred on a neutral swatch

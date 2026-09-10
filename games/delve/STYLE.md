@@ -142,18 +142,29 @@ game (`ORE_ART` in `index.html`, keyed by engine ore id): **Dirt** `#48371f
 #9babb2 #e8eef5` — nugget. Metals (Dirt/Copper/Iron/Silver/Gold) all use the
 lumpy `nugget`; the four gems keep their distinct crystal shapes.
 
-## Ore veins (chip to reveal)
-- Undamaged rock shows **embedded flecks** of the ore colour — a tight, centred
-  cluster. Everything (flecks, cracks, socket, crystal) is clamped to within ~5px
-  of the tile centre so it never overflows the tile.
-- **Veins only render where the player can see them** — within lamp range, or
-  anywhere once the **Ore Scanner** is owned. Unlit, unscanned rock hides its ore
-  (no glinting flecks in the dark), so the scanner has real value. In the game
-  they're drawn as a per-frame pass over the cached rock, faded by visibility;
-  they are deliberately *not* baked into the rock cache.
-- As the tile takes damage: cracks appear early; past ~⅓ damage a **socket** chips
-  open and the **crystal grows** (its per-type shape). Fully mined → tile becomes
-  open (reveals background). A soft additive glow scales with the reveal.
+## Ore nodes / blocks (Terraria-style clusters)
+Ore is not embedded veins-in-rock any more — each ore cell **is** an ore **block**
+that fills the cell, and adjacent same-ore cells form a **node**: a contiguous
+cluster that reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
+- **Placement** is a pure `f(seed,c,r)` in `engine.js` (`oreAt`): a low-frequency
+  value-noise field is thresholded into blobby pockets, and a coarse region grid gives
+  each pocket a single ore type (weighted by depth band). Density is kept near the old
+  per-cell value for now; a rarer/richer-cluster economy retune is a later pass.
+- **Rendering** (`DelveOre.drawOreBlock`, approach A): the rock body is drawn by
+  `cave-render`; each ore cell is overlaid with a **world-anchored faceted crystalline
+  fill** (its noise keyed to world coords, so it flows continuously across cells).
+  Only **cluster-boundary** edges (where the neighbour isn't the same ore) get the dark
+  outline + a top rim highlight — internal cell seams are invisible, so the pocket reads
+  as one block. `sameOre(dc,dr)` supplies the neighbour test.
+- **No reveal.** The block simply *is* ore; taking damage shows spreading **cracks**,
+  not a growing crystal. Breaking it still sells the ore (juice moves to the break).
+- **Only rendered where visible** — within lamp range, or anywhere with the **Ore
+  Scanner** — as a per-frame pass over the cached rock (faded by visibility, not baked).
+  Exposed ore also emits coloured light through the lighting system, so a cluster glows
+  its own hue. The per-ore crystal **shapes** (`SHAPES`) live on as the extracted-ore
+  icon and (future) break effect. Dirt is a `dim` ore: it renders as plain rock.
+- *Future refinement (approach B):* fold ore into `cave-render` as a first-class block
+  type coloured per-cell, for deeper unification; A gets the look fast.
 
 ## Lighting
 Lighting is **its own independent, geometry-aware system** (`drawLighting()` +

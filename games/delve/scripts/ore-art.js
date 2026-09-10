@@ -6,7 +6,7 @@
 (function (root) {
   'use strict';
   const CR = root.CaveRender;
-  const T = CR.T, mulberry = CR.mulberry, hashXY = CR.hashXY;
+  const T = CR.T, TEX = CR.TEX, mulberry = CR.mulberry, hashXY = CR.hashXY, vnoise = CR.vnoise;
   const OUT = '#0a0912';                       // shared dark crystal outline
 
   // ore art, keyed by engine ore id: crystal shape + [dark, mid, highlight] triad.
@@ -61,35 +61,41 @@
     gem(pen, cx - 2, cy + 2, rs, c); gem(pen, cx + 2, cy + 2, rs, c); gem(pen, cx, cy - 1, Math.max(1, r - 1), c); }
   const SHAPES = { gem, nugget, prism, shard, cluster };
 
-  // Draw a vein into 2D context `g`: the tile is (col,row) with top-left pixel (X,Y),
-  // damage `frac` in 0..1. `solidTile(c,r)` tells us which faces are exposed, so the
-  // vein nestles into the solid part of the tile (away from open space). Undamaged rock
-  // shows embedded flecks; past ~1/3 damage a socket chips open and the crystal grows.
-  function drawOreVein(g, art, X, Y, col, row, frac, solidTile) {
-    if (!art) return; const c = art.c, MAXR = 5;
-    const offX = ((!solidTile(col - 1, row)) ? 1 : 0) - ((!solidTile(col + 1, row)) ? 1 : 0);
-    const offY = ((!solidTile(col, row - 1)) ? 1 : 0) - ((!solidTile(col, row + 1)) ? 1 : 0);
-    const OFF = 3.5, mx = (T >> 1) + offX * OFF, my = (T >> 1) + offY * OFF;
-    const rnd = mulberry(hashXY(col, row, 777));
-    const pen = (a, b, w, h, cc) => { g.fillStyle = cc; g.fillRect(a, b, w || 1, h || 1); };
-    const px = (a, b, w, h, cc) => pen(X + a, Y + b, w, h, cc);
-    const inside = (dx, dy) => dx * dx + dy * dy <= MAXR * MAXR;
-    const specks = [];
-    for (let t = 0; t < 40 && specks.length < 5; t++) {
-      const a = rnd() * 6.283, rr = rnd() * 3, sx = Math.round(mx + Math.cos(a) * rr), sy = Math.round(my + Math.sin(a) * rr);
-      if (!inside(sx - mx, sy - my)) continue;
-      if (specks.some(p => Math.abs(p[0] - sx) <= 1 && Math.abs(p[1] - sy) <= 1)) continue;
-      specks.push([sx, sy]); px(sx, sy, 1, 1, rnd() < 0.3 ? c[2] : c[1]);
+  // Draw an ore BLOCK into 2D context `g`: the tile is (col,row) with top-left pixel
+  // (X,Y), damage `frac` in 0..1. `sameOre(dc,dr)` returns whether the neighbour at
+  // (col+dc,row+dr) is part of the SAME ore node — so a pocket of adjacent cells tiles
+  // into one crystalline MASS (Terraria-style) rather than a per-cell centred crystal.
+  //
+  // The body is a world-anchored faceted crystal fill (its noise is keyed to world
+  // coords, so it flows continuously across cells). Only CLUSTER-BOUNDARY edges (where
+  // the neighbour isn't the same ore) get the dark outline + a top rim highlight —
+  // internal cell seams are invisible, so the whole node reads as a single block. There
+  // is no reveal: the block simply *is* ore; damage shows as spreading cracks.
+  function drawOreBlock(g, art, X, Y, col, row, frac, sameOre) {
+    if (!art) return; const c = art.c, dark = c[0], mid = c[1], hi = c[2];
+    const wx0 = col * T, wy0 = row * T;
+    const px = (a, b, w, h, cc) => { g.fillStyle = cc; g.fillRect(X + a, Y + b, w || 1, h || 1); };
+    // crystalline body — base fill + world-anchored facet pixels (only non-base drawn)
+    px(0, 0, T, T, mid);
+    for (let dy = 0; dy < T; dy++) for (let dx = 0; dx < T; dx++) {
+      const wx = wx0 + dx, wy = wy0 + dy;
+      const base = vnoise(wx * 0.5, wy * 0.5, TEX + 11), fine = vnoise(wx * 1.3 + 7, wy * 1.3, TEX + 12);
+      let cc = base < 0.42 ? dark : base > 0.66 ? hi : mid;
+      if (fine > 0.85) cc = hi; else if (fine < 0.13 && base < 0.6) cc = dark;
+      if (cc !== mid) px(dx, dy, 1, 1, cc);
     }
-    if (frac > 0.12) { const cr = mulberry(hashXY(col, row, 9)), nc = 1 + Math.floor(frac * 3);
-      for (let k = 0; k < nc; k++) { let a = cr() * 6.283, dx = Math.cos(a) * 1.5, dy = Math.sin(a) * 1.5; const steps = 2 + Math.floor(frac * 3);
-        for (let stp = 0; stp < steps; stp++) { if (!inside(dx, dy)) break; px(Math.round(mx + dx), Math.round(my + dy), 1, 1, c[0]); dx += Math.cos(a); dy += Math.sin(a); } } }
-    const reveal = Math.max(0, (frac - 0.35) / 0.65);
-    if (reveal > 0.02) { const hole = 1 + reveal * 3;
-      for (let dy = -MAXR; dy <= MAXR; dy++) for (let dx = -MAXR; dx <= MAXR; dx++) { if (!inside(dx, dy)) continue;
-        const d = Math.hypot(dx, dy) - ((hashXY(col * 31 + dx, row * 17 + dy, 5) % 100) / 100) * 1.1; if (d < hole) px(mx + dx, my + dy, 1, 1, c[0]); }
-      SHAPES[art.shape](pen, X + mx, Y + my, Math.max(1, Math.round(reveal * 2.8)), c); }
+    // cracks as damage rises (the block is ore — no crystal reveal)
+    if (frac > 0.15) { const cr = mulberry(hashXY(col, row, 91)), n = 1 + Math.floor(frac * 3);
+      for (let k = 0; k < n; k++) { let a = cr() * 6.283, x = T / 2 + Math.cos(a) * 2, y = T / 2 + Math.sin(a) * 2; const steps = 2 + Math.floor(frac * 4);
+        for (let s = 0; s < steps; s++) { if (x < 1 || x > T - 1 || y < 1 || y > T - 1) break; px(x | 0, y | 0, 1, 1, OUT); x += Math.cos(a); y += Math.sin(a); } } }
+    // cluster-boundary edges only: top rim highlight (inside), then dark outline (edge)
+    const up = !sameOre(0, -1), dn = !sameOre(0, 1), lf = !sameOre(-1, 0), rt = !sameOre(1, 0);
+    if (up) { for (let dx = 0; dx < T; dx++) if (vnoise((wx0 + dx) * 0.6, wy0 * 0.6, TEX + 13) > 0.35) px(dx, 1, 1, 1, hi); }
+    if (up) px(0, 0, T, 1, OUT);
+    if (dn) px(0, T - 1, T, 1, OUT);
+    if (lf) px(0, 0, 1, T, OUT);
+    if (rt) px(T - 1, 0, 1, T, OUT);
   }
 
-  root.DelveOre = { OUT, ORE_ART, SHAPES, drawOreVein };
+  root.DelveOre = { OUT, ORE_ART, SHAPES, drawOreBlock };
 })(self);
