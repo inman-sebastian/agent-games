@@ -1,64 +1,106 @@
 # DELVE — style guide
 
-Classic 2D pixel-art miner. The single source of truth for every asset. All art
-is drawn in code (canvas rects on a low-res logical buffer scaled up with
-`image-rendering: pixelated`). No emoji, no images, no fonts-as-art.
+Classic 2D pixel-art miner, moody underground cave. The single source of truth
+for the art. All art is drawn in code (canvas, no images/emoji/fonts-as-art) on
+a **logical-resolution buffer that is upscaled with `image-rendering: pixelated`**,
+so every effect — including gradients, glows and vignette — stays chunky pixels.
 
-## Rendering model
-- **Logical buffer:** `WIDTH(9) × 24px` cols by `13 × 24px` rows = **216×312** logical
-  pixels, scaled to fit the viewport with nearest-neighbour. The buffer is finer
-  than the tile grid so pixels read crisp, not blocky.
-- **Unit:** the sprite pixel is **2 logical px** (`u=2`). Characters/props are
-  designed on an 8×8 grid of these units, sitting smaller inside the 24px tile so
-  the scene breathes.
-- **Camera** follows the miner vertically only (the mine is exactly 9 tiles wide).
-- **Rock is a mass, not a grid.** Tiles are drawn as a flat depth-tinted fill with
-  gentle mottling; there is **no per-tile bevel**. Definition comes only from a
-  soft shadow lip on rock faces that touch open tunnels, so excavated space reads
-  as carved-out negative space rather than a wall of boxes.
+> **Status:** the cave art direction below is developed and tuned in
+> `style-lab.html` (the standalone art lab). It has **not yet been ported into
+> the game** — `index.html` still renders an earlier flat-tile look. When the
+> renderer is ported, the game must be brought in line with this spec. Keep this
+> file in sync with `style-lab.html` as the direction evolves.
 
-## Palette
-Earthy, low-saturation strata that darken with depth; ore is the only saturated
-colour, so it reads instantly against rock.
+## Grounding
+Derived from studying real references the user vetted: **Dome Keeper**,
+**SteamWorld Dig**, **Super Motherload**, Quintino "Deep Cave", BigManJD — on the
+**Resurrect 64** Lospec palette. Hard-won principles:
+- Blocky isn't the enemy; *flat, unlit* rock is. Tactile rock reads great.
+- **Dark mass centers + a lighter background** are what separate foreground rock
+  from open/dug space. This is the #1 lever.
+- Edges must connect **globally** (a per-pixel field), not per-tile, or they
+  misalign; AO/outline must hug the real pixel contour, not the tile box.
+- Render all lighting at logical resolution, then upscale — never smooth gradients.
 
-- Surface sky: `#243a5e` → `#4d6b9a` (dusk gradient), sun `#f5d98c`.
-- Grass/yard line: `#5a8f4a`, soil `#6b4a2f`.
-- Rock strata (lerped by depth): dirt `#6b4a2f` → stone `#4a4a52` →
-  slate `#343446` → deep `#1c1c2a` → bedrock `#141420`.
-- Cave void (dug space): `#0d0d15`.
-- Cracks / shading: multiply-dark `#000` at low alpha.
-- Ore (saturated, from `engine.js` ORES): Dirt `#8a5a34`, Copper `#c9703b`,
-  Iron `#b7c0cc`, Silver `#e8eef5`, Gold `#f2c14e`, Emerald `#3fbf6f`,
-  Ruby `#e2445c`, Diamond `#5fd6e2`, Mythril `#b06cf0`.
-- Miner: helmet `#f2a03b`, lamp `#fff6c0`, face `#e8b58c`, overalls `#3b6ea5`.
-- UI chrome (HTML): bg `#0b0e13`, panel `#141922`, ink `#e8eef5`, dim `#7c8899`,
-  gold accent `#f2c14e`.
+## Layers (composited bottom-to-top)
+1. **Background** — a lighter, cooler, desaturated atmospheric wall (own palette),
+   with a depth gradient + faint distant-rock silhouettes. Drawn first. Open/dug
+   tunnels reveal it. Built to accept **parallax** layers later.
+2. **Foreground rock** — the diggable solid, composited on top with transparency
+   for open space, plus a subtle **contact shadow** where rock meets the bg.
+3. **Overlays** — ore veins, stalactites/stalagmites, the miner, the lamp glow,
+   and a vignette.
+
+## Foreground rock model (per-pixel field)
+- Rock solidity is a **per-pixel field**: a tile is solid, then its boundary with
+  open space is eroded by world-space noise (gentle, ~0.4–1.8px) so edges are
+  organic and **connect seamlessly** across tiles/corners.
+- **Top-lit, dark-bodied.** Brightness falls off from *every* exposed edge (walls
+  and undersides included) with a **top-light bias** (up-facing surfaces brightest).
+  The interior of any large mass falls to near-black — **dark centers** — which
+  both reads as depth and keeps the body calm. The dark body is left **empty**
+  (no random grit — it read busy).
+- The surface→center transition is **organic, not a color band**: multi-octave
+  noise (lumps poke into light, crevices fall to dark) + ordered (Bayer) dithering,
+  with sparse crack detail only in the transition band.
+- **Rim** is desaturated and varied between the warm rock tone and a grayer rock
+  tone — reads as stone, not molten orange. No moss/flora here (see below).
+
+## Palette (Resurrect 64 based)
+Each depth stratum is a 6-step ramp, `shadow[0] → rim[5]`, with a distinct
+identity so depth reads by colour:
+- **Topsoil** (red-brown): `#2e222f #45293f #7a3045 #9e4539 #cd683d #e6904e`
+- **Clay** (warm ochre/tan): `#2a2018 #48371f #6d5230 #8f6b3c #b28a4e #d0aa66`
+- **Stone** (cool gray): `#25222c #3e3546 #625565 #7f708a #9babb2 #c7dcd0`
+- **Deep Stone** (blue): `#20202e #323353 #484a77 #4d65b4 #4d9be6 #8fd3ff`
+- **Basalt** (violet): `#211a2b #45293f #6b3e75 #905ea9 #a884f3 #eaaded`
+
+Background wall is derived per-stratum: `desat(mix(ramp[1], '#4a4864', .64), .52)`
+(a lighter, cooler, desaturated version — always lighter than the rock body).
+
+Ore is the only saturated element, so it pops against the muted rock. Each ore has
+a `[dark, mid, highlight]` triad and a **crystal shape**:
+- Copper `#7a3045 #cd683d #f79617` — nugget · Iron `#3e3546 #7f708a #c7dcd0` — nugget
+- Gold `#4c3e24 #f9c22b #fbff86` — nugget · Emerald `#165a4c #1ebc73 #91db69` — prism
+- Ruby `#831c5d #f04f78 #f68181` — cluster · Diamond `#0b8a8f #30e1b9 #8ff8e2` — gem
+- Mythril `#484a77 #905ea9 #a884f3` — shard
+
+## Ore veins (chip to reveal)
+- Undamaged rock shows **embedded flecks** of the ore colour — a tight, centred
+  cluster. Everything (flecks, cracks, socket, crystal) is clamped to within ~5px
+  of the tile centre so it never overflows the tile.
+- As the tile takes damage: cracks appear early; past ~⅓ damage a **socket** chips
+  open and the **crystal grows** (its per-type shape). Fully mined → tile becomes
+  open (reveals background). A soft additive glow scales with the reveal.
 
 ## Lighting
-Underground is dark; a stepped (quantised) light falloff around the miner's lamp
-lights nearby tiles. Ambient floor ~`0.12`. The **Ore Scanner** tech draws a
-faint additive ore glow that shows *through* rock even in darkness; the **Deep
-Lantern** widens the lit radius. Surface is fully daylit.
+Dark cave lit by the miner's **lamp** (warm radial glow, pixelated) and framed by a
+**vignette** — both drawn at logical res. Unexplored rock is intentionally dark;
+lamp reach defines what's visible (tune lamp radius / ambient floor in-game). The
+**Ore Scanner** tech reveals ore through rock; the **Deep Lantern** widens the lamp.
 
-## Shape language
-- Chunky, flat-shaded blocks with a 1px darker bottom/right edge and 1px lighter
-  top/left edge for a beveled tile look. Ore = a small speckle cluster of gem
-  colour with one bright highlight pixel.
-- Cracks accumulate as damage rises (more dark pixels toward break).
+## Miner
+Small sprite with a dark cool outline: orange helmet + lamp, visor, blue overalls,
+boots, and a pickaxe over the shoulder. Sits smaller inside the tile so the scene
+breathes.
 
-## Motion & juice
-- Nothing teleports: the miner lerps between tiles; the lamp glow pulses; the
-  surface has drifting clouds; dust motes drift in the lit area (idle life); a
-  vignette frames the view for depth.
+## Surface decoration (planned)
+Moss/grass/flora belong to a future **procedural surface-decoration pass** layered
+on top of the rock — applied *selectively* (e.g. only on undisturbed surfaces), not
+baked into the rim (freshly-mined rock shouldn't be mossy). Each stratum's `accent`
+colour is reserved as an input for this.
+
+## Motion & juice (game layer)
+- Nothing teleports: the miner lerps between tiles; the lamp glow pulses.
 - Chipping rock: small chip particles + a tiny directional shake.
 - Breaking rock: chip burst + shake scaled to ore rarity. **Ore sells the instant
   it breaks, in place** — a rising `+N` coin floaty in the ore's colour, no travel.
-- Rich vein (Fortune crit, 3× value): a gold `+N!` floaty, extra sparkle burst,
-  bigger shake, and a bright chime — the reward beat, overspent on purpose.
+- Rich vein (Fortune crit, 3× value): a gold `+N!` floaty, extra sparkle, bigger
+  shake, bright chime — the reward beat, overspent on purpose.
 - No cargo, no hauling: the loop never asks the player to stop digging.
 
 ## Sound (Web Audio, synthesized)
 Rising pitch = good, falling = bad; brighter = rarer. Dig = short filtered noise
 thud (pitch drops with depth); break = noise crack; ore = a chime that rises with
-rarity; sell = gold arpeggio; buy = confirming blip; full = low buzz. One mute
-switch gates everything; the `AudioContext` unlocks on first input.
+rarity; sell = gold arpeggio; buy = confirming blip. One mute switch gates
+everything; the `AudioContext` unlocks on first input.
