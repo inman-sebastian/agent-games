@@ -182,11 +182,15 @@
 
   // ---------- juice ----------
   let particles = [], floaties = [], shake = 0;
+  const SHAKE = false;                 // screen shake disabled for now (flip to re-enable)
+  // fine pixel debris: mostly 1px, shaded off the source colour (bright chip / body /
+  // dark fleck) so it reads as chipped rock, not flat chunky blocks.
   function chips(cx, cy, n, col, spd) {
     for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, v = (0.4 + Math.random()) * (spd || 40);
+      const a = Math.random() * Math.PI * 2, v = (0.4 + Math.random()) * (spd || 40), rr = Math.random();
+      const c = rr < 0.28 ? mix(col, '#fdf3d4', 0.5) : rr < 0.62 ? col : mix(col, '#0a0912', 0.4);
       particles.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 20,
-        life: 0.4 + Math.random() * 0.4, t: 0, col, sz: Math.random() < 0.5 ? u : u * 1.5 });
+        life: 0.35 + Math.random() * 0.4, t: 0, col: c, sz: Math.random() < 0.8 ? 1 : 2 });
     }
   }
   function floaty(x, y, text, col, big) { floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big }); }
@@ -209,7 +213,7 @@
   // rock rendering lives in the shared module (cave-render.js), used by the chunk
   // Worker too. Only the small colour helpers the per-frame overlays need are pulled in.
   const CR = window.CaveRender;
-  const { mix, mulberry, hashXY } = CR;
+  const { mix, mulberry, hashXY, hexRgb } = CR;
 
   // ore art, keyed by engine ore id: crystal shape + [dark, mid, highlight] triad
   const OUT = '#0a0912';
@@ -290,15 +294,8 @@
         const d = Math.hypot(dx, dy) - ((hashXY(col * 31 + dx, row * 17 + dy, 5) % 100) / 100) * 1.1; if (d < hole) px(mx + dx, my + dy, 1, 1, c[0]); }
       SHAPES[art.shape](X + mx, Y + my, Math.max(1, Math.round(reveal * 2.8)), c); }
   }
-  // glow is a SEPARATE additive pass drawn per-frame (never baked), scaled by visibility k
-  function oreGlow(g, id, X, Y, frac, k) {
-    const art = ORE_ART[id]; if (!art || art.dim) return; const c = art.c;
-    const reveal = Math.max(0, (frac - 0.35) / 0.65), gx = X + (T >> 1), gy = Y + (T >> 1);
-    g.save(); g.globalCompositeOperation = 'lighter';
-    const rg = g.createRadialGradient(gx, gy, 0, gx, gy, T * 0.6);
-    rg.addColorStop(0, mix(c[2], '#ffffff', 0.25)); rg.addColorStop(1, 'transparent');
-    g.globalAlpha = (0.2 + 0.5 * reveal) * (k == null ? 1 : k); g.fillStyle = rg; g.fillRect(X - T, Y - T, T * 3, T * 3); g.restore();
-  }
+  // ore emits light through the unified lighting system (see addLight in the render loop),
+  // not a baked glow — so a vein lights its own surroundings by the same rule as the lamp.
 
   // (rock field helpers distField/renderBackground/shadeRock/buildMask now live in cave-render.js)
 
@@ -384,12 +381,96 @@
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
 
+  // ---------- lighting system ----------
+  // One independent system: every light source — the miner's lamp, glowing ore veins,
+  // anything added later — is an emitter pushed via addLight() and obeys the SAME
+  // radial falloff rule. Each frame the emitters accumulate into a colour light buffer
+  // (screen space). The buffer is then composited in two passes that recreate the
+  // look we settled on: a SMOOTH additive colour glow (warm lamp, coloured ore), and
+  // a DITHERED darkness scrim derived from the same buffer's brightness (the pixel-art
+  // fog). Because the scrim reads from the accumulated light, a source lights its own
+  // surroundings out of the dark — the lamp and an ore vein carve visibility by the
+  // same rule. A shared dithered vignette frames it. Adding a light = one addLight().
+  //
+  // Grounded in the reference miners (SteamWorld Dig 2, Terraria, Super Motherload):
+  //   warm colour temperature (a lantern, not a cool flashlight); many small local
+  //   sources, not one spotlight; deep dark beyond reach. (Still radial — true
+  //   geometry occlusion / warm rim on dug edges is the natural next layer.)
+  const DSTEP = 10;                                     // dither steps for the darkness scrim + vignette
+  const LBY = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];  // 4×4 ordered dither, same as the rock
+  const AMB = [0.05, 0.05, 0.08];                       // ambient floor — unlit rock stays dim, faintly cool
+  const SCRIM = [6, 7, 14];                             // colour the darkness fades toward (deep, cool)
+  const ADD = 0.26;                                     // how strongly accumulated light shows as additive glow
+  const LAMP_COLOR = [1.0, 0.72, 0.42];                 // warm lantern (warmer than before, per feedback)
+  const LAMP_REACH = 1.6;                               // lamp radius = (vision+0.5) × this, in tiles
+  let LIGHTS = [], lightCount = 0;
+  const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
+
+  const addCv = document.createElement('canvas'), addX = addCv.getContext('2d');
+  const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
+  const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
+  let accR = null, accG = null, accB = null, addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+
+  // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
+  function ensureVignette() {
+    if (vigW === LW && vigH === LH) return;
+    vigW = LW; vigH = LH; vigCv.width = LW; vigCv.height = LH; vigX.imageSmoothingEnabled = false;
+    const vigImg = vigX.createImageData(LW, LH), vd = vigImg.data;
+    const ccx = LW / 2, ccy = LH / 2, vigIn = LH * 0.34, vigSpan = LH * 0.48;
+    for (let y = 0; y < LH; y++) { const dy = y - ccy;
+      for (let x = 0; x < LW; x++) { const dx = x - ccx, dv = Math.sqrt(dx * dx + dy * dy), bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
+        let vg = (dv - vigIn) / vigSpan; vg = vg < 0 ? 0 : vg > 1 ? 1 : vg; let v = vg * vg * (3 - 2 * vg) * 0.5;
+        const fV = v * DSTEP, lV = fV | 0; v = (lV + ((fV - lV) > bay ? 1 : 0)) / DSTEP;
+        const i = (y * LW + x) * 4; vd[i] = SCRIM[0]; vd[i + 1] = SCRIM[1]; vd[i + 2] = SCRIM[2]; vd[i + 3] = v * 255; } }
+    vigX.putImageData(vigImg, 0, 0);
+  }
+
+  function drawLighting(t, st) {
+    ensureVignette();
+    if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
+      accR = new Float32Array(LW * LH); accG = new Float32Array(LW * LH); accB = new Float32Array(LW * LH);
+      addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
+      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
+    // the miner's lamp is just another emitter (warm, wide)
+    addLight(dispC * T + 8, dispR * T - camY + 7, (st.vision + 0.5) * LAMP_REACH * T, LAMP_COLOR, 1.0);
+
+    // accumulate every emitter with one shared falloff rule
+    accR.fill(AMB[0]); accG.fill(AMB[1]); accB.fill(AMB[2]);
+    for (const L of LIGHTS) {
+      const r = L.r, invr2 = 1 / (r * r);
+      const x0 = Math.max(0, (L.x - r) | 0), x1 = Math.min(LW - 1, (L.x + r) | 0);
+      const y0 = Math.max(0, (L.y - r) | 0), y1 = Math.min(LH - 1, (L.y + r) | 0);
+      const cr = L.cr * L.i, cg = L.cg * L.i, cb = L.cb * L.i;
+      for (let y = y0; y <= y1; y++) { const dy = y - L.y, row = y * LW;
+        for (let x = x0; x <= x1; x++) { const dx = x - L.x; let f = 1 - (dx * dx + dy * dy) * invr2;
+          if (f <= 0) continue; f *= f; const i = row + x; accR[i] += cr * f; accG[i] += cg * f; accB[i] += cb * f; } }
+    }
+    // composite: smooth additive colour glow + dithered darkness scrim (from the same buffer)
+    const ad = addImg.data, sd = scrimImg.data;
+    for (let i = 0, j = 0, n = LW * LH; i < n; i++, j += 4) {
+      const r = accR[i], g = accG[i], b = accB[i];
+      ad[j] = r * ADD * 255 > 255 ? 255 : r * ADD * 255;
+      ad[j + 1] = g * ADD * 255 > 255 ? 255 : g * ADD * 255;
+      ad[j + 2] = b * ADD * 255 > 255 ? 255 : b * ADD * 255;
+      ad[j + 3] = 255;
+      let br = r > g ? (r > b ? r : b) : (g > b ? g : b); if (br > 1) br = 1;
+      const x = i % LW, y = (i / LW) | 0, bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
+      let dark = (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
+      sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
+    }
+    addX.putImageData(addImg, 0, 0); scrimX.putImageData(scrimImg, 0, 0);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(addCv, 0, 0); ctx.restore();
+    ctx.drawImage(scrimCv, 0, 0);                       // dithered darkness
+    ctx.drawImage(vigCv, 0, 0);                         // shared vignette frame
+    lightCount = LIGHTS.length; LIGHTS.length = 0;      // reset emitters for next frame
+  }
+
   function render(t) {
     ctx.clearRect(0, 0, LW, LH);
     const targetCam = dispR * T - LH / 2 + T / 2;
     camY += (targetCam - camY) * 0.16;
     if (camY < -LH * 0.45) camY = -LH * 0.45;
-    const shx = (Math.random() * 2 - 1) * shake, shy = (Math.random() * 2 - 1) * shake;
+    const shx = SHAKE ? (Math.random() * 2 - 1) * shake : 0, shy = SHAKE ? (Math.random() * 2 - 1) * shake : 0;
     const camRowTop = Math.floor(camY / T);
     const st = D.stats(s);
 
@@ -409,20 +490,32 @@
     // bound memory: drop chunks well outside the view
     if (chunks.size > 64) for (const ci of [...chunks.keys()]) if (ci < c0 - 24 || ci > c1 + 24) chunks.delete(ci);
     const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
-    // fog of war: unexplored rock fades to a dim ambient floor (still faintly legible,
-    // atmospheric) rather than pure black; the lamp reach defines what's fully lit.
-    for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
-        const light = Math.round(lightAt(c, r) * 7) / 7;
-        if (light < 1) { ctx.fillStyle = `rgba(6,7,14,${(1 - light) * 0.8})`; ctx.fillRect(c * T, r * T, T, T); } } }
     // ore veins + glow, drawn per-frame ONLY where visible: within lamp range, or
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
+    // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — drawLighting.)
     penCtx = ctx;
     for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
         if (!solidTile(c, r)) continue; const info = D.tileInfo(s.seed, c, r); if (!info.ore) continue;
         const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0); if (vis <= 0.06) continue;
         const frac = info.maxHp ? (s.dmg[D.key(c, r)] || 0) / info.maxHp : 0;
         ctx.globalAlpha = Math.min(1, vis); drawOreVein(info.ore, c * T, r * T, c, r, frac); ctx.globalAlpha = 1;
-        oreGlow(ctx, info.ore, c * T, r * T, frac, vis); } }
+        const art = ORE_ART[info.ore]; if (!art || art.dim) continue;         // dirt clods don't shine
+        const ph = (hashXY(c, r, 55) & 1023) / 1023 * 6.283;
+        // an ore vein is a light source too — pushed into the SAME system as the lamp,
+        // with a gentle per-vein breathing pulse. Only veins actually within the lamp's
+        // reach (or being mined) emit; distant scanner-revealed ore shows its fleck art
+        // but casts no light, so it neither washes the dark nor floods the emitter list.
+        if (lightAt(c, r) > 0.35 || frac > 0.1) {
+          const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
+          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, T * 1.8,
+            [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.55 * vis * (0.45 + 0.9 * frac) * pulse);
+        }
+        const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
+        if (tw > 0.8) { const a = ((tw - 0.8) / 0.2) * vis, gx = c * T + (T >> 1), gy = r * T + (T >> 1);
+          ctx.fillStyle = '#ffffff'; ctx.globalAlpha = a;
+          ctx.fillRect(gx, gy - 1, 1, 3); ctx.fillRect(gx - 1, gy, 3, 1);
+          ctx.globalAlpha = a * 0.45; ctx.fillRect(gx - 2, gy, 1, 1); ctx.fillRect(gx + 2, gy, 1, 1); ctx.fillRect(gx, gy - 2, 1, 1); ctx.fillRect(gx, gy + 2, 1, 1);
+          ctx.globalAlpha = 1; } } }
     penCtx = lb;
     // idle dust motes drifting near the lamp
     ctx.fillStyle = '#fff';
@@ -434,11 +527,7 @@
     ctx.globalAlpha = 1;
     // miner + lamp glow
     const mX = Math.round(dispC * T), mY = Math.round(dispR * T), bob = Math.sin(t * 8) * (moving ? 0.6 : 0.25);
-    ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    const gx = mX + 8, gy = mY + 7, pr = 0.9 + Math.sin(t * 3) * 0.08, rg = ctx.createRadialGradient(gx, gy, 0, gx, gy, T * 3.4 * pr);
-    rg.addColorStop(0, 'rgba(255,236,178,0.30)'); rg.addColorStop(0.5, 'rgba(255,205,140,0.09)'); rg.addColorStop(1, 'rgba(255,205,140,0)');
-    ctx.fillStyle = rg; ctx.fillRect(gx - T * 4, gy - T * 4, T * 8, T * 8); ctx.restore();
-    drawMiner(ctx, mX, mY, s.facing, bob);
+    drawMiner(ctx, mX, mY, s.facing, bob);   // lamp bloom is now part of drawLighting
     // coin floaties
     ctx.textAlign = 'center';
     for (const f of floaties) { const a = Math.max(0, 1 - f.t / f.life); ctx.globalAlpha = a; ctx.font = `700 ${f.big ? 11 : 8}px ui-monospace,monospace`;
@@ -446,10 +535,8 @@
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // vignette (screen space)
-    const vg = ctx.createRadialGradient(LW / 2, LH / 2, LH * 0.34, LW / 2, LH / 2, LH * 0.82);
-    vg.addColorStop(0, 'transparent'); vg.addColorStop(1, 'rgba(0,0,0,0.5)');
-    ctx.fillStyle = vg; ctx.fillRect(0, 0, LW, LH);
+    // pixelated lighting: fog (lamp reach) + warm lamp bloom + vignette, all chunky pixels
+    drawLighting(t, st);
   }
 
   // ---------- input ----------
@@ -563,7 +650,7 @@
       `cam   y ${camY.toFixed(1)}  viewRows ${VIEW_ROWS}\n` +
       `canvas ${cv.width}×${cv.height} @${up}×  tile ${(cv.clientWidth / W).toFixed(1)}px  cols ${W}\n` +
       `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
-      `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}\n` +
+      `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lightCount}\n` +
       `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
       `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}\n` +
       `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
