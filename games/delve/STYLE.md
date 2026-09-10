@@ -164,14 +164,22 @@ a lit tunnel catches a warm rim for free** (one attenuated step of warm light) �
 SteamWorld dug-edge signature, emergent rather than special-cased. A shared, cached
 **dithered vignette** frames the screen. Adding a light is one `addLight()` call.
 
+**Gem glow.** Because the field is *max*-propagated, a vein's colour is swamped by the
+brighter lamp where they overlap, so point emitters (`r>0`) get a dedicated additive
+colour halo (soft parabolic dome, brighter as the vein is exposed) accumulated into
+its own buffer and **capped per channel (`GLOW_CAP`)** before it's added to the scene —
+so several same-colour veins tint the light without stacking into a blown-out sunspot.
+The lamp (`r=0`) is skipped; its glow is the field.
+
 Tuning knobs (all in `index.html`): `LAMP_COLOR` (warm lantern — a lantern reads
 **warm**, not a cool flashlight-from-above), `OPEN_ATTEN`/`ROCK_ATTEN` (how far light
 runs down tunnels vs into rock), `ADD` (glow strength), `AMB` (ambient floor — unlit
 rock stays dim, never pure black), `SCRIM` (the deep cool colour the dark fades
-toward). The lamp's seed brightness scales gently with `vision`, so the **Deep
-Lantern** reaches further down the tunnel. Distant **Ore-Scanner**-revealed veins show
-their fleck art but **do not emit light** (gated on lamp reach / being mined), so they
-neither wash the dark nor flood the emitter list.
+toward), `ORE_GLOW`/`GLOW_CAP` (gem halo strength and its anti-bloom ceiling). The
+lamp's seed brightness scales gently with `vision`, so the **Deep Lantern** reaches
+further down the tunnel. Distant **Ore-Scanner**-revealed veins show their fleck art
+but **do not emit light** (gated on lamp reach / being mined), so they neither wash the
+dark nor flood the emitter list.
 
 **Grounded in the reference miners** (SteamWorld Dig 2, Terraria, Super Motherload,
 studied from real screenshots): warm colour temperature; many small local sources;

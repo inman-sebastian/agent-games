@@ -407,6 +407,7 @@
   const OPEN_ATTEN = 0.70, ROCK_ATTEN = 0.45;           // per-step light conduction: open tunnel vs solid rock
   const LMARGIN = 2;                                    // extra tile rows above/below the view for clean edges
   const ORE_GLOW = 1.15;                                // extra additive colour halo for point emitters (r>0), so gems pop
+  const GLOW_CAP = 0.34;                                // per-channel ceiling on stacked gem glow (stops same-colour bloom)
   let LIGHTS = [], lightCount = 0;
   const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
 
@@ -414,6 +415,7 @@
   const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
   const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
   let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+  let ogR = null, ogG = null, ogB = null;              // per-pixel gem-glow accumulator (capped before it hits the scene)
   let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // world-space per-tile light field
 
   // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
@@ -434,7 +436,8 @@
     ensureVignette();
     if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
       addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
-      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
+      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH);
+      ogR = new Float32Array(LW * LH); ogG = new Float32Array(LW * LH); ogB = new Float32Array(LW * LH); }
     // the miner's lamp is just another emitter (warm; seed brightness scales gently with
     // vision so the Deep Lantern reaches further down the tunnel)
     addLight(dispC * T + 8, dispR * T - camY + 7, 0, LAMP_COLOR, 0.9 + 0.16 * st.vision);
@@ -464,6 +467,23 @@
     for (let y = gh - 1; y >= 0; y--) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BL→TR
       if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
 
+    // ---- point-emitter colour halos (gems), accumulated into their own buffer ----
+    // The occlusion field is max-propagated, so a vein's colour is swamped by the
+    // brighter lamp where they overlap; gems get a dedicated additive halo instead
+    // (soft parabolic dome, brighter as the vein is exposed). Accumulated here and
+    // CAPPED per channel at composite time, so several same-colour veins can't stack
+    // into a blown-out sunspot. The lamp (r=0) is skipped — its glow is the field.
+    ogR.fill(0); ogG.fill(0); ogB.fill(0);
+    for (const L of LIGHTS) {
+      if (L.r <= 0) continue;
+      const r = L.r, invr2 = 1 / (r * r), gr = L.cr * L.i * ORE_GLOW, gg = L.cg * L.i * ORE_GLOW, gb = L.cb * L.i * ORE_GLOW;
+      const x0 = Math.max(0, (L.x - r) | 0), x1 = Math.min(LW - 1, (L.x + r) | 0);
+      const y0 = Math.max(0, (L.y - r) | 0), y1 = Math.min(LH - 1, (L.y + r) | 0);
+      for (let y = y0; y <= y1; y++) { const dy = y - L.y, rw = y * LW;
+        for (let x = x0; x <= x1; x++) { const dx = x - L.x; const f = 1 - (dx * dx + dy * dy) * invr2;
+          if (f <= 0) continue; const i = rw + x; ogR[i] += gr * f; ogG[i] += gg * f; ogB[i] += gb * f; } }
+    }
+
     // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
     const ad = addImg.data, sd = scrimImg.data, skyY = (D.SURFACE + 1) * T;
     for (let y = 0; y < LH; y++) {
@@ -480,31 +500,18 @@
         let r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
         let g = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
         let b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
-        let av = r * ADD * 255; ad[j] = av > 255 ? 255 : av;
-        av = g * ADD * 255; ad[j + 1] = av > 255 ? 255 : av;
-        av = b * ADD * 255; ad[j + 2] = av > 255 ? 255 : av; ad[j + 3] = 255;
+        const i = y * LW + x;                          // gem glow, capped per channel then added on top
+        let cr = ogR[i]; if (cr > GLOW_CAP) cr = GLOW_CAP;
+        let cg = ogG[i]; if (cg > GLOW_CAP) cg = GLOW_CAP;
+        let cb = ogB[i]; if (cb > GLOW_CAP) cb = GLOW_CAP;
+        let av = (r * ADD + cr) * 255; ad[j] = av > 255 ? 255 : av;
+        av = (g * ADD + cg) * 255; ad[j + 1] = av > 255 ? 255 : av;
+        av = (b * ADD + cb) * 255; ad[j + 2] = av > 255 ? 255 : av; ad[j + 3] = 255;
         let br = r > g ? (r > b ? r : b) : (g > b ? g : b); if (br > 1) br = 1;
         const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
         let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
         sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
       }
-    }
-    // point-emitter colour halos (gems): the occlusion field is max-propagated, so an
-    // ore's colour is swamped by the brighter lamp where they overlap. Give r>0 emitters
-    // a dedicated additive colour glow so gems pop with their own hue (and brighter as
-    // they're exposed, since intensity carries the reveal fraction). The lamp (r=0) is
-    // skipped — its glow comes from the field.
-    for (const L of LIGHTS) {
-      if (L.r <= 0) continue;
-      const r = L.r, invr2 = 1 / (r * r), gr = L.cr * L.i * ORE_GLOW, gg = L.cg * L.i * ORE_GLOW, gb = L.cb * L.i * ORE_GLOW;
-      const x0 = Math.max(0, (L.x - r) | 0), x1 = Math.min(LW - 1, (L.x + r) | 0);
-      const y0 = Math.max(0, (L.y - r) | 0), y1 = Math.min(LH - 1, (L.y + r) | 0);
-      for (let y = y0; y <= y1; y++) { const dy = y - L.y;
-        for (let x = x0; x <= x1; x++) { const dx = x - L.x; const f = 1 - (dx * dx + dy * dy) * invr2;
-          if (f <= 0) continue; const j = (y * LW + x) * 4;   // soft parabolic dome (no sharp core → no hotspot)
-          let v = ad[j] + gr * f * 255; ad[j] = v > 255 ? 255 : v;
-          v = ad[j + 1] + gg * f * 255; ad[j + 1] = v > 255 ? 255 : v;
-          v = ad[j + 2] + gb * f * 255; ad[j + 2] = v > 255 ? 255 : v; } }
     }
     addX.putImageData(addImg, 0, 0); scrimX.putImageData(scrimImg, 0, 0);
     ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(addCv, 0, 0); ctx.restore();
