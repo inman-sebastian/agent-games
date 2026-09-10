@@ -8,6 +8,9 @@ export interface TileCoord {
   readonly row: number;
 }
 
+/** An RGB colour as a numeric triple — 0..1 for light intensities, 0..255 for the scrim tint. */
+export type LightColor = readonly [number, number, number];
+
 // ---- entity resources (see resources/*.ts + the registry) ------------------------------
 
 export type ResourceType = 'strata' | 'ore';
