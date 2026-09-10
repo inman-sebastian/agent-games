@@ -57,21 +57,42 @@
     return ((h ^ (h >>> 14)) >>> 0) / 4294967296;
   }
 
+  // --- deterministic smooth value noise (bilinear-interpolated lattice) ---
+  // Unlike tileRand (white noise, per-cell independent), this is spatially coherent, so
+  // thresholding it yields CONTIGUOUS blobs — the basis for ore nodes/clusters.
+  function vnoise(x, y, sd) {
+    const fx = Math.floor(x), fy = Math.floor(y), tx = x - fx, ty = y - fy;
+    const h = (a, b) => { let n = (a * 374761393 + b * 668265263 + sd * 362437) >>> 0; n = Math.imul(n ^ n >>> 13, 1274126177) >>> 0; return ((n ^ n >>> 16) >>> 0) / 4294967296; };
+    const sm = t => t * t * (3 - 2 * t), au = sm(tx), av = sm(ty);
+    const a = h(fx, fy), b = h(fx + 1, fy), c = h(fx, fy + 1), d = h(fx + 1, fy + 1);
+    return (a * (1 - au) + b * au) * (1 - av) + (c * (1 - au) + d * au) * av;
+  }
+
   // Base rock hp from depth (row). Grows so deep rock needs upgraded picks. Slope is
   // halved vs the old coarse grid because rows are now 2× denser — hp per *physical*
   // depth is unchanged (and each of the 2× cells is quicker to break, so total effort
   // to descend a given distance stays the same). (ponytail: economy retune is a later pass.)
   function rockHp(r) { return 2 + Math.floor(r * 0.31); }
 
-  // What ore (if any) a solid tile holds. Pure function of world coords.
+  // Ore forms contiguous NODES (clusters), not per-cell confetti. Pure f(seed,c,r):
+  //  1. a low-frequency value-noise field carves blobby pockets — cells where the field
+  //     exceeds a depth-scaled threshold are inside a node (else plain rock);
+  //  2. a coarse REGION grid assigns each pocket a SINGLE ore type (weighted by the depth
+  //     band), so a node reads as one ore's cluster rather than a mix.
+  // Node coverage is kept near the old per-cell ore density, so the economy/verifier are
+  // stable for now — a full economy retune (rarer, richer clusters) is a later pass.
+  const CLUSTER_FREQ = 0.30;    // node blob scale (lower = bigger pockets)
+  const REGION = 6;             // cells across a region that shares one ore type
   function oreAt(seed, c, r) {
     if (r <= SURFACE) return 0;
     const elig = ORES.filter(o => r >= o.band[0] && r <= o.band[1]);
     if (!elig.length) return 0;
-    const rich = 0.22 + Math.min(0.13, r * 0.0003);   // richness rises with depth (slope halved for 2× rows)
-    if (tileRand(seed, c, r) > rich) return 0;
+    const n = vnoise(c * CLUSTER_FREQ, r * CLUSTER_FREQ, (seed ^ 0x5EED) >>> 0);
+    const cover = 0.20 + Math.min(0.14, r * 0.0003);   // node coverage rises with depth
+    if (n < 1 - cover) return 0;                        // outside any node → plain rock
+    const rx = Math.floor(c / REGION), ry = Math.floor(r / REGION);
     const total = elig.reduce((s, o) => s + o.weight, 0);
-    let roll = tileRand(seed, c + 7777, r + 3331) * total;
+    let roll = tileRand((seed ^ 0xA5A5) >>> 0, rx, ry) * total;
     for (const o of elig) { if ((roll -= o.weight) < 0) return o.id; }
     return elig[elig.length - 1].id;
   }
