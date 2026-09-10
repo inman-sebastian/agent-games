@@ -248,6 +248,14 @@ player see, hear, and feel here?"
   multi-game directory, a branch or issue belongs to a single game; name it so
   that's obvious (e.g. prefix with the game's folder). Cross-cutting work on
   shared code is its own scope, separate from any one game.
+- **One GitHub Project per game.** Each game has its own Project (Projects v2,
+  owned at the user/org level since Projects aren't per-repo, linked to this
+  repo) — that's how per-game work stays separated in the monorepo. Give every
+  game issue the game's label and a `<game>:` title prefix, and add it to that
+  game's Project; track larger directions as an epic/tracking issue that
+  checklists its child issues. Manage it all from the CLI (`gh issue`,
+  `gh project`; the token needs the `project` scope). Keep a simple Todo /
+  In Progress / Done status board so the game's state reads at a glance.
 
 ## General engineering notes
 

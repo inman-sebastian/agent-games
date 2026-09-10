@@ -28,4 +28,4 @@ just the DELVE-specific working rules.
   map / scripted play, no browser) and `tools/render.html` + `tools/shot.sh` (a tight
   cropped PNG of exactly one region). See [tools/README.md](tools/README.md).
 
-Roadmap / deferred passes live in [docs/DESIGN.md](docs/DESIGN.md#roadmap-deferred-passes).
+Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).

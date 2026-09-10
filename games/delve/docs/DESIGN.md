@@ -13,6 +13,10 @@ A moody, pixel-art **incremental mining game**. You tunnel straight down through
 deepening rock strata, break ore where you find it, and reinvest the coins to dig
 deeper — where the rock is tougher and the ore is rarer.
 
+> This describes the game **as currently implemented**. DELVE is mid-evolution toward
+> a Terraria-like mining/exploration game — see [Direction & roadmap](#direction--roadmap)
+> for what's changing.
+
 ## Core loop
 
 1. **Dig** — move into a rock cell to chip it; enough hits break the block.
@@ -85,12 +89,44 @@ truth for balance.
 - **One saturated element.** Ore is the only vivid colour against deliberately muted
   rock, and depth reads by palette (see [PALETTE.md](PALETTE.md)).
 
-## Roadmap (deferred passes)
+## Direction & roadmap
 
-Queued, not yet started:
+DELVE is evolving from the grid-locked, tunnel-straight-down incremental digger
+described above into a real, playable **Terraria-like game** built around mining,
+traversal, and exploration. This happens **incrementally**: the sections above
+describe the game as *currently implemented*, and each planned change below migrates
+into them as it ships. Tracked as an epic in
+[#7](https://github.com/inman-sebastian/agent-games/issues/7).
 
-- **Economy retune** — rarer, richer clusters (the `ORES` table is the home).
+**Staying:** mining as the core mechanic; incremental / progression mechanics.
+
+**Changing** (one GitHub issue each):
+
+- **Open, infinite world in all directions** — no more bounded fixed-column shaft; the
+  world generates infinitely horizontally as well as down.
+  [#1](https://github.com/inman-sebastian/agent-games/issues/1)
+- **Smooth platformer movement** — gravity, jumping and falling with continuous
+  sub-tile position, replacing grid-locked omnidirectional no-gravity movement.
+  [#2](https://github.com/inman-sebastian/agent-games/issues/2)
+- **Mining decoupled from movement** — mining becomes its own aim/target action, not a
+  side effect of walking into rock.
+  [#3](https://github.com/inman-sebastian/agent-games/issues/3)
+- **Inventory system** — hold what you mine as items instead of instant coins.
+  [#4](https://github.com/inman-sebastian/agent-games/issues/4)
+- **Ores as distinct collectibles** — each ore is its own gathered item, not a single
+  auto-sold currency.
+  [#5](https://github.com/inman-sebastian/agent-games/issues/5)
+- **Reworked incremental / economy mechanics** — progression rebuilt around the
+  inventory, collectibles, and exploration.
+  [#6](https://github.com/inman-sebastian/agent-games/issues/6)
+
+…and more to come — this is just the start.
+
+**Also queued** (independent of the direction shift):
+
 - **Rendering perf** — bake ore blocks / cheaper lighting for deep, fully-lit scenes.
-- **Viewport fit + horizontal camera** — the field currently overflows and is
-  centred; lateral movement needs a camera.
 - **Miner sprite** — redraw + animate for the finer 32px grid.
+
+The earlier "horizontal camera" and "economy retune" passes are folded into
+[#1](https://github.com/inman-sebastian/agent-games/issues/1) and
+[#6](https://github.com/inman-sebastian/agent-games/issues/6) respectively.
