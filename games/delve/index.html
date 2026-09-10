@@ -406,8 +406,8 @@
   const LAMP_COLOR = [1.0, 0.72, 0.42];                 // warm lantern (warmer than before, per feedback)
   const OPEN_ATTEN = 0.70, ROCK_ATTEN = 0.45;           // per-step light conduction: open tunnel vs solid rock
   const LMARGIN = 2;                                    // extra tile rows above/below the view for clean edges
-  const ORE_GLOW = 1.15;                                // extra additive colour halo for point emitters (r>0), so gems pop
-  const GLOW_CAP = 0.34;                                // per-channel ceiling on stacked gem glow (stops same-colour bloom)
+  const ORE_GLOW = 1.6;                                 // ore-glow seed strength (r>0 emitters flood their colour into open space)
+  const GLOW_CAP = 0.42;                                // per-channel ceiling on ore glow (max-propagated already, this is the safety)
   let LIGHTS = [], lightCount = 0;
   const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
 
@@ -415,8 +415,8 @@
   const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
   const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
   let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
-  let ogR = null, ogG = null, ogB = null;              // per-pixel gem-glow accumulator (capped before it hits the scene)
-  let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // world-space per-tile light field
+  let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // world-space per-tile lamp light field (max-propagated)
+  let ogR = null, ogG = null, ogB = null;              // world-space per-tile ORE-glow field (own colour, occlusion-aware)
 
   // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
   function ensureVignette() {
@@ -436,28 +436,42 @@
     ensureVignette();
     if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
       addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
-      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH);
-      ogR = new Float32Array(LW * LH); ogG = new Float32Array(LW * LH); ogB = new Float32Array(LW * LH); }
+      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
     // the miner's lamp is just another emitter (warm; seed brightness scales gently with
     // vision so the Deep Lantern reaches further down the tunnel)
     addLight(dispC * T + 8, dispR * T - camY + 7, 0, LAMP_COLOR, 0.9 + 0.16 * st.vision);
 
-    // ---- world-space per-tile light field ----
+    // ---- world-space per-tile light fields ----
+    // Two fields, both propagated by the SAME occlusion rule so both respect geometry:
+    //   tR/tG/tB — the lamp (warm), drives the darkness scrim / visibility.
+    //   ogR/ogG/ogB — ore colour. Seeded at each exposed vein's tile so it can FLOOD out
+    //     of the exposed face into the shaft (dying in rock), instead of the old
+    //     geometry-blind screen-space halo that read as a standalone ring of light.
+    //     Kept separate from the lamp field so its colour survives (the lamp field is
+    //     max-propagated and would swamp it), and added on top, capped, at composite.
     const tileTop = Math.floor(camY / T) - LMARGIN;
     const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = W;
-    if (cols !== gw || rows !== gh) { gw = cols; gh = rows; tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh); }
-    tR.fill(0); tG.fill(0); tB.fill(0);
-    // seed emitters into their tile (additive, so co-located sources sum)
+    if (cols !== gw || rows !== gh) { gw = cols; gh = rows;
+      tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh);
+      ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh); }
+    tR.fill(0); tG.fill(0); tB.fill(0); ogR.fill(0); ogG.fill(0); ogB.fill(0);
+    // seed: lamp (r=0) → lamp field; ore veins (r>0) → ore-glow field, at their own tile
     for (const L of LIGHTS) {
       const tc = Math.floor(L.x / T), tr = Math.floor((L.y + camY) / T) - tileTop;
       if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
-      const idx = tr * gw + tc; tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i;
+      const idx = tr * gw + tc;
+      if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; }
+      else { tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i; }
     }
     // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
     // tile's opacity, so light dims hard the moment it enters rock). One round converges
-    // because each sweep chains through already-updated neighbours in its direction.
-    const relax = (i, from, a) => { let v = tR[from] * a; if (v > tR[i]) tR[i] = v; v = tG[from] * a; if (v > tG[i]) tG[i] = v; v = tB[from] * a; if (v > tB[i]) tB[i] = v; };
+    // because each sweep chains through already-updated neighbours in its direction. Both
+    // fields propagate together in a single relax so the sweep cost is shared.
     const attenAt = (x, gy) => (x < 0 || x >= W || solidTile(x, gy + tileTop)) ? ROCK_ATTEN : OPEN_ATTEN;
+    const relax = (i, from, a) => {
+      let v = tR[from] * a; if (v > tR[i]) tR[i] = v; v = tG[from] * a; if (v > tG[i]) tG[i] = v; v = tB[from] * a; if (v > tB[i]) tB[i] = v;
+      v = ogR[from] * a; if (v > ogR[i]) ogR[i] = v; v = ogG[from] * a; if (v > ogG[i]) ogG[i] = v; v = ogB[from] * a; if (v > ogB[i]) ogB[i] = v;
+    };
     for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9;   // TL→BR
       if (x > 0) relax(i, i - 1, a); if (y > 0) relax(i, i - gw, a); if (x > 0 && y > 0) relax(i, i - gw - 1, ad2); }
     for (let y = 0; y < gh; y++) for (let x = gw - 1; x >= 0; x--) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // TR→BL
@@ -466,23 +480,6 @@
       if (x < gw - 1) relax(i, i + 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x < gw - 1 && y < gh - 1) relax(i, i + gw + 1, ad2); }
     for (let y = gh - 1; y >= 0; y--) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BL→TR
       if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
-
-    // ---- point-emitter colour halos (gems), accumulated into their own buffer ----
-    // The occlusion field is max-propagated, so a vein's colour is swamped by the
-    // brighter lamp where they overlap; gems get a dedicated additive halo instead
-    // (soft parabolic dome, brighter as the vein is exposed). Accumulated here and
-    // CAPPED per channel at composite time, so several same-colour veins can't stack
-    // into a blown-out sunspot. The lamp (r=0) is skipped — its glow is the field.
-    ogR.fill(0); ogG.fill(0); ogB.fill(0);
-    for (const L of LIGHTS) {
-      if (L.r <= 0) continue;
-      const r = L.r, invr2 = 1 / (r * r), gr = L.cr * L.i * ORE_GLOW, gg = L.cg * L.i * ORE_GLOW, gb = L.cb * L.i * ORE_GLOW;
-      const x0 = Math.max(0, (L.x - r) | 0), x1 = Math.min(LW - 1, (L.x + r) | 0);
-      const y0 = Math.max(0, (L.y - r) | 0), y1 = Math.min(LH - 1, (L.y + r) | 0);
-      for (let y = y0; y <= y1; y++) { const dy = y - L.y, rw = y * LW;
-        for (let x = x0; x <= x1; x++) { const dx = x - L.x; const f = 1 - (dx * dx + dy * dy) * invr2;
-          if (f <= 0) continue; const i = rw + x; ogR[i] += gr * f; ogG[i] += gg * f; ogB[i] += gb * f; } }
-    }
 
     // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
     const ad = addImg.data, sd = scrimImg.data, skyY = (D.SURFACE + 1) * T;
@@ -500,14 +497,16 @@
         let r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
         let g = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
         let b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
-        const i = y * LW + x;                          // gem glow, capped per channel then added on top
-        let cr = ogR[i]; if (cr > GLOW_CAP) cr = GLOW_CAP;
-        let cg = ogG[i]; if (cg > GLOW_CAP) cg = GLOW_CAP;
-        let cb = ogB[i]; if (cb > GLOW_CAP) cb = GLOW_CAP;
+        // ore glow: bilinear-sample the propagated ore-colour field, cap per channel, add on top
+        let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
+        let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
+        let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
         let av = (r * ADD + cr) * 255; ad[j] = av > 255 ? 255 : av;
         av = (g * ADD + cg) * 255; ad[j + 1] = av > 255 ? 255 : av;
         av = (b * ADD + cb) * 255; ad[j + 2] = av > 255 ? 255 : av; ad[j + 3] = 255;
-        let br = r > g ? (r > b ? r : b) : (g > b ? g : b); if (br > 1) br = 1;
+        // scrim brightness: lamp field OR ore glow, so a glowing vein carves its own visibility
+        let br = r > g ? (r > b ? r : b) : (g > b ? g : b);
+        if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;
         const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
         let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
         sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
@@ -556,14 +555,17 @@
         ctx.globalAlpha = Math.min(1, vis); drawOreVein(info.ore, c * T, r * T, c, r, frac); ctx.globalAlpha = 1;
         const art = ORE_ART[info.ore]; if (!art || art.dim) continue;         // dirt clods don't shine
         const ph = (hashXY(c, r, 55) & 1023) / 1023 * 6.283;
-        // an ore vein is a light source too — pushed into the SAME system as the lamp,
-        // with a gentle per-vein breathing pulse. Only veins actually within the lamp's
-        // reach (or being mined) emit; distant scanner-revealed ore shows its fleck art
-        // but casts no light, so it neither washes the dark nor floods the emitter list.
-        if (lightAt(c, r) > 0.35 || frac > 0.1) {
+        // an ore vein is a light source too — same system as the lamp. It only emits when
+        // EXPOSED (bordering an open tile), so its colour has somewhere to flood: seeded at
+        // its tile, the ore-glow field spills through the exposed face into the shaft and
+        // dies in rock (occlusion-aware), instead of a geometry-blind halo. Brightness
+        // fades with lamp distance (lightAt), so far tunnels don't blaze; brighter as mined.
+        const li = lightAt(c, r);
+        const exposed = !solidTile(c, r - 1) || !solidTile(c, r + 1) || !solidTile(c - 1, r) || !solidTile(c + 1, r);
+        if (exposed && (li > 0.16 || frac > 0.05)) {
           const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
-          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, T * 2.0,
-            [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.55 * vis * (0.5 + 0.85 * frac) * pulse);
+          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, 1,
+            [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.9 * li * (0.5 + 0.85 * frac) * pulse);
         }
         const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
         if (tw > 0.8) { const a = ((tw - 0.8) / 0.2) * vis, gx = c * T + (T >> 1), gy = r * T + (T >> 1);

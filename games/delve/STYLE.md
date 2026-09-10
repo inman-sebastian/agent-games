@@ -164,12 +164,16 @@ a lit tunnel catches a warm rim for free** (one attenuated step of warm light) �
 SteamWorld dug-edge signature, emergent rather than special-cased. A shared, cached
 **dithered vignette** frames the screen. Adding a light is one `addLight()` call.
 
-**Gem glow.** Because the field is *max*-propagated, a vein's colour is swamped by the
-brighter lamp where they overlap, so point emitters (`r>0`) get a dedicated additive
-colour halo (soft parabolic dome, brighter as the vein is exposed) accumulated into
-its own buffer and **capped per channel (`GLOW_CAP`)** before it's added to the scene —
-so several same-colour veins tint the light without stacking into a blown-out sunspot.
-The lamp (`r=0`) is skipped; its glow is the field.
+**Gem glow.** Ore light obeys the same occlusion rules as the lamp, in its own colour
+field (`ogR/ogG/ogB`) so the lamp doesn't swamp it. A vein only emits when **exposed**
+(bordering an open tile), so its colour has somewhere to flood: seeded at the vein's
+tile, the ore-glow field **spills through the exposed face into the shaft and dies in
+rock**, exactly like the lamp — rather than the old geometry-blind screen-space halo
+that read as a standalone ring of light. Because the field is max-propagated, several
+same-colour veins don't sum (the brightest dominates), and the bilinear sample is
+**capped per channel (`GLOW_CAP`)** on top of that — so no blown-out sunspot. Vein
+brightness fades with lamp distance and rises as the vein is mined. The lamp (`r=0`)
+seeds the lamp field; ore veins (`r>0`) seed the ore-glow field.
 
 Tuning knobs (all in `index.html`): `LAMP_COLOR` (warm lantern — a lantern reads
 **warm**, not a cool flashlight-from-above), `OPEN_ATTEN`/`ROCK_ATTEN` (how far light
