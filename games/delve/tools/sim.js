@@ -61,16 +61,20 @@ function cmdMap() {
 }
 
 // Run an action script through the platformer physics and report. Tokens: <key><frames>,
-// key in d(own) / l(eft) / r(ight) / u(=jump); frames are 1/60s each. e.g. "d600 r120".
+// key in d (mine the tile directly below) / l (run left) / r (run right) / u (jump);
+// frames are 1/60s each. e.g. "d600 r120" descends, then runs right. Mining is decoupled
+// from movement, so 'd' aims the mine action down while gravity drops the player in.
 function cmdPlay() {
   const s = loadState();
-  const IN = { d: 'down', l: 'left', r: 'right', u: 'jump' };
+  const MOVE = { l: 'left', r: 'right', u: 'jump' };
   const seen = {}; let frames = 0; const dt = 1 / 60;
   for (const tok of String(opt.do || '').trim().split(/\s+/).filter(Boolean)) {
-    const k = IN[tok[0]], n = +tok.slice(1) || 1;
-    if (!k) { console.error('bad action token: ' + tok); process.exit(2); }
+    const key = tok[0], n = +tok.slice(1) || 1;
+    if (key !== 'd' && !MOVE[key]) { console.error('bad action token: ' + tok); process.exit(2); }
     for (let i = 0; i < n; i++) {
-      const input = { left: false, right: false, jump: false, down: false }; input[k] = true;
+      const input = { left: false, right: false, jump: false, mine: null };
+      if (key === 'd') input.mine = { c: Math.floor(s.x), r: Math.floor(s.y) + 1 };
+      else input[MOVE[key]] = true;
       const ev = D.physicsStep(s, input, dt); frames++;
       for (const e of ev.events) if (e.type === 'break' && e.ore) { const nm = D.ORE_BY_ID[e.ore].name; seen[nm] = seen[nm] || { count: 0, coin: 0 }; seen[nm].count++; seen[nm].coin += e.coin || 0; }
     }

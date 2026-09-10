@@ -19,7 +19,7 @@ the coins to delve deeper — where the rock is tougher and the ore is rarer.
 
 ## Core loop
 
-1. **Dig** — run and jump around, pushing into rock to chip it; enough hits break the block.
+1. **Dig** — run and jump around; aim at nearby rock and hold to mine it — enough hits break the block.
 2. **Earn** — ore sells the instant its block breaks, **in place**. There is no
    cargo and no hauling back to the surface; the loop never asks you to stop digging.
 3. **Spend** — the ⛏ Upgrades panel: leveled upgrades and one-time tech.
@@ -27,15 +27,15 @@ the coins to delve deeper — where the rock is tougher and the ore is rarer.
 
 ## Controls
 
-Smooth 2D-platformer movement (physics — gravity, running, jumping; see the design
-pillars):
+Smooth 2D-platformer movement with a **separate aim/mine action** — mining is decoupled
+from movement, so you can mine while running, jumping, or standing still:
 
-- **Keyboard:** A/D or ←/→ to run, W / ↑ / Space to jump, S / ↓ to dig straight down.
-- **Mouse / touch:** point left/right of the miner to run that way, above it to jump,
-  below it to dig down — big, forgiving targets on coarse pointers.
-
-Mining is coupled to movement — you dig the rock you push into (walk into a wall to
-tunnel sideways, hold Down to tunnel below). A dedicated aim/mine action is #3.
+- **Move:** A/D or ←/→ to run, W / ↑ / Space to jump.
+- **Mine (mouse):** aim with the cursor and **hold to mine** the targeted tile (within
+  reach); a reticle shows what you're aiming at.
+- **Mine (keyboard):** hold **J/K** to mine in the aim direction — S/↓ aims down, A/D or
+  ←/→ aim to that side, otherwise the way you're facing.
+- **Touch:** on-screen ◄ ► / jump buttons to move; tap or hold a tile to mine it.
 
 ## Ore tiers
 
@@ -114,9 +114,9 @@ into them as it ships. Tracked as an epic in
   continuous sub-tile position + AABB tile collision, replacing grid-locked
   omnidirectional no-gravity movement.
   [#2](https://github.com/inman-sebastian/agent-games/issues/2)
-- **Mining decoupled from movement** — mining becomes its own aim/target action, not a
-  side effect of walking into rock.
-  [#3](https://github.com/inman-sebastian/agent-games/issues/3)
+- **Mining decoupled from movement** *(shipped)* — its own aim/target action (mouse
+  hold-to-mine or keyboard J), reach-limited, usable while moving; walking into rock no
+  longer digs. [#3](https://github.com/inman-sebastian/agent-games/issues/3)
 - **Inventory system** — hold what you mine as items instead of instant coins.
   [#4](https://github.com/inman-sebastian/agent-games/issues/4)
 - **Ores as distinct collectibles** — each ore is its own gathered item, not a single

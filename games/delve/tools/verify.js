@@ -29,9 +29,9 @@ for (const o of D.ORES) {
 }
 
 // --- greedy playthrough: dig straight down, reinvest coins as they accrue ---
-// The bot drives the SAME physics step the player uses, holding Down: it mines the tile
-// directly below and gravity drops it in, one row at a time — a single-column shaft, the
-// same path the old grid bot took. Frames stand in for the old discrete "actions".
+// The bot drives the SAME physics step the player uses, aiming its mine action at the tile
+// directly below: it breaks that tile and gravity drops it in, one row at a time — a
+// single-column shaft, the same path the old grid bot took. Frames stand in for "actions".
 function play(seed) {
   const s = D.newGame(seed);
   const seenTier = {};                 // oreId -> first frame it was mined
@@ -55,7 +55,8 @@ function play(seed) {
   while (s.depth < TARGET && frames < BUDGET) {
     shop();
     for (let i = 0; i < 4000 && s.depth < TARGET && frames < BUDGET; i++) {
-      const ev = D.physicsStep(s, { down: true }, dt);
+      const target = { c: Math.floor(s.x), r: Math.floor(s.y) + 1 };   // the tile directly below
+      const ev = D.physicsStep(s, { mine: target }, dt);
       frames++;
       for (const e of ev.events) if (e.type === 'break' && e.coin > 0) seenTier[e.ore] = seenTier[e.ore] || frames;
     }

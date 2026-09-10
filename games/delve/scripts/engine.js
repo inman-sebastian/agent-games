@@ -39,6 +39,7 @@
   const RUN_ACCEL = 85, AIR_ACCEL = 46;  // ground vs air responsiveness
   const FRICTION = 60;                    // ground deceleration when no input
   const JUMP_VEL = 10.7;                  // initial jump speed (~1.25 tiles high: v²/2g, g=46)
+  const REACH = 1;                         // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
   const COYOTE = 0.08, JUMP_BUF = 0.10;   // forgiveness: jump just after leaving / just before landing
   const MAX_DT = 1 / 30;                  // clamp per-step dt so fast motion can't tunnel a tile
   const EPS = 1e-4;
@@ -146,7 +147,11 @@
   }
 
   // THE step that drives everything: advance the sim by `dt` seconds under `input`
-  //   input = { left, right, jump, down }   (all booleans; `jump` is the held state)
+  //   input = { left, right, jump, mine }
+  //     left/right/jump — movement booleans (`jump` is the held state)
+  //     mine — {c,r} world tile to mine this frame, or null. Mining is DECOUPLED from
+  //            movement (#3): you can mine any solid tile within REACH while running,
+  //            jumping, or standing still; walking into rock no longer digs it.
   // Returns { events, grounded, jumped } — events feed the presentation's juice.
   function physicsStep(s, input, dt) {
     if (dt > MAX_DT) dt = MAX_DT;            // never advance far enough to tunnel a tile
@@ -170,39 +175,42 @@
     // --- gravity ---
     s.vy = Math.min(MAX_FALL, s.vy + GRAVITY * dt);
 
-    // --- integrate + resolve X (mine the wall you push into) ---
+    // --- integrate + resolve X (stop at walls; mining no longer happens here) ---
     let nx = s.x + s.vx * dt;
     const rTop = Math.floor(s.y - HH + EPS), rBot = Math.floor(s.y + HH - EPS);
-    const midR = Math.floor(s.y);
     if (s.vx > 0) {
       const col = Math.floor(nx + HW);
       let hit = false; for (let r = rTop; r <= rBot; r++) if (solidCell(s, col, r)) { hit = true; break; }
-      if (hit) { if (dir > 0) mine(col, clamp(midR, rTop, rBot)); nx = col - HW - EPS; s.vx = 0; }
+      if (hit) { nx = col - HW - EPS; s.vx = 0; }
     } else if (s.vx < 0) {
       const col = Math.floor(nx - HW);
       let hit = false; for (let r = rTop; r <= rBot; r++) if (solidCell(s, col, r)) { hit = true; break; }
-      if (hit) { if (dir < 0) mine(col, clamp(midR, rTop, rBot)); nx = col + 1 + HW + EPS; s.vx = 0; }
+      if (hit) { nx = col + 1 + HW + EPS; s.vx = 0; }
     }
     s.x = nx;
 
-    // --- integrate + resolve Y (land / mine below when holding Down / bonk head) ---
+    // --- integrate + resolve Y (land / bonk head) ---
     let ny = s.y + s.vy * dt;
     const cLeft = Math.floor(s.x - HW + EPS), cRight = Math.floor(s.x + HW - EPS);
-    const midC = Math.floor(s.x);
     s.grounded = false;
     if (s.vy > 0) {                                        // falling
       const row = Math.floor(ny + HH);
       let hit = false; for (let c = cLeft; c <= cRight; c++) if (solidCell(s, c, row)) { hit = true; break; }
-      if (hit) {
-        ny = row - HH - EPS; s.vy = 0; s.grounded = true;
-        if (input.down) mine(clamp(midC, cLeft, cRight), row);   // tunnel straight down
-      }
+      if (hit) { ny = row - HH - EPS; s.vy = 0; s.grounded = true; }
     } else if (s.vy < 0) {                                 // rising
       const row = Math.floor(ny - HH);
       let hit = false; for (let c = cLeft; c <= cRight; c++) if (solidCell(s, c, row)) { hit = true; break; }
       if (hit) { ny = row + 1 + HH + EPS; s.vy = 0; }      // head bonk
     }
     s.y = ny;
+
+    // --- mining: a separate aim/target action, independent of movement (#3) ---
+    // Reach is a tile ring around the player (Chebyshev), so base REACH=1 = the eight
+    // adjacent tiles; a future upgrade widens the ring.
+    if (input.mine) {
+      const tc = input.mine.c, tr = input.mine.r;
+      if (solidCell(s, tc, tr) && Math.abs(tc - Math.floor(s.x)) <= REACH && Math.abs(tr - Math.floor(s.y)) <= REACH) mine(tc, tr);
+    }
 
     // --- jump (after ground state is known this frame) ---
     let jumped = false;
@@ -221,7 +229,7 @@
 
   const atSurface = (s) => s.y <= SURFACE + 1;
 
-  const PHYS = { HW, HH, GRAVITY, MAX_FALL, RUN_SPEED, JUMP_VEL };
+  const PHYS = { HW, HH, GRAVITY, MAX_FALL, RUN_SPEED, JUMP_VEL, REACH };
 
   const Delve = {
     // world (re-exported from blocks.js for convenience)

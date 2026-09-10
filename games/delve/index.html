@@ -17,7 +17,7 @@
     height:100%; -webkit-user-select:none; user-select:none; touch-action:none;
   }
   /* the game canvas fills the whole screen, edge to edge, behind the UI overlay */
-  #c { position:fixed; inset:0; width:100vw; height:100vh;
+  #c { position:fixed; inset:0; width:100vw; height:100vh; cursor:crosshair;
     image-rendering:pixelated; image-rendering:crisp-edges; background:#0b0e13; display:block; z-index:0; }
 
   /* UI is an overlay floating on top of the game; only the controls take pointer input */
@@ -68,6 +68,16 @@
     text-shadow:0 1px 2px #000, 0 0 2px #000; pointer-events:none;
     background:#060910cc; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   #dbg.on { display:block; }
+
+  /* on-screen movement controls (touch only; mining is aim+tap on the canvas) */
+  #touch { display:none; position:fixed; inset:auto 0 0 0; z-index:6; padding:0 18px 18px;
+    align-items:flex-end; justify-content:space-between; pointer-events:none; }
+  #touch.on { display:flex; }
+  .tpad { display:flex; gap:14px; }
+  .tbtn { pointer-events:auto; width:66px; height:66px; border-radius:50%; font-size:26px; line-height:1;
+    color:var(--ink); background:#1b2230bb; backdrop-filter:blur(4px); border:1px solid var(--line);
+    touch-action:none; -webkit-user-select:none; user-select:none; }
+  .tbtn:active { filter:brightness(1.3); }
 </style>
 </head>
 <body>
@@ -90,6 +100,14 @@
   </div>
 
   <div id="dbg"></div>
+
+  <div id="touch">
+    <div class="tpad">
+      <button id="tL" class="tbtn" aria-label="Move left">◄</button>
+      <button id="tR" class="tbtn" aria-label="Move right">►</button>
+    </div>
+    <button id="tJ" class="tbtn" aria-label="Jump">⤒</button>
+  </div>
 
   <div class="overlay" id="overlay">
     <div class="shop">
@@ -398,6 +416,11 @@
     for (const f of floaties) { const a = Math.max(0, 1 - f.t / f.life); ctx.globalAlpha = a; ctx.font = `700 ${f.big ? 11 : 8}px ui-monospace,monospace`;
       ctx.fillStyle = '#000'; ctx.fillText(f.text, f.x + 1, f.y + 1); ctx.fillStyle = f.col; ctx.fillText(f.text, f.x, f.y); }
     ctx.globalAlpha = 1;
+    // mining reticle — the tile being aimed at (bright if solid & within reach, dim otherwise)
+    if (curTarget) { const tc = curTarget.c, tr = curTarget.r;
+      const ok = D.solidCell(s, tc, tr) && Math.abs(tc - Math.floor(px)) <= D.PHYS.REACH && Math.abs(tr - Math.floor(py)) <= D.PHYS.REACH;
+      ctx.globalAlpha = ok ? 0.85 : 0.22; ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
+      ctx.strokeRect(tc * T + 0.5, tr * T + 0.5, T - 1, T - 1); ctx.globalAlpha = 1; }
     ctx.restore();
 
     // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the
@@ -408,42 +431,39 @@
   }
 
   // ---------- input ----------
-  // Platformer controls: left/right run, up/W/Space jump, down mines below. Mining is
-  // coupled to movement (walk into rock to tunnel) — a dedicated aim/mine action is #3.
-  const held = { left: false, right: false, jump: false, down: false };
-  let moving = false;
+  // Decoupled controls (#3): move with A/D or ←/→, jump with W/↑/Space. MINING is its own
+  // action — aim at a tile and hold to mine it (within reach), independent of moving:
+  //   • mouse / touch: the tile under the cursor, held down to mine (a reticle shows it)
+  //   • keyboard: hold J/K to mine in the aim direction (S/↓ aims down, else held side / facing)
+  const held = { left: false, right: false, jump: false, down: false, mine: false };
+  let moving = false, curTarget = null;
   const KEYMAP = { ArrowUp:'jump', KeyW:'jump', Space:'jump',
-    ArrowDown:'down', KeyS:'down', ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
+    ArrowDown:'down', KeyS:'down', ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right',
+    KeyJ:'mine', KeyK:'mine' };
   addEventListener('keydown', e => {
     if (overlay.classList.contains('on')) return;
     const d = KEYMAP[e.code]; if (!d) return; e.preventDefault(); held[d] = true; audio();
   });
   addEventListener('keyup', e => { const d = KEYMAP[e.code]; if (d) held[d] = false; });
 
-  // pointer/touch → the same input booleans (works for mouse AND touch = big target):
-  // point left/right of the miner to run that way, above to jump, below to dig down.
-  let pointer = null;
-  function pointerToInput(clientX, clientY) {
-    const rect = cv.getBoundingClientRect();
-    const lx = (clientX - rect.left) / rect.width * LW, ly = (clientY - rect.top) / rect.height * LH;
-    const mx = s.x * TILE - camX + TILE / 2, my = s.y * TILE - camY + TILE / 2;
-    const dx = lx - mx, dy = ly - my, o = { left: false, right: false, jump: false, down: false };
-    if (Math.abs(dx) > TILE * 0.4) o[dx > 0 ? 'right' : 'left'] = true;
-    if (dy < -TILE * 0.8) o.jump = true; else if (dy > TILE * 0.8) o.down = true;
-    return o;
-  }
-  function setPointer(e) { const t = e.touches ? e.touches[0] : e; if (!t) return; pointer = pointerToInput(t.clientX, t.clientY); }
-  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return; e.preventDefault(); audio(); setPointer(e); });
-  cv.addEventListener('pointermove', e => { if (e.buttons) setPointer(e); });
-  addEventListener('pointerup', () => { pointer = null; });
-  addEventListener('pointercancel', () => { pointer = null; });
+  // pointer: a reticle ALWAYS follows the cursor (aim.has once it's moved over the canvas);
+  // holding the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons.
+  const aim = { cx: 0, cy: 0, has: false, down: false };
+  function setAim(e) { aim.cx = e.clientX; aim.cy = e.clientY; aim.has = true; }
+  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return; e.preventDefault(); audio(); setAim(e); aim.down = true; });
+  cv.addEventListener('pointermove', e => { setAim(e); });
+  addEventListener('pointerup', () => { aim.down = false; });
+  addEventListener('pointercancel', () => { aim.down = false; });
 
-  // merge keyboard + pointer into one input state for the physics step
-  function inputState() {
-    const i = { left: held.left, right: held.right, jump: held.jump, down: held.down };
-    if (pointer) { i.left = i.left || pointer.left; i.right = i.right || pointer.right; i.jump = i.jump || pointer.jump; i.down = i.down || pointer.down; }
-    return i;
-  }
+  // the tile under the cursor (or null if the cursor hasn't been over the canvas yet)
+  const pointerTile = () => { if (!aim.has) return null;
+    const rect = cv.getBoundingClientRect();
+    const wx = (aim.cx - rect.left) / rect.width * LW + camX, wy = (aim.cy - rect.top) / rect.height * LH + camY;
+    return { c: Math.floor(wx / T), r: Math.floor(wy / T) }; };
+  // keyboard aim: the neighbour tile in the held/facing direction (S/↓ down, else side/facing)
+  const keyboardAimTile = () => { let dx = 0, dy = 0;
+    if (held.down) dy = 1; else if (held.left) dx = -1; else if (held.right) dx = 1; else dx = s.facing === 'left' ? -1 : 1;
+    return { c: Math.floor(s.x) + dx, r: Math.floor(s.y) + dy }; };
 
   // ---------- game loop ----------
   let last = 0;
@@ -474,10 +494,14 @@
     if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * 0.1;       // smoothed frames/sec from real timestamps
     // advance the platformer sim once per frame (paused while the shop is open)
     if (!overlay.classList.contains('on')) {
-      const res = D.physicsStep(s, inputState(), dt);
+      const hover = pointerTile();
+      const mineNow = aim.down ? hover : (held.mine ? keyboardAimTile() : null);
+      curTarget = hover || (held.mine ? keyboardAimTile() : null);      // reticle follows the cursor
+      const res = D.physicsStep(s, { left: held.left, right: held.right, jump: held.jump, mine: mineNow }, dt);
       for (const ev of res.events) onEvent(ev);
       moving = Math.abs(s.vx) > 0.5;
-    } else moving = false;
+      if (aim.down && hover) s.facing = hover.c < Math.floor(s.x) ? 'left' : hover.c > Math.floor(s.x) ? 'right' : s.facing;
+    } else { moving = false; curTarget = null; }
 
     // update particles / floaties / shake
     for (const p of particles) { p.t += dt; p.vy += 120 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
@@ -566,7 +590,7 @@
       else { b.textContent = tt.cost.toLocaleString() + ' ◈'; b.disabled = s.coins < tt.cost; }
     }
   }
-  function openShop() { audio(); for (const d in held) held[d] = false; pointer = null;
+  function openShop() { audio(); for (const d in held) held[d] = false; aim.down = false;
     refreshShop(); overlay.classList.add('on'); }
   function closeShop() { overlay.classList.remove('on'); }
   el('shopBtn').onclick = openShop; el('closeBtn').onclick = closeShop;
@@ -606,6 +630,18 @@
   addEventListener('resize', fit);
 
   // ---------- boot ----------
+  // on-screen movement buttons for touch devices (mining is aim+tap on the canvas)
+  if (matchMedia('(pointer: coarse)').matches) {
+    el('touch').classList.add('on');
+    const bind = (id, k) => { const b = el(id);
+      const on = e => { e.preventDefault(); held[k] = true; audio(); };
+      const off = e => { e.preventDefault(); held[k] = false; };
+      b.addEventListener('pointerdown', on);
+      for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, off);
+    };
+    bind('tL', 'left'); bind('tR', 'right'); bind('tJ', 'jump');
+  }
+
   buildShop(); fit(); snapCam(); updateHUD();
   requestAnimationFrame(frame);
 })();
