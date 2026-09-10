@@ -86,7 +86,10 @@ pixels include intermediate values — R64 is the *source* palette, not a hard
 always lighter than the rock body.
 
 Ore is the only saturated element, so it pops against the muted rock. Each ore has
-a `[dark, mid, highlight]` triad and a **crystal shape**:
+a `[dark, mid, highlight]` triad and a **crystal shape**. Every shape is drawn
+symmetric about its centre within the same `±(r+1)` box, so any ore icon centres
+cleanly in a square and they all read at roughly the same size (metals fill the
+box as solid nuggets; gems are faceted/airier by design):
 - Copper `#7a3045 #cd683d #f79617` — nugget · Iron `#3e3546 #7f708a #c7dcd0` — nugget
 - Gold `#4c3e24 #f9c22b #fbff86` — nugget · Emerald `#165a4c #1ebc73 #91db69` — prism
 - Ruby `#831c5d #f04f78 #f68181` — cluster · Diamond `#0b8a8f #30e1b9 #8ff8e2` — gem

@@ -195,14 +195,14 @@
     for(let dy=-r;dy<=0;dy++){ const w=r-Math.abs(dy); pen1(cx-w,cy+dy,w+1,1,c[2]); }
     for(let dy=0;dy<=r;dy++){ const w=r-Math.abs(dy); pen1(cx,cy+dy,w+1,1,c[0]); }
     pen1(cx-1,cy-r+1,1,1,'#ffffff'); }
-  function nugget(cx,cy,r,c){ if(r<1)r=1;
-    for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ if(dx*dx+dy*dy<=(r+0.7)*(r+0.7) && dx*dx+dy*dy>(r-0.3)*(r-0.3)) pen1(cx+dx,cy+dy,1,1,OUT); }
-    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){ const dd=dx*dx+dy*dy; if(dd<=r*r) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
+  function nugget(cx,cy,r,c){ if(r<1)r=1; const R=r+0.5;   // R matches the crystals' ±(r+1) footprint
+    for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ const dd=dx*dx+dy*dy; if(dd<=(R+0.7)*(R+0.7) && dd>(R-0.3)*(R-0.3)) pen1(cx+dx,cy+dy,1,1,OUT); }
+    for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ const dd=dx*dx+dy*dy; if(dd<=R*R) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
     // metallic sheen: a bright upper-left highlight streak + hot specular
     const hx=cx-Math.round(r*0.35), hy=cy-Math.round(r*0.45);
     pen1(hx,hy,1,1,c[2]); pen1(hx+1,hy,1,1,c[2]); pen1(hx,hy+1,1,1,c[2]);
     pen1(hx,hy,1,1,'#ffffff'); pen1(hx+1,hy,1,1,'#ffffff'); }
-  function prism(cx,cy,r,c){ const w=Math.max(1,r-1), h=r+1; const ww=dy=> (dy<-h+2||dy>h-2)?Math.max(0,w-2):w;
+  function prism(cx,cy,r,c){ const w=r, h=r; const ww=dy=> (dy<-h+2||dy>h-2)?Math.max(0,w-2):w;   // w=h=r → fills the same ±(r+1) box as the others
     for(let dy=-h-1;dy<=h+1;dy++){ const a=ww(Math.max(-h,Math.min(h,dy))); pen1(cx-a-1,cy+dy,1,1,OUT); pen1(cx+a+1,cy+dy,1,1,OUT); }
     pen1(cx,cy-h-1,1,1,OUT); pen1(cx,cy+h+1,1,1,OUT);
     for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,2*a+1,1,c[1]); }
@@ -215,12 +215,13 @@
       pen1(x-ww,y+dy,2*ww+1,1,c[1]); pen1(x-ww,y+dy,ww,1,c[2]); }
     pen1(x,y-h-1,1,1,OUT); pen1(x,y+h+1,1,1,OUT); pen1(x-1,y-h+1,1,1,'#ffffff');
   }
-  function shard(cx,cy,r,c){                        // mythril: a centred cluster of shards, self-contained
-    shardTall(cx, cy, r-1, Math.max(1,r-3), c);     // tall centre
-    shardTall(cx-r+1, cy+1, Math.max(1,r-2), 1, c); // left
-    shardTall(cx+r-1, cy+1, Math.max(1,r-2), 1, c); // right
+  function shard(cx,cy,r,c){                        // mythril: a centred, symmetric cluster of shards, ±(r+1) box
+    shardTall(cx-(r-1), cy, Math.max(1,r-2), 1, c); // left  (reaches ±(r+1) horizontally)
+    shardTall(cx+(r-1), cy, Math.max(1,r-2), 1, c); // right
+    shardTall(cx, cy, r, Math.max(1,r-3), c);       // tall centre (vert ±(r+1)), drawn last = on top
   }
-  function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r+1,cy+2,Math.max(1,r-2),c); gem(cx+r-1,cy+1,Math.max(1,r-2),c); }
+  function cluster(cx,cy,r,c){ const rs=Math.max(1,r-2);   // symmetric, ±(r+1) box: two low gems + one high
+    gem(cx-2, cy+2, rs, c); gem(cx+2, cy+2, rs, c); gem(cx, cy-1, Math.max(1,r-1), c); }
   const SHAPES={gem,nugget,prism,shard,cluster};
 
   function drawOre(ctx, oreI, X, Y, x, y, damage, o, offX, offY){
