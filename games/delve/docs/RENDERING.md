@@ -66,13 +66,13 @@ Ore is not embedded veins-in-rock — each ore cell **is** an ore **block** that
 the cell, and adjacent same-ore cells form a **node**: a contiguous cluster that
 reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
 
-- **Placement** is a pure `f(seed,c,r)` in `scripts/blocks.ts` (`oreAt`): a
+- **Placement** is a pure `f(seed,c,r)` in `src/scripts/blocks.ts` (`oreAt`): a
   low-frequency value-noise field is thresholded into blobby pockets, and a coarse
   region grid gives each pocket a single ore type (weighted by depth band). Density is
   kept near the old per-cell value for now; a rarer/richer-cluster economy retune is a
   later pass.
 - **Rendering** — `drawOreBlock(g, art, X, Y, col, row, frac, sameOre)` in
-  `scripts/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
+  `src/scripts/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
   cell is overlaid with a **world-anchored faceted crystalline fill** (noise keyed to
   world coords, so it flows continuously across cells). Only **cluster-boundary** edges
   (where the neighbour isn't the same ore) get the dark outline + a top rim highlight —

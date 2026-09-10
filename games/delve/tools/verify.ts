@@ -7,9 +7,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import * as engine from '../scripts/engine';
-import { all, shapes } from '../scripts/resources';
-import type { UpgradeLevels, SaveState } from '../scripts/types';
+import * as engine from '../src/scripts/engine';
+import { all, shapes } from '../src/scripts/resources';
+import type { UpgradeLevels, SaveState } from '../src/scripts/types';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -36,11 +36,11 @@ const ORE_COUNT = 9;
 const RAMP_STOPS = 6;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-const resourceFiles = readdirSync(join(HERE, '..', 'resources'))
+const resourceFiles = readdirSync(join(HERE, '..', 'src', 'resources'))
   .filter((file) => file.endsWith('.ts') && file !== 'index.ts')
   .map((file) => file.replace(/\.ts$/, ''))
   .sort();
-const indexSource = readFileSync(join(HERE, '..', 'resources', 'index.ts'), 'utf8');
+const indexSource = readFileSync(join(HERE, '..', 'src', 'resources', 'index.ts'), 'utf8');
 const importedByIndex = resourceFiles.every((name) => indexSource.includes(`'./${name}'`));
 check(importedByIndex, 'resources/index.ts imports every entity file (no drift)');
 

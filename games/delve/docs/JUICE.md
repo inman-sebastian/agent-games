@@ -6,7 +6,7 @@ impact, break, reward), not to steady state.
 
 ## Miner
 
-Small sprite (`drawMiner` in `scripts/sprites.ts`) with a dark cool outline: orange
+Small sprite (`drawMiner` in `src/scripts/sprites.ts`) with a dark cool outline: orange
 helmet + lamp, visor, blue overalls, boots, and a pickaxe over the shoulder. Sits
 smaller inside the tile so the scene breathes. *A dedicated miner pass (redraw at the
 finer grid, animation) is queued for later.*
@@ -25,7 +25,7 @@ finer grid, animation) is queued for later.*
 - **Ore shimmer:** exposed ore breathes — the per-tile pulse drives its actual emitted
   light (see [LIGHTING.md](LIGHTING.md)), plus an occasional bright twinkle glint, each
   phase-offset per tile.
-- **Screen shake is currently OFF** (`SHAKE = false` in `index.html`) — it read as
+- **Screen shake is currently OFF** (`SHAKE_ENABLED = false` in `src/index.ts`) — it read as
   constant jitter once the pick was upgraded and the player was deep. The shake
   magnitude still accumulates internally, so re-enabling is a one-line flip.
 

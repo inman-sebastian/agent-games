@@ -13,7 +13,7 @@ muted rock.
 ## The full 64
 
 Regenerate the swatch image by drawing the list below to a canvas — see the palette
-panel in `style-lab.html`.
+panel in `src/labs/style-lab.html`.
 
 ![Resurrect 64 palette](images/resurrect-64.png)
 
@@ -33,7 +33,7 @@ Hex list, in palette order (copy-paste friendly):
 ## Strata ramps
 
 Each depth stratum is a 6-step ramp, `shadow[0] → rim[5]`, with a distinct identity
-so **depth reads by colour**. Each stratum is its own resource file under `resources/*.js`
+so **depth reads by colour**. Each stratum is its own resource file under `src/resources/*.ts`
 (type `strata`); the rock renderer reads the ramps from the registry (see
 [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)).
 
@@ -52,7 +52,7 @@ desaturated version, **always lighter than the rock body** (see [RENDERING.md](R
 ## Ore triads & shapes
 
 Each ore has a `[dark, mid, highlight]` triad and a **crystal shape**, defined in
-`scripts/ore-art.ts` (`ORE_ART`, keyed by engine ore id). Every shape is drawn
+`src/scripts/ore-art.ts` (`ORE_ART`, keyed by engine ore id). Every shape is drawn
 symmetric about its centre within the same `±(r+1)` box, so any ore icon centres
 cleanly in a square and they all read at roughly the same size. Metals are lumpy,
 misshapen **nuggets** (a per-ore seeded angular wobble, never perfect spheres); gems
@@ -74,4 +74,4 @@ Metals (Dirt/Copper/Iron/Silver/Gold) all use the lumpy `nugget`; the four gems
 keep their distinct crystal shapes. **Dirt** is a `dim` ore — a plain clod with no
 glow, rendered as ordinary rock in the world (its shape is only the extracted icon).
 The authoritative bands/values/weights/art live in the per-ore **resource files** under
-`resources/*.js` — this table is a snapshot for art reference.
+`src/resources/*.ts` — this table is a snapshot for art reference.

@@ -1,11 +1,11 @@
 // style-lab.ts — the art style lab. Every panel renders through the EXACT shared modules the game
 // uses (cave-render / ore-art / sprites / lighting), so what you tune here is what ships. Pure dev
 // tool; not part of the game bundle. See style-lab.html for the surrounding chrome.
-import { T, setStrata, composeBand, hexRgb, mulberry } from './scripts/cave-render';
-import { ORE_ART, SHAPES, drawOreBlock } from './scripts/ore-art';
-import { drawMiner } from './scripts/sprites';
-import { create as createLighting, LAMP_COLOR } from './scripts/lighting';
-import { STRATA } from './scripts/blocks';
+import { T, setStrata, composeBand, hexRgb, mulberry } from '../scripts/cave-render';
+import { ORE_ART, SHAPES, drawOreBlock } from '../scripts/ore-art';
+import { drawMiner } from '../scripts/sprites';
+import { create as createLighting, LAMP_COLOR } from '../scripts/lighting';
+import { STRATA } from '../scripts/blocks';
 
 // Depth strata come from the resource registry (blocks.STRATA); the lab only adds display names.
 // Hand them to the renderer, then the selector picks a representative world row so composeBand's

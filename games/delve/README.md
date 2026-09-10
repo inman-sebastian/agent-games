@@ -2,8 +2,9 @@
 
 What DELVE is and how it plays: **[docs/DESIGN.md](docs/DESIGN.md)**.
 
-Open `index.html` in a browser. Progress auto-saves to `localStorage`. Run the
-balance gate with `pnpm verify` (or `node tools/verify.ts`).
+Run `pnpm dev` and open the printed URL to play (Vite dev server). Progress auto-saves to
+`localStorage`. Build with `pnpm build` (emits `dist/`); run the balance gate with
+`pnpm verify`.
 
 ## Docs
 
@@ -12,7 +13,7 @@ The design and art direction live in [`docs/`](docs/); this README is the index.
 | Doc | What's in it |
 | --- | --- |
 | [docs/DESIGN.md](docs/DESIGN.md) | **Start here** — what the game is, the core loop, controls, ore tiers, upgrades, economy, design pillars, and the roadmap. |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The shared `scripts/` modules, how the game / style lab / tools compose from them, the `f(seed,c,r)` world model, and the rock chunk pipeline. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The shared `src/scripts/` modules, how the game / style lab / tools compose from them, the `f(seed,c,r)` world model, and the rock chunk pipeline. |
 | [docs/CODE-STYLE.md](docs/CODE-STYLE.md) | Coding standards — readable-over-terse source, naming, TypeScript conventions, comments, formatting. |
 | [docs/PALETTE.md](docs/PALETTE.md) | Resurrect 64, the per-stratum depth ramps, and the ore triads + crystal shapes. |
 | [docs/RENDERING.md](docs/RENDERING.md) | Resolution/pixel-density, the composited layers, the per-pixel rock model, and the ore nodes/blocks. |
@@ -22,10 +23,16 @@ The design and art direction live in [`docs/`](docs/); this README is the index.
 
 ## Layout
 
-- **`scripts/`** — the shared modules (world, sim, renderers, lighting), imported by
-  the game, the style lab, and the tools alike (bundled by Vite; the Node tools import them directly).
-- **`index.html`** — the game (canvas render, input, audio, camera, save, shop chrome).
-- **`style-lab.html`** — the art tuning sandbox, rendering through the same modules.
-- **`tools/`** — headless dev tools: `verify.ts` (greedy-bot balance gate), plus the
-  sim + cropped-render checks.
+Everything Vite compiles lives under `src/`; run-directly CLI tools live in `tools/`.
+
+- **`src/index.html` + `src/index.ts`** — the game (canvas render, input, audio, camera,
+  save, shop chrome).
+- **`src/scripts/`** — the shared modules (world, sim, renderers, lighting), imported by the
+  game, the labs, and the tools alike (bundled by Vite; the CLI tools import them directly).
+- **`src/resources/`** — one self-registering file per entity (each stratum + ore).
+- **`src/labs/`** — the browser dev sandboxes (`style-lab.html`, `render.html`,
+  `light-lab.html`), each rendering through the same modules the game uses.
+- **`tools/`** — CLI dev tools that run under `tsx`/bash, no build: `verify.ts` (greedy-bot
+  balance gate), `sim.ts` (headless sim), `shot.sh` (cropped headless screenshots).
+- **`dist/`** — Vite build output (gitignored; `pnpm build`).
 - **`CLAUDE.md`** — working rules for agents touching this game.

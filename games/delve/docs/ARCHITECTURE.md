@@ -6,14 +6,15 @@ compose the picture (and the world) from the same modules, so nothing can drift.
 
 ## Toolchain
 
-DELVE is **TypeScript + ES modules**, bundled by **Vite**. The browser pages
-(`index.html`, `style-lab.html`, `tools/render.html`, `tools/light-lab.html`) are Vite
-entries — each loads one `<script type="module">` that imports the shared `scripts/`
-modules; `vite dev` serves them with HMR and `vite build` emits them to `dist/`. The Node
-tools (`tools/verify.ts`, `tools/sim.ts`) and the future server import the exact same
-`scripts/` modules directly and run under `tsx`. There are no runtime globals and no
-hand-written bundle — the module graph is the source of truth. Coding standards live in
-[CODE-STYLE.md](CODE-STYLE.md).
+DELVE is **TypeScript + ES modules**, bundled by **Vite**. Everything Vite compiles lives
+under **`src/`** (Vite's root): the game (`src/index.html`) and the browser dev sandboxes
+(`src/labs/style-lab.html`, `src/labs/render.html`, `src/labs/light-lab.html`) are the Vite
+entries — each loads one `<script type="module">` that imports the shared `src/scripts/`
+modules. `vite dev` serves `src/` at `/` with HMR; `vite build` emits every entry to
+`dist/` (a sibling of `src/`). The CLI tools (`tools/verify.ts`, `tools/sim.ts`) and the
+future server aren't built — they import the exact same `src/scripts/` modules directly and
+run under `tsx`. There are no runtime globals and no hand-written bundle — the module graph
+is the source of truth. Coding standards live in [CODE-STYLE.md](CODE-STYLE.md).
 
 ## The world model
 
@@ -32,14 +33,14 @@ tools are a future pass. [`tools/verify.ts`](#verification) proves the pacing ho
 
 ## Modules
 
-All under `scripts/`, each a TypeScript ES module with explicit `export`s (no globals). The
+All under `src/scripts/`, each a TypeScript ES module with explicit `export`s (no globals). The
 browser gets them through Vite; Node tools import them directly under `tsx`.
 
 | Module | Key exports | Responsibility |
 | --- | --- | --- |
 | `types.ts` | domain types | Shared type definitions (world, save, resources, sim I/O) — pure types, no runtime code. |
 | `rng.ts` | `tileRand`, `vnoise`, `mulberry`, `hashXY` | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell. |
-| `resources.ts` | `register`, `all(type)`, `byId`, `shapes` | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. |
+| `resources.ts` | `register`, `all(type)`, `byId`, `shapes` | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `src/resources/*.ts`; this module just collects them. |
 | `blocks.ts` | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES` | **World definition** — world-gen logic and the canonical queries. Sources its block types (depth `STRATA` + the ore table) from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. *Static only* — dug/damage state lives in the save. |
 | `engine.ts` | `newGame`, `physicsStep`, `mineTile`, `stats`, economy | The pure **sim** — player physics, dig resolution, economy, upgrades — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). Required by the `tools/`. No DOM, no presentation. |
 | `cave-render.ts` | `composeBand`, `setStrata`, colour/noise helpers | The **rock renderer** plus colour/rng/noise helpers. Reads the depth `STRATA` ramps via `setStrata`. Used by the main thread, the Worker, and the labs. |
@@ -51,31 +52,32 @@ browser gets them through Vite; Node tools import them directly under `tsx`.
 ## Entity resources
 
 Every game entity — each depth **stratum** and each **ore** today, more types later — is
-its own **self-registering file** under `resources/*.ts` that calls
+its own **self-registering file** under `src/resources/*.ts` that calls
 `register({ type, id, … })`. A resource is plain data plus its **art as a function** (ores
 declare `art: { shape, c:[dark,mid,hi] }`, reusing the registry's shared shapes). This
 keeps each entity individually tunable, gives new ones a single standard, and is a clean
 target for future tooling.
 
-`resources/index.ts` imports every entity file, so a single `import '../resources/index'`
+`src/resources/index.ts` imports every entity file, so a single `import '../resources/index'`
 (pulled in transitively by `blocks.ts`) populates the registry before any world query runs
 — the same in the browser, in Node, and in tests. The Worker doesn't load the registry at
 all: it only renders rock, and the strata palette is posted in its init message
 (`setStrata`).
 
-**Adding an entity:** create `resources/<name>.ts` (self-registering), add its import to
-`resources/index.ts`, done — `verify.ts` validates the schema and that the index matches
+**Adding an entity:** create `src/resources/<name>.ts` (self-registering), add its import to
+`src/resources/index.ts`, done — `verify.ts` validates the schema and that the index matches
 the directory (no drift).
 
 ## Who composes what
 
-- **`index.ts`** (the game, loaded by `index.html`) keeps only *glue*: input, HUD, save,
-  audio, camera, the `requestAnimationFrame` loop — and composes the frame from the modules.
-- **`style-lab.ts`** (the tuning sandbox, loaded by `style-lab.html`) keeps only its UI + a
-  sample-cave generator, and renders that sample **through the same modules the game uses**,
-  so the two can't drift. Iterate a module and both move together.
-- **`tools/`** (`sim.ts`, `render.ts`, `light-lab.ts`) read the same modules for cheap
-  headless / sandbox checks — see [`tools/README.md`](../tools/README.md).
+- **`src/index.ts`** (the game, loaded by `src/index.html`) keeps only *glue*: input, HUD,
+  save, audio, camera, the `requestAnimationFrame` loop — and composes the frame from the modules.
+- **`src/labs/`** — the browser dev sandboxes, each rendering **through the same modules the
+  game uses** so they can't drift: `style-lab.ts` (art tuning over a sample cave),
+  `render.ts` (the one-region render harness `shot.sh` captures), `light-lab.ts` (coloured-
+  light blending). Iterate a module and the game and the labs move together.
+- **`tools/`** — the CLI dev tools (`verify.ts`, `sim.ts`, `shot.sh`) read the same modules
+  for cheap headless checks — see [`tools/README.md`](../tools/README.md).
 
 ## The rock chunk pipeline
 

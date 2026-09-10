@@ -10,8 +10,8 @@
 //        → run an action script through the physics (d = mine down / l = run left /
 //          r = run right / u = jump, each followed by a frame count @ 1/60s), then print state
 import { readFileSync } from 'node:fs';
-import * as engine from '../scripts/engine';
-import type { SaveState, Input } from '../scripts/types';
+import * as engine from '../src/scripts/engine';
+import type { SaveState, Input } from '../src/scripts/types';
 
 const DT = 1 / 60; // one physics frame at 60fps
 const DEFAULT_SEED = 12345;

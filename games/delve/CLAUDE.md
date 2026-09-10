@@ -6,8 +6,8 @@ just the DELVE-specific working rules.
 
 ## Non-negotiables
 
-- **One shared ruleset.** All world + render logic lives in `scripts/` and is imported
-  by the game (`index.html`), the style lab (`style-lab.html`), and the tools
+- **One shared ruleset.** All world + render logic lives in `src/scripts/` and is imported
+  by the game (`src/index.html`), the browser sandboxes (`src/labs/`), and the CLI tools
   (`tools/`) alike. Never duplicate a rule in the presentation layer — if
   the game and the lab draw the same thing, they call the same module.
 - **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
@@ -36,15 +36,16 @@ not images:
 1. **Logic / economy / world-gen** → `pnpm verify` (the greedy-bot balance gate) and
    `tools/sim.ts` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
-   via headless Chrome (no MCP). Works for `tools/render.html` (world crops),
-   `style-lab.html`, and `tools/light-lab.html`. Keep `w`/`h`/`scale` small so the image is
-   tiny; then `Read` it.
+   via headless Chrome (no MCP), against a running `pnpm dev` server (set `SHOT_BASE`). The
+   `page` is a path under the Vite root (`src/`): `labs/render.html` (world crops, the
+   default), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game). Keep
+   `w`/`h`/`scale` small so the image is tiny; then `Read` it.
 3. **Only if neither can answer it** (live input feel, real FPS) → Playwright with `?debug`,
    and read the **debug-overlay text** via `browser_evaluate` — never a full-viewport / 4K
    screenshot when a small `shot.sh` crop would do.
 
 If no cheap tool covers what you need, **build or extend one** (that's why `shot.sh` takes a
-`page` arg and `light-lab.html` exists) rather than defaulting to Playwright. See
+`page` arg and `labs/light-lab.html` exists) rather than defaulting to Playwright. See
 [tools/README.md](tools/README.md).
 
 - After any logic / economy / world-gen change, run **`pnpm verify`**.

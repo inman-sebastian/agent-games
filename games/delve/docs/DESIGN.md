@@ -48,7 +48,7 @@ shallow → deep:
 
 Each tier is a first-class **item**: name, value, depth band, rarity (array order),
 bonus hp and a codex blurb, each defined in its own **resource file** under
-`resources/*.js` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
+`src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
 which also carries the ore's art (shape + colour triad). Deeper tiers are exponentially more valuable and tougher, and appear only
 within their depth band, so descending is what unlocks the next tier. **Dirt** is a
 near-worthless surface filler; **Mythril** is the deep-end payoff.
@@ -72,7 +72,7 @@ One-time **tech** unlocks that change the sim:
 - **Deep Lantern** — widen your vision underground.
 
 Exact base costs, multipliers, caps and their derived effects live in the
-`UPGRADES` / `TECH` tables and `stats()` in `scripts/engine.ts` — the source of
+`UPGRADES` / `TECH` tables and `stats()` in `src/scripts/engine.ts` — the source of
 truth for balance.
 
 ## Economy & progression

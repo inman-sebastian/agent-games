@@ -14,5 +14,5 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["scripts", "resources", "tools", "src", "*.ts", "vite.config.ts"]
+  "include": ["src", "tools", "vite.config.ts"]
 }

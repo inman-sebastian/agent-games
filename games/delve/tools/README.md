@@ -21,7 +21,7 @@ node tools/verify.ts # equivalent, from games/delve/
 
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
-Runs the SAME pure engine the game uses (`scripts/engine.ts`), so any logic / world-gen
+Runs the SAME pure engine the game uses (`src/scripts/engine.ts`), so any logic / world-gen
 / economy / cluster question is answerable in text.
 
 ```sh
@@ -39,16 +39,17 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
-## `render.html` + `shot.sh` — precise cropped renders (no MCP)
+## `src/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
-`render.html` draws EXACTLY one world region through the shared render modules into a
-canvas sized to the crop. `shot.sh` screenshots it with headless Chrome to a tight PNG
-you then `Read` locally — no Playwright, and the image is only as big as the thing you
-want to see.
+`src/labs/render.html` draws EXACTLY one world region through the shared render modules
+into a canvas sized to the crop. `shot.sh` screenshots it with headless Chrome to a tight
+PNG you then `Read` locally — no Playwright, and the image is only as big as the thing you
+want to see. The pages are ES modules, so `shot.sh` needs a running dev server: start
+`pnpm dev` and point `SHOT_BASE` at it (e.g. `SHOT_BASE=http://localhost:5199`).
 
 ```sh
-tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave=shaft'          # → /tmp/delve-shot.png
-tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none&lamp=0' out.png  # raw ore-block art
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave=shaft'          # → /tmp/delve-shot.png
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none&lamp=0' out.png  # raw ore-block art
 ```
 
 Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in tiles),
@@ -56,14 +57,16 @@ Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in t
 `miner` (0/1), `vision` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
 
-`shot.sh` takes an optional third arg — the **page** to shoot (default `tools/render.html`)
-— so it also captures the style lab or the light lab headlessly:
+`shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root
+(`src/`), default `labs/render.html` — so it also captures the style lab, the light lab, or
+the game headlessly:
 
 ```sh
-tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png tools/light-lab.html   # the light lab
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
 ```
 
-## `light-lab.html` — colored-light blending sandbox
+## `src/labs/light-lab.html` — colored-light blending sandbox
 
 A live scene that drives the real lighting system with several coloured emitters over a
 rock chamber, so you can see how lights blend (additive per-channel, max-propagated

@@ -1,7 +1,7 @@
 # DELVE — lighting
 
 Lighting is **its own independent, geometry-aware system**, not a set of per-effect
-hacks. It lives in `scripts/lighting.ts` (`create` / `LAMP_COLOR`) and is shared by the game
+hacks. It lives in `src/scripts/lighting.ts` (`create` / `LAMP_COLOR`) and is shared by the game
 and the style lab's cave sample so the two light identically. It knows nothing about
 game state.
 
@@ -68,7 +68,7 @@ emitter list.
 
 ## Tuning knobs
 
-All constants live at the top of `scripts/lighting.ts`:
+All constants live at the top of `src/scripts/lighting.ts`:
 
 | Knob | Meaning |
 | --- | --- |
