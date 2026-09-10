@@ -32,25 +32,16 @@
 </head>
 <body>
   <h1>DE<b>L</b>VE · ART LAB</h1>
-  <p class="lede">Direction v8 — layered, matching the reference. A separate <b>background layer</b> (lighter, cool,
-    atmospheric; parallax-ready) is drawn first; the <b>foreground rock</b> composites on top with <b>top-lit shading
-    and dark bodies</b> — so large masses go dark in the centre (calm, not busy) and open tunnels reveal the lighter
-    background. Ore veins chip open to a per-type crystal.</p>
+  <p class="lede">Tuning sandbox for the cave look. Every panel here renders through the <b>exact same shared
+    modules the game uses</b> — <code>cave-render.js</code> (rock), <code>ore-art.js</code> (ore/gem veins),
+    <code>sprites.js</code> (miner) and <code>lighting.js</code> (the geometry-aware lamp/fog/vignette) — so
+    what you see here is what ships. Iterate a module and both the lab and the game move together.</p>
 
   <div class="bar">
     <div class="grp"><label>Depth <select id="mat"></select></label></div>
     <div class="grp">
-      <label><input type="checkbox" id="rim" checked> top-light</label>
-      <label><input type="checkbox" id="stones" checked> eroded edges</label>
-      <label><input type="checkbox" id="ao" checked> contact shadow</label>
-      <label><input type="checkbox" id="stalac" checked> stalactites</label>
-    </div>
-    <div class="grp">
-      <label><input type="checkbox" id="bgLayer" checked> background</label>
-      <label><input type="checkbox" id="bgDetail" checked> bg silhouettes</label>
-      <label><input type="checkbox" id="ore" checked> ore</label>
-      <label><input type="checkbox" id="lamp" checked> lamp</label>
-      <label><input type="checkbox" id="vignette" checked> vignette</label>
+      <label><input type="checkbox" id="ore" checked> ore veins</label>
+      <label><input type="checkbox" id="lamp" checked> lighting</label>
       <label><input type="checkbox" id="grid"> grid</label>
     </div>
     <div class="grp">
@@ -63,335 +54,157 @@
     <div class="card">
       <h2>Cave sample</h2>
       <canvas id="scene"></canvas>
-      <div class="note">Dark top-lit rock (FG) over a lighter cool background (BG). Toggle <i>background</i> to see the layers separate.</div>
+      <div class="note">The real renderer + lighting over a sample cave. Toggle <i>lighting</i> to see the raw
+        top-lit rock; toggle <i>ore veins</i> to hide the seams.</div>
     </div>
     <div class="card">
       <h2>Mining a vein — every ore × the 4 steps + the extracted ore</h2>
       <canvas id="mine"></canvas>
-      <div class="note">Step 1 = a faint speck hint; the crystal emerges past ~⅓ damage. Distinct per-type shapes: metals = nuggets, emerald = prism, ruby = cluster, diamond = gem, mythril = shards.</div>
+      <div class="note">Drawn by the game's <code>DelveOre.drawOreVein</code>: Step 1 = faint specks; the crystal
+        emerges past ~⅓ damage. Metals = nuggets, emerald = prism, ruby = cluster, diamond = gem, mythril = shards.</div>
       <h2 style="margin-top:16px">Depth strata</h2>
       <canvas id="atlas"></canvas>
     </div>
   </div>
 
+<script src="scripts/cave-render.js"></script>
+<script src="scripts/ore-art.js"></script>
+<script src="scripts/sprites.js"></script>
+<script src="scripts/lighting.js"></script>
 <script>
 (function () {
   'use strict';
-  const T = 16, TEX = 90210;
+  const CR = window.CaveRender, T = CR.T, { mulberry, hashXY } = CR;
+  const ORE_ART = DelveOre.ORE_ART, SHAPES = DelveOre.SHAPES;
 
-  // ---------- Resurrect 64 rock ramps (shadow[0]→rim[5]); ore [dark,mid,hi]+shape ----------
-  const MATERIALS = {
-    topsoil:   { name:'Topsoil',    ramp:['#2e222f','#45293f','#7a3045','#9e4539','#cd683d','#e6904e'], accent:'#547e64' },
-    claystone: { name:'Clay',       ramp:['#2a2018','#48371f','#6d5230','#8f6b3c','#b28a4e','#d0aa66'], accent:'#676633' },
-    stone:     { name:'Stone',      ramp:['#2e222f','#3e3546','#625565','#7f708a','#9babb2','#c7dcd0'], accent:'#547e64' },
-    deepstone: { name:'Deep Stone', ramp:['#2e222f','#323353','#484a77','#4d65b4','#4d9be6','#8fd3ff'], accent:'#0eaf9b' },
-    basalt:    { name:'Basalt',     ramp:['#2e222f','#45293f','#6b3e75','#905ea9','#a884f3','#eaaded'], accent:'#6b3e75' },
-  };
-  const ORES = [
-    { name:'Copper',  shape:'nugget', c:['#7a3045','#cd683d','#f79617'] },
-    { name:'Iron',    shape:'nugget', c:['#3e3546','#7f708a','#c7dcd0'] },
-    { name:'Gold',    shape:'nugget', c:['#4c3e24','#f9c22b','#fbff86'] },
-    { name:'Emerald', shape:'prism',  c:['#165a4c','#1ebc73','#91db69'] },
-    { name:'Ruby',    shape:'cluster',c:['#831c5d','#f04f78','#f68181'] },
-    { name:'Diamond', shape:'gem',    c:['#0b8a8f','#30e1b9','#8ff8e2'] },
-    { name:'Mythril', shape:'shard',  c:['#484a77','#905ea9','#a884f3'] },
-  ];
+  // Depth strata come straight from cave-render's shared STRATA (single source of truth for
+  // the ramps); the lab only adds display names. The selector picks a representative world
+  // row so composeBand's rampAt() paints that stratum's palette.
+  const STRATA = CR.STRATA;
+  const STRATA_NAMES = ['Topsoil', 'Clay', 'Stone', 'Deep Stone', 'Basalt'];
+  const DEMO_ORES = [2, 3, 4, 5, 6, 7, 8, 9];   // Copper..Mythril (skip Dirt, a dim clod)
+  const ORE_NAMES = { 2: 'Copper', 3: 'Iron', 4: 'Silver', 5: 'Gold', 6: 'Emerald', 7: 'Ruby', 8: 'Diamond', 9: 'Mythril' };
 
-  // ---------- helpers ----------
-  const hexRgb = h => [1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
-  const rgbHex = a => '#'+a.map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join('');
-  const mix = (a,b,t) => { const A=hexRgb(a),B=hexRgb(b); return rgbHex(A.map((v,i)=>v+(B[i]-v)*t)); };
-  const desat = (h,t) => { const c=hexRgb(h), g=c[0]*.3+c[1]*.59+c[2]*.11; return rgbHex(c.map(v=>v+(g-v)*t)); };
-  function mulberry(seed){ let a=seed>>>0; return ()=>{ a|=0;a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
-  const hashXY = (x,y,s) => (((x*73856093)^(y*19349663)^((s||0)*83492791))>>>0);
-  function vnoise(x,y,sd){ const fx=Math.floor(x),fy=Math.floor(y),tx=x-fx,ty=y-fy;
-    const h=(a,b)=>{ let n=(a*374761393+b*668265263+sd*362437)>>>0; n=Math.imul(n^n>>>13,1274126177)>>>0; return ((n^n>>>16)>>>0)/4294967296; };
-    const s=t=>t*t*(3-2*t),u=s(tx),v=s(ty),a=h(fx,fy),b=h(fx+1,fy),c=h(fx,fy+1),d=h(fx+1,fy+1);
-    return (a*(1-u)+b*u)*(1-v)+(c*(1-u)+d*u)*v; }
-
-  // two logical buffers: lb = composite (bg+fg+extras), fbuf = foreground with alpha
-  const lbuf=document.createElement('canvas'), lb=lbuf.getContext('2d');
-  const fbuf=document.createElement('canvas'), fx=fbuf.getContext('2d');
-  function present(dst, dctx, PW, PH, S){ dst.width=PW*S; dst.height=PH*S; dctx.imageSmoothingEnabled=false;
-    dctx.clearRect(0,0,dst.width,dst.height); dctx.drawImage(lbuf,0,0,PW,PH,0,0,dst.width,dst.height); }
-  const pen1 = (ax,ay,w,h,color)=>{ lb.fillStyle=color; lb.fillRect(ax,ay,(w||1),(h||1)); };
-  const BAYER=[0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];   // 4×4 ordered dither
-  const clamp01=v=>v<0?0:v>1?1:v;
-
-  // ---------- palettes ----------
-  // FG rock: top-lit, dark body. Rim is desaturated & varied (rocky/mossy, not molten).
-  function colorsFor(mat){ const R=mat.ramp; const C={
-      rimB:desat(R[5],0.22), rimA:desat(R[4],0.28), lit:desat(R[3],0.15), body2:R[2], body:R[1], deep:R[0],
-      center:mix(R[0],'#000000',0.4), black:mix(R[0],'#000000',0.55),
-      rimRock:desat(mix(R[4],R[2],0.45),0.35),                 // grayer rock, breaks the uniform orange
-      accent:desat(mat.accent,0.12), accentDark:mix(mat.accent,'#000000',0.35) };
-    const rgb={}; for(const k in C) rgb[k]=hexRgb(C[k]); return rgb; }
-  // BG layer: a lighter, cooler, desaturated wall — clearly distinct from dark FG rock.
-  function bgFor(R){ const base=desat(mix(R[1],'#4a4864',0.64),0.52);
-    return { top:mix(base,'#585672',0.18), bot:mix(base,'#171525',0.5), sil:mix(base,'#000000',0.3) }; }
-
-  // ---------- background layer (drawn first; parallax-ready) ----------
-  function renderBackground(BG, PW, PH, o){
-    if(!o.bgLayer){ lb.fillStyle='#050409'; lb.fillRect(0,0,PW,PH); return; }
-    for(let py=0;py<PH;py++){ lb.fillStyle=mix(BG.top,BG.bot, py/(PH-1)); lb.fillRect(0,py,PW,1); }   // depth gradient
-    if(o.bgDetail){ lb.fillStyle=BG.sil;                                                              // distant rock silhouettes
-      for(let py=0;py<PH;py+=2)for(let px=0;px<PW;px+=2){ if(vnoise(px*0.045,py*0.06,TEX+50)<0.42) lb.fillRect(px,py,2,2); } }
-  }
-
-  // ---------- foreground rock (top-lit, dark body) → fbuf with alpha ----------
-  function distField(src, PW, PH, oob){ const INF=1e6, d=new Float32Array(PW*PH);
-    for(let i=0;i<d.length;i++) d[i]= src(i)?0:INF;
-    const at=(x,y)=> (x<0||x>=PW||y<0||y>=PH)? oob : d[y*PW+x];
-    for(let y=0;y<PH;y++)for(let x=0;x<PW;x++){ const i=y*PW+x; if(d[i]===0)continue; d[i]=Math.min(d[i], at(x-1,y)+1, at(x,y-1)+1, at(x-1,y-1)+1.414, at(x+1,y-1)+1.414); }
-    for(let y=PH-1;y>=0;y--)for(let x=PW-1;x>=0;x--){ const i=y*PW+x; if(d[i]===0)continue; d[i]=Math.min(d[i], at(x+1,y)+1, at(x,y+1)+1, at(x+1,y+1)+1.414, at(x-1,y+1)+1.414); }
-    return d; }
-  function shadeRock(mask, PW, PH, C, o, borderOpen){
-    const openAt=(x,y)=> (x<0||x>=PW||y<0||y>=PH)? (borderOpen?1:0) : (mask[y*PW+x]?0:1);
-    const rock = distField(i=>mask[i]===1, PW, PH, borderOpen?1e6:0);           // dist into open from rock (AO)
-    const edge = distField(i=>mask[i]===0, PW, PH, borderOpen?0:1e6);           // dist into rock from ANY edge
-    const top = new Float32Array(PW*PH);                                        // depth below nearest opening above
-    for(let x=0;x<PW;x++){ let depth=borderOpen?1:1e6; for(let y=0;y<PH;y++){ if(openAt(x,y)) depth=0; top[y*PW+x]=depth; depth++; } }
-    const LV=[C.center,C.deep,C.body,C.body2,C.lit,C.rimA];                     // dark → bright ramp
-    fbuf.width=PW; fbuf.height=PH; fx.imageSmoothingEnabled=false;
-    const img=fx.createImageData(PW,PH), d=img.data;
-    const set=(i,c,a)=>{ const j=i*4; d[j]=c[0]; d[j+1]=c[1]; d[j+2]=c[2]; d[j+3]=a; };
-    for(let py=0;py<PH;py++)for(let px=0;px<PW;px++){ const i=py*PW+px;
-      if(mask[i]){
-        const ed=edge[i], td=top[i];
-        // light penetrates from EVERY edge, but deeper on up-facing surfaces (top-light bias)
-        const range = (td<=ed+0.8) ? 6.0 : 3.8;
-        let L = 1 - ed/range;
-        // chunky, multi-octave rock: lumps poke into the light, crevices fall to dark →
-        // the surface→centre transition reads as irregular stone, not a smooth colour band.
-        L += (vnoise(px*0.16,py*0.16,TEX)-0.5)*0.55
-           + (vnoise(px*0.45+7,py*0.45,TEX)-0.5)*0.30
-           + (vnoise(px*1.05,py*1.05+3,TEX)-0.5)*0.14;
-        if(!o.rim) L*=0.7;
-        L=clamp01(L);
-        const f=L*5, lo=f|0, b=(BAYER[(px&3)|((py&3)<<2)]+0.5)/16;             // ordered dither between steps
-        let c = LV[Math.min(5, lo + ((f-lo)>b?1:0))];
-        if(L>0.6 && vnoise(px*0.5+2,py*0.5,TEX+8)<0.40) c=C.rimRock;            // grayer rock breaks the uniform orange rim
-        // (surface flora/moss deliberately omitted — freshly-mined rock; a procedural
-        //  surface-decoration pass belongs on top of this, added later.)
-        // dark body beyond the rim stays clean/empty (reads calmer than random grit)
-        if(L>0.25 && L<0.72 && vnoise(px*0.75,py*0.75,TEX+5)>0.86) c=C.center;  // sparse crevice only in the transition band
-        if(o.rim && L>0.88 && vnoise(px*0.7,py*0.5,TEX)>0.6) c=C.rimB;          // sparse rim sparkle
-        set(i,c,255);
-      } else {
-        const dr=rock[i];
-        if(o.ao && dr<1.4) set(i,[0,0,0],105);        // contact shadow the rock casts on the bg (subtle)
-        else if(o.ao && dr<2.7) set(i,[0,0,0],48);
-        else set(i,[0,0,0],0);                         // transparent → background shows through
-      } }
-    fx.putImageData(img,0,0);
-  }
-
-  // ---------- ore crystals (distinct shapes) ----------
-  const OUT='#0a0912';
-  function gem(cx,cy,r,c){ if(r<1)r=1;
-    for(let dy=-r;dy<=r;dy++){ const w=r-Math.abs(dy); pen1(cx-w-1,cy+dy,1,1,OUT); pen1(cx+w+1,cy+dy,1,1,OUT); }
-    pen1(cx,cy-r-1,1,1,OUT); pen1(cx,cy+r+1,1,1,OUT);
-    for(let dy=-r;dy<=r;dy++){ const w=r-Math.abs(dy); pen1(cx-w,cy+dy,2*w+1,1,c[1]); }
-    for(let dy=-r;dy<=0;dy++){ const w=r-Math.abs(dy); pen1(cx-w,cy+dy,w+1,1,c[2]); }
-    for(let dy=0;dy<=r;dy++){ const w=r-Math.abs(dy); pen1(cx,cy+dy,w+1,1,c[0]); }
-    pen1(cx-1,cy-r+1,1,1,'#ffffff'); }
-  function nugget(cx,cy,r,c){ if(r<1)r=1; const R=r;   // lumpy blob: radius wobbles per-angle, bulges up to ~r+1
-    // seed the lump pattern from the ore colour so the three metals are each misshapen differently
-    let s=0; for(const ch of (c[0]+c[1]+c[2])) s=(s*31+ch.charCodeAt(0))>>>0; const rnd=mulberry(s||1);
-    const a1=rnd()*6.283, a2=rnd()*6.283, a3=rnd()*6.283;
-    // top-biased so the crown never caves in (a top notch + bottom point reads as a heart)
-    const rad=(dx,dy)=>{ const a=Math.atan2(dy,dx), up=Math.max(0,-Math.sin(a));
-      return R*(1 + 0.05*up + 0.08*Math.sin(2*a+a1) + 0.11*Math.sin(3*a+a2) + 0.07*Math.sin(5*a+a3)); };
-    for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)+1.0) pen1(cx+dx,cy+dy,1,1,OUT); }        // outline disk
-    for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
-    // metallic sheen: a bright upper-left highlight streak + hot specular
-    const hx=cx-Math.round(r*0.35), hy=cy-Math.round(r*0.45);
-    pen1(hx,hy,1,1,c[2]); pen1(hx+1,hy,1,1,c[2]); pen1(hx,hy+1,1,1,c[2]);
-    pen1(hx,hy,1,1,'#ffffff'); pen1(hx+1,hy,1,1,'#ffffff'); }
-  function prism(cx,cy,r,c){ const w=r, h=r; const ww=dy=> (dy<-h+2||dy>h-2)?Math.max(0,w-2):w;   // w=h=r → fills the same ±(r+1) box as the others
-    for(let dy=-h-1;dy<=h+1;dy++){ const a=ww(Math.max(-h,Math.min(h,dy))); pen1(cx-a-1,cy+dy,1,1,OUT); pen1(cx+a+1,cy+dy,1,1,OUT); }
-    pen1(cx,cy-h-1,1,1,OUT); pen1(cx,cy+h+1,1,1,OUT);
-    for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,2*a+1,1,c[1]); }
-    for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,a,1,c[2]); pen1(cx+1,cy+dy,a,1,c[0]); }
-    pen1(cx-1,cy-h+1,1,1,'#ffffff'); }
-  // A thin, double-pointed crystal shard (diamond) centred at (x,y).
-  function shardTall(x,y,h,w,c){
-    for(let dy=-h;dy<=h;dy++){ const t=1-Math.abs(dy)/(h+0.6), ww=Math.max(0,Math.round(w*t));
-      pen1(x-ww-1,y+dy,1,1,OUT); pen1(x+ww+1,y+dy,1,1,OUT);
-      pen1(x-ww,y+dy,2*ww+1,1,c[1]); pen1(x-ww,y+dy,ww,1,c[2]); }
-    pen1(x,y-h-1,1,1,OUT); pen1(x,y+h+1,1,1,OUT); pen1(x-1,y-h+1,1,1,'#ffffff');
-  }
-  function shard(cx,cy,r,c){                        // mythril: a centred, symmetric cluster of shards, ±(r+1) box
-    shardTall(cx-(r-1), cy, Math.max(1,r-2), 1, c); // left  (reaches ±(r+1) horizontally)
-    shardTall(cx+(r-1), cy, Math.max(1,r-2), 1, c); // right
-    shardTall(cx, cy, r, Math.max(1,r-3), c);       // tall centre (vert ±(r+1)), drawn last = on top
-  }
-  function cluster(cx,cy,r,c){ const rs=Math.max(1,r-2);   // symmetric, ±(r+1) box: two low gems + one high
-    gem(cx-2, cy+2, rs, c); gem(cx+2, cy+2, rs, c); gem(cx, cy-1, Math.max(1,r-1), c); }
-  const SHAPES={gem,nugget,prism,shard,cluster};
-
-  function drawOre(ctx, oreI, X, Y, x, y, damage, o, offX, offY){
-    const ore=ORES[oreI], c=ore.c, MAXR=5;                      // keep the vein/crystal within MAXR of its (offset) centre
-    // Nestle the vein into the solid part of the tile: shift away from exposed
-    // edges (a top-right corner tile pushes the vein toward its bottom-left).
-    const mx=(T>>1)+(offX||0), my=(T>>1)+(offY||0);
-    const rnd=mulberry(hashXY(x,y,777)), px=(a,b,w,h,col)=>pen1(X+a,Y+b,w,h,col);
-    const inside=(dx,dy)=> dx*dx+dy*dy <= MAXR*MAXR;
-    // step 1: a subtle hint of ore — a few single-pixel specks clustered around the
-    // ore's centre, with no two ever touching (not even at corners).
-    const specks=[];
-    for(let t=0; t<40 && specks.length<5; t++){
-      const a=rnd()*6.283, rr=rnd()*3, fx=Math.round(mx+Math.cos(a)*rr), fy=Math.round(my+Math.sin(a)*rr);
-      if(!inside(fx-mx,fy-my)) continue;
-      if(specks.some(p=> Math.abs(p[0]-fx)<=1 && Math.abs(p[1]-fy)<=1)) continue;   // reject if touching an existing speck
-      specks.push([fx,fy]); px(fx,fy,1,1, rnd()<0.3?c[2]:c[1]);
-    }
-    if(damage>0.12){ const cr=mulberry(hashXY(x,y,9)), nc=1+Math.floor(damage*3);   // short cracks, clamped inside
-      for(let k=0;k<nc;k++){ let a=cr()*6.283, dx=Math.cos(a)*1.5, dy=Math.sin(a)*1.5; const steps=2+Math.floor(damage*3);
-        for(let s=0;s<steps;s++){ if(!inside(dx,dy))break; px(Math.round(mx+dx),Math.round(my+dy),1,1,c[0]); dx+=Math.cos(a); dy+=Math.sin(a); } } }
-    const reveal=Math.max(0,(damage-0.35)/0.65);
-    if(reveal>0.02){ const hole=1+reveal*3;                                          // socket bounded by MAXR
-      for(let dy=-MAXR;dy<=MAXR;dy++)for(let dx=-MAXR;dx<=MAXR;dx++){ if(!inside(dx,dy))continue;
-        const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.1; if(d<hole) px(mx+dx,my+dy,1,1,c[0]); }
-      SHAPES[ore.shape](X+mx, Y+my, Math.max(1,Math.round(reveal*2.8)), c); }
-  }
-  // Glow is a SEPARATE additive layer (never baked into the ore sprite), so the ore
-  // itself works as a standalone icon. Draw it after the veins.
-  function oreGlow(ctx, oreI, X, Y, damage, offX, offY){
-    const c=ORES[oreI].c, mx=(T>>1)+(offX||0), my=(T>>1)+(offY||0);
-    const reveal=Math.max(0,(damage-0.35)/0.65), gx=X+mx, gy=Y+my;
-    ctx.save(); ctx.globalCompositeOperation='lighter';
-    const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
-    rg.addColorStop(0,mix(c[2],'#ffffff',0.25)); rg.addColorStop(1,'transparent');
-    ctx.globalAlpha=0.28+0.5*reveal; ctx.fillStyle=rg; ctx.fillRect(X-T,Y-T,T*3,T*3); ctx.restore();
-  }
-
-  // ---------- miner ----------
-  function drawMiner(X, Y, facing){
-    const O='#0a0912', H='#e6904e', HD='#cd683d', VIS='#25222c', GLINT='#8fd3ff', LAMP='#fbff86',
-          F='#e6b98e', FD='#c7955f', B='#4d65b4', BD='#323353', BL='#4d9be6', BOOT='#4c3e24', PK='#9babb2', PKH='#7a5030';
-    const P=(a,b,w,h,col)=>pen1(X+a,Y+b,w,h,col);
-    P(9,3,1,4,PKH); P(8,2,4,1,PK); P(11,3,1,1,PK); P(8,3,1,1,PK);
-    for (const [a,b,w,h] of [[4,1,5,1],[3,2,7,1],[3,3,1,6],[9,3,1,6],[3,9,7,1],[3,9,1,4],[8,9,1,4],[4,13,5,1]]) P(a,b,w,h,O);
-    P(4,2,5,1,H); P(4,3,5,1,H); P(4,4,5,1,HD);
-    const lx = facing==='left'?3:facing==='right'?8:6; P(lx,1,2,1,LAMP); P(lx,2,1,1,'#f9c22b');
-    P(4,5,5,2,F); P(4,7,5,1,FD); P(4,5,5,1,VIS); P(7,5,1,1,GLINT);
-    P(4,7,5,2,B); P(4,8,5,1,BD); P(6,7,1,2,BL);
-    P(4,9,2,3,B); P(7,9,2,3,B); P(4,12,2,1,BOOT); P(7,12,2,1,BOOT);
-  }
+  // one scratch buffer at logical resolution; present() upscales it with pixelated nearest-neighbour
+  const lbuf = document.createElement('canvas'), lb = lbuf.getContext('2d');
+  function present(dst, dctx, PW, PH, S) { dst.width = PW * S; dst.height = PH * S; dctx.imageSmoothingEnabled = false;
+    dctx.clearRect(0, 0, dst.width, dst.height); dctx.drawImage(lbuf, 0, 0, PW, PH, 0, 0, dst.width, dst.height); }
 
   // ---------- controls ----------
-  const matSel=document.getElementById('mat');
-  for(const k in MATERIALS){ const op=document.createElement('option'); op.value=k; op.textContent=MATERIALS[k].name; matSel.appendChild(op); }
-  matSel.value='topsoil';
-  const chk=id=>document.getElementById(id).checked;
-  const opts=()=>({ rim:chk('rim'), stones:chk('stones'), ao:chk('ao'), stalac:chk('stalac'),
-    bgLayer:chk('bgLayer'), bgDetail:chk('bgDetail'), ore:chk('ore'), lamp:chk('lamp'), vignette:chk('vignette'), grid:chk('grid') });
-  const M=()=>MATERIALS[matSel.value];
+  const matSel = document.getElementById('mat');
+  STRATA_NAMES.forEach((nm, i) => { const op = document.createElement('option'); op.value = i; op.textContent = nm; matSel.appendChild(op); });
+  matSel.value = '0';
+  const chk = id => document.getElementById(id).checked;
+  const opts = () => ({ ore: chk('ore'), lamp: chk('lamp'), grid: chk('grid') });
+  const bandTop = () => STRATA[+matSel.value].top + 3;   // representative row for the selected stratum
 
-  // ---------- cave ----------
-  const scene=document.getElementById('scene'), sctx=scene.getContext('2d');
-  const COLS=22, ROWS=15; let seed=1234, grid=null, oreGrid=null, dmgGrid=null, miner=null;
-  function genCave(){ grid=[]; oreGrid=[]; dmgGrid=[];
-    for(let y=0;y<ROWS;y++){ grid[y]=[]; oreGrid[y]=[]; dmgGrid[y]=[]; for(let x=0;x<COLS;x++){ grid[y][x]=true; oreGrid[y][x]=-1; dmgGrid[y][x]=0; } }
-    const rnd=mulberry(seed*99+7), inB=(x,y)=> x>0&&x<COLS-1&&y>=0&&y<ROWS-1, carve=(x,y)=>{ if(inB(x,y)) grid[y][x]=false; };
-    const px=COLS>>1, py=ROWS>>1;
-    for(let yy=py-2;yy<=py+1;yy++)for(let xx=px-3;xx<=px+3;xx++) carve(xx,yy);
-    for(let t=0;t<5;t++){ let cx=1+Math.floor(rnd()*(COLS-2)), cy=1+Math.floor(rnd()*(ROWS-2)); const steps=18+Math.floor(rnd()*26);
-      for(let s=0;s<steps;s++){ carve(cx,cy); if(rnd()<0.6)carve(cx,cy+1); if(rnd()<0.25)carve(cx+1,cy);
-        const d=rnd(); if(d<0.42)cx++; else if(d<0.62)cx--; else if(d<0.82)cy++; else cy--; cx=Math.max(1,Math.min(COLS-2,cx)); cy=Math.max(1,Math.min(ROWS-2,cy)); } }
-    for(let xx=px-3;xx<=px+3;xx++) if(grid[py+2]) grid[py+2][xx]=true;
-    const exposed=(x,y)=> [[0,-1],[0,1],[-1,0],[1,0]].some(([dx,dy])=>{const nx=x+dx,ny=y+dy; return nx>=0&&nx<COLS&&ny>=0&&ny<ROWS&&!grid[ny][nx];});
-    for(let y=1;y<ROWS-1;y++)for(let x=1;x<COLS-1;x++) if(grid[y][x]&&exposed(x,y)&&rnd()<0.32){ oreGrid[y][x]=Math.floor(rnd()*ORES.length); dmgGrid[y][x]= rnd()<0.4?0.3+rnd()*0.6:0; }
-    miner={px,py}; }
+  // ---------- sample cave (shared with the game via a solidTile predicate) ----------
+  const scene = document.getElementById('scene'), sctx = scene.getContext('2d');
+  const COLS = 22, ROWS = 15;
+  let seed = 1234, grid = null, oreGrid = null, dmgGrid = null, miner = null;
+  const lighting = DelveLighting.create();
 
-  function buildMask(PW,PH,o){ const mask=new Uint8Array(PW*PH);
-    const solidTile=(tx,ty)=> tx<0||tx>=COLS||ty<0||ty>=ROWS ? true : grid[ty][tx];
-    for(let py=0;py<PH;py++)for(let px=0;px<PW;px++){ const tx=(px/T)|0, ty=(py/T)|0;
-      if(!solidTile(tx,ty)){ mask[py*PW+px]=0; continue; }
-      const lx=px-tx*T, ly=py-ty*T; let dmin=99;
-      if(!solidTile(tx,ty-1)) dmin=Math.min(dmin, ly+0.5);
-      if(!solidTile(tx,ty+1)) dmin=Math.min(dmin, (T-1-ly)+0.5);
-      if(!solidTile(tx-1,ty)) dmin=Math.min(dmin, lx+0.5);
-      if(!solidTile(tx+1,ty)) dmin=Math.min(dmin, (T-1-lx)+0.5);
-      if(!solidTile(tx-1,ty-1)) dmin=Math.min(dmin, Math.hypot(lx+0.5,ly+0.5));
-      if(!solidTile(tx+1,ty-1)) dmin=Math.min(dmin, Math.hypot(T-lx-0.5,ly+0.5));
-      if(!solidTile(tx-1,ty+1)) dmin=Math.min(dmin, Math.hypot(lx+0.5,T-ly-0.5));
-      if(!solidTile(tx+1,ty+1)) dmin=Math.min(dmin, Math.hypot(T-lx-0.5,T-ly-0.5));
-      const thr = o.stones ? 0.4 + 1.4*vnoise(px*0.28, py*0.28, TEX+2) : 0.0;   // gentle erosion (~0.4–1.8px)
-      mask[py*PW+px] = dmin > thr ? 1 : 0; }
-    return mask; }
+  function genCave() {
+    grid = []; oreGrid = []; dmgGrid = [];
+    for (let y = 0; y < ROWS; y++) { grid[y] = []; oreGrid[y] = []; dmgGrid[y] = []; for (let x = 0; x < COLS; x++) { grid[y][x] = true; oreGrid[y][x] = 0; dmgGrid[y][x] = 0; } }
+    const rnd = mulberry(seed * 99 + 7), inB = (x, y) => x > 0 && x < COLS - 1 && y >= 0 && y < ROWS - 1, carve = (x, y) => { if (inB(x, y)) grid[y][x] = false; };
+    const px = COLS >> 1, py = ROWS >> 1;
+    for (let yy = py - 2; yy <= py + 1; yy++) for (let xx = px - 3; xx <= px + 3; xx++) carve(xx, yy);
+    for (let t = 0; t < 5; t++) { let cx = 1 + Math.floor(rnd() * (COLS - 2)), cy = 1 + Math.floor(rnd() * (ROWS - 2)); const steps = 18 + Math.floor(rnd() * 26);
+      for (let s = 0; s < steps; s++) { carve(cx, cy); if (rnd() < 0.6) carve(cx, cy + 1); if (rnd() < 0.25) carve(cx + 1, cy);
+        const d = rnd(); if (d < 0.42) cx++; else if (d < 0.62) cx--; else if (d < 0.82) cy++; else cy--; cx = Math.max(1, Math.min(COLS - 2, cx)); cy = Math.max(1, Math.min(ROWS - 2, cy)); } }
+    for (let xx = px - 3; xx <= px + 3; xx++) if (grid[py + 2]) grid[py + 2][xx] = true;
+    const exposed = (x, y) => [[0, -1], [0, 1], [-1, 0], [1, 0]].some(([dx, dy]) => { const nx = x + dx, ny = y + dy; return nx >= 0 && nx < COLS && ny >= 0 && ny < ROWS && !grid[ny][nx]; });
+    for (let y = 1; y < ROWS - 1; y++) for (let x = 1; x < COLS - 1; x++) if (grid[y][x] && exposed(x, y) && rnd() < 0.32) {
+      oreGrid[y][x] = DEMO_ORES[Math.floor(rnd() * DEMO_ORES.length)]; dmgGrid[y][x] = rnd() < 0.4 ? 0.3 + rnd() * 0.6 : 0; }
+    miner = { px, py };
+  }
 
-  function renderScene(){ const S=parseInt(document.getElementById('zoom').value,10), o=opts(), C=colorsFor(M()), BG=bgFor(M().ramp);
-    const PW=COLS*T, PH=ROWS*T; lbuf.width=PW; lbuf.height=PH; lb.imageSmoothingEnabled=false;
-    renderBackground(BG, PW, PH, o);
-    shadeRock(buildMask(PW,PH,o), PW, PH, C, o, false);
-    lb.drawImage(fbuf,0,0);
-    // stalactites / stalagmites (rock, over composite)
-    if(o.stalac) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ if(grid[y][x])continue;
-      if(grid[y-1] && grid[y-1][x] && hashXY(x,y,21)%3===0){ const cx=x*T+(T>>1)+(hashXY(x,y,22)%5-2), len=3+hashXY(x,y,23)%4;
-        for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.2)); pen1(cx-w,y*T+i,2*w+1,1, rgbHex(i<2?C.center:C.deep)); }
-        pen1(cx,y*T,1,1,rgbHex(C.rimA)); }
-      if(grid[y+1] && grid[y+1][x] && hashXY(x,y,24)%4===0){ const cx=x*T+(T>>1)+(hashXY(x,y,25)%5-2), len=2+hashXY(x,y,26)%3;
-        for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.2)); pen1(cx-w,(y+1)*T-1-i,2*w+1,1, rgbHex(i<1?C.center:C.deep)); } } }
-    const sol=(xx,yy)=> xx<0||xx>=COLS||yy<0||yy>=ROWS ? true : grid[yy][xx];
-    const OFF=3.5, oreCells=[];   // push the vein away from exposed edges, into the solid part of the tile
-    if(o.ore){ for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]&&oreGrid[y][x]>=0){
-        const offX=((!sol(x-1,y))?1:0)-((!sol(x+1,y))?1:0), offY=((!sol(x,y-1))?1:0)-((!sol(x,y+1))?1:0);
-        oreCells.push([x,y,offX*OFF,offY*OFF]); }
-      for(const [x,y,ox,oy] of oreCells) drawOre(lb, oreGrid[y][x], x*T, y*T, x, y, dmgGrid[y][x], o, ox, oy);
-      for(const [x,y,ox,oy] of oreCells) oreGlow(lb, oreGrid[y][x], x*T, y*T, dmgGrid[y][x], ox, oy); }   // glow layer on top
-    drawMiner(miner.px*T, miner.py*T, 'right');
-    if(o.lamp){ lb.save(); lb.globalCompositeOperation='lighter';
-      const gx=miner.px*T+8, gy=miner.py*T+7, rg=lb.createRadialGradient(gx,gy,0,gx,gy,T*3.4);
-      rg.addColorStop(0,'rgba(255,236,178,0.28)'); rg.addColorStop(0.5,'rgba(255,205,140,0.08)'); rg.addColorStop(1,'rgba(255,205,140,0)');
-      lb.fillStyle=rg; lb.fillRect(gx-T*4,gy-T*4,T*8,T*8); lb.restore(); }
-    if(o.vignette){ const v=lb.createRadialGradient(PW/2,PH/2,PH*0.36,PW/2,PH/2,PH*0.85);
-      v.addColorStop(0,'transparent'); v.addColorStop(1,'rgba(0,0,0,0.5)'); lb.fillStyle=v; lb.fillRect(0,0,PW,PH); }
+  function renderScene() {
+    const S = parseInt(document.getElementById('zoom').value, 10), o = opts(), top = bandTop();
+    const PW = COLS * T, PH = ROWS * T; lbuf.width = PW; lbuf.height = PH; lb.imageSmoothingEnabled = false;
+    // solidTile in world coords (row = top + local y) so the shared renderers see the sample cave
+    const solidTile = (c, r) => { const y = r - top; return (c < 0 || c >= COLS || y < 0 || y >= ROWS) ? true : grid[y][c]; };
+    // rock + background + sky + stalactites — the exact game renderer, at this stratum's depth
+    CR.composeBand(lb, solidTile, 0, top, COLS, ROWS, COLS, -1);
+    // ore veins — the exact game vein renderer
+    if (o.ore) for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { const id = oreGrid[y][x];
+      if (grid[y][x] && id) DelveOre.drawOreVein(lb, ORE_ART[id], x * T, y * T, x, top + y, dmgGrid[y][x], solidTile); }
+    // miner
+    DelveSprites.drawMiner(lb, miner.px * T, miner.py * T, 'right', 0);
+    // lighting — the exact game system: lamp + ore emitters, occlusion, fog, vignette.
+    // Local buffer pixels are "screen" space; camY = top*T maps them to world rows.
+    if (o.lamp) {
+      const camY = top * T;
+      lighting.addLight(miner.px * T + 8, miner.py * T + 7, 0, DelveLighting.LAMP_COLOR, 1.3);
+      if (o.ore) for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) { const id = oreGrid[y][x]; const art = ORE_ART[id];
+        if (!grid[y][x] || !art || art.dim) continue;
+        // seed at the exposed open face, dimming with distance from the lamp — mirrors index.html
+        let nx = x, ny = y;
+        if (!solidTile(x, top + y - 1)) ny = y - 1; else if (!solidTile(x, top + y + 1)) ny = y + 1;
+        else if (!solidTile(x - 1, top + y)) nx = x - 1; else if (!solidTile(x + 1, top + y)) nx = x + 1;
+        if (nx === x && ny === y) continue;
+        const dist = Math.hypot(x - miner.px, y - miner.py), li = Math.max(0, 1 - dist / 7);
+        if (li <= 0.05 && dmgGrid[y][x] <= 0.05) continue;
+        const rgb = CR.hexRgb(art.c[2]);
+        lighting.addLight(nx * T + (T >> 1), ny * T + (T >> 1), 1, [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255], 0.9 * li * (0.5 + 0.85 * dmgGrid[y][x])); }
+      lighting.render({ g: lb, LW: PW, LH: PH, T, camY, SURFACE: -1, W: COLS, solidTile });
+    }
     present(scene, sctx, PW, PH, S);
-    if(o.grid){ sctx.strokeStyle='#ffffff22'; sctx.lineWidth=1;
-      for(let x=0;x<=COLS;x++){ sctx.beginPath(); sctx.moveTo(x*T*S+0.5,0); sctx.lineTo(x*T*S+0.5,PH*S); sctx.stroke(); }
-      for(let y=0;y<=ROWS;y++){ sctx.beginPath(); sctx.moveTo(0,y*T*S+0.5); sctx.lineTo(PW*S,y*T*S+0.5); sctx.stroke(); } } }
+    if (o.grid) { sctx.strokeStyle = '#ffffff22'; sctx.lineWidth = 1;
+      for (let x = 0; x <= COLS; x++) { sctx.beginPath(); sctx.moveTo(x * T * S + 0.5, 0); sctx.lineTo(x * T * S + 0.5, PH * S); sctx.stroke(); }
+      for (let y = 0; y <= ROWS; y++) { sctx.beginPath(); sctx.moveTo(0, y * T * S + 0.5); sctx.lineTo(PW * S, y * T * S + 0.5); sctx.stroke(); } }
+  }
 
-  // ---------- mining matrix: every ore × the 4 mining steps + the extracted ore ----------
-  const mine=document.getElementById('mine'), mctx=mine.getContext('2d');
-  function renderMine(){ const S=5, cell=T*S, gx=6, gy=12, labelW=68, headH=22, colGap=22, o=opts();
-    const C=colorsFor(M()), BG=bgFor(M().ramp), solid=new Uint8Array(T*T).fill(1);
-    const steps=[0,0.5,0.78,1.0];
-    mine.width = labelW + steps.length*(cell+gx) + colGap + cell;
-    mine.height = headH + ORES.length*(cell+gy);
-    mctx.imageSmoothingEnabled=false; mctx.clearRect(0,0,mine.width,mine.height); mctx.textBaseline='middle';
-    mctx.fillStyle='#8494a8'; mctx.font='600 11px ui-sans-serif';
-    steps.forEach((d,i)=> mctx.fillText('Step '+(i+1), labelW+i*(cell+gx)+2, headH/2));
-    mctx.fillText('Ore', labelW+steps.length*(cell+gx)+colGap+cell/2-9, headH/2);
-    const blit=(cx,cy)=> mctx.drawImage(lbuf,0,0,T,T, cx,cy, cell,cell);
-    ORES.forEach((ore,r)=>{ const y=headH + r*(cell+gy);
-      mctx.fillStyle=ore.c[2]; mctx.font='600 11px ui-sans-serif'; mctx.fillText(ore.name, 2, y+cell/2);
-      steps.forEach((d,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
-        renderBackground(BG,T,T,o); shadeRock(solid,T,T,C,o,true); lb.drawImage(fbuf,0,0);
-        drawOre(lb, r, 0,0, r+5, 6, d, o);          // fixed seed per ore → the 4 steps evolve the same vein
-        oreGlow(lb, r, 0,0, d);                      // glow as its own additive pass
-        blit(labelW+i*(cell+gx), y); });
-      // the extracted ore ICON: pure crystal only (NO glow), centred with margin, on a neutral swatch
-      lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
-      lb.fillStyle='#0e0e16'; lb.fillRect(0,0,T,T);
-      SHAPES[ore.shape](8,8,4,ore.c);
-      blit(labelW+steps.length*(cell+gx)+colGap, y);
-    }); }
+  // ---------- mining matrix: every demo ore × the 4 damage steps + the extracted crystal ----------
+  const mine = document.getElementById('mine'), mctx = mine.getContext('2d');
+  function renderMine() {
+    const S = 5, cell = T * S, gx = 6, gy = 12, labelW = 68, headH = 22, colGap = 22;
+    const steps = [0, 0.5, 0.78, 1.0];
+    // a lone solid rock tile (row 1) with open space above (row 0) → top-lit, like the game
+    const solidTile = (c, r) => r >= 1;
+    mine.width = labelW + steps.length * (cell + gx) + colGap + cell;
+    mine.height = headH + DEMO_ORES.length * (cell + gy);
+    mctx.imageSmoothingEnabled = false; mctx.clearRect(0, 0, mine.width, mine.height); mctx.textBaseline = 'middle';
+    mctx.fillStyle = '#8494a8'; mctx.font = '600 11px ui-sans-serif';
+    steps.forEach((d, i) => mctx.fillText('Step ' + (i + 1), labelW + i * (cell + gx) + 2, headH / 2));
+    mctx.fillText('Ore', labelW + steps.length * (cell + gx) + colGap + cell / 2 - 9, headH / 2);
+    const blit = (cx, cy) => mctx.drawImage(lbuf, 0, 0, T, T, cx, cy, cell, cell);
+    DEMO_ORES.forEach((id, r) => { const art = ORE_ART[id], y = headH + r * (cell + gy);
+      mctx.fillStyle = art.c[2]; mctx.font = '600 11px ui-sans-serif'; mctx.fillText(ORE_NAMES[id], 2, y + cell / 2);
+      steps.forEach((d, i) => {
+        lbuf.width = T; lbuf.height = T; lb.imageSmoothingEnabled = false;
+        CR.composeBand(lb, solidTile, 0, 1, 1, 1, 1, -1);        // single lit rock tile
+        DelveOre.drawOreVein(lb, art, 0, 0, 0, 1, d, solidTile);
+        blit(labelW + i * (cell + gx), y);
+      });
+      // the extracted crystal only, centred on a neutral swatch
+      lbuf.width = T; lbuf.height = T; lb.imageSmoothingEnabled = false;
+      lb.fillStyle = '#0e0e16'; lb.fillRect(0, 0, T, T);
+      SHAPES[art.shape]((a, b, w, h, cc) => { lb.fillStyle = cc; lb.fillRect(a, b, w || 1, h || 1); }, 8, 8, 4, art.c);
+      blit(labelW + steps.length * (cell + gx) + colGap, y);
+    });
+  }
 
-  // ---------- atlas ----------
-  const atlas=document.getElementById('atlas'), actx=atlas.getContext('2d');
-  function renderAtlas(){ const S=5,gap=6, o=opts(); const mats=Object.values(MATERIALS);
-    atlas.width=mats.length*(T*S+gap)-gap; atlas.height=T*S; actx.imageSmoothingEnabled=false; actx.clearRect(0,0,atlas.width,atlas.height);
-    const topMask=()=>{ const m=new Uint8Array(T*T); for(let py=0;py<T;py++)for(let px=0;px<T;px++){ const d=py-4+0.5; const thr=o.stones?0.4+1.4*vnoise(px*0.3+9,py*0.3,TEX+2):0; m[py*T+px]= (py>=4 && d>thr) ?1:0; } return m; };
-    mats.forEach((mm,i)=>{ const C=colorsFor(mm), BG=bgFor(mm.ramp); lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
-      renderBackground(BG,T,T,o); shadeRock(topMask(),T,T,C,o,false); lb.drawImage(fbuf,0,0);
-      actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); }); }
+  // ---------- atlas: each stratum's top-lit rock, via the shared renderer ----------
+  const atlas = document.getElementById('atlas'), actx = atlas.getContext('2d');
+  function renderAtlas() {
+    const S = 5, gap = 6;
+    atlas.width = STRATA.length * (T * S + gap) - gap; atlas.height = T * S;
+    actx.imageSmoothingEnabled = false; actx.clearRect(0, 0, atlas.width, atlas.height);
+    STRATA.forEach((st, i) => {
+      const top = st.top + 3;
+      const solidTile = (c, r) => r >= top;                     // open above, solid at/below → top-lit surface
+      lbuf.width = T; lbuf.height = T; lb.imageSmoothingEnabled = false;
+      CR.composeBand(lb, solidTile, 0, top, 1, 1, 1, -1);
+      actx.drawImage(lbuf, 0, 0, T, T, i * (T * S + gap), 0, T * S, T * S);
+    });
+  }
 
-  function renderAll(){ renderScene(); renderMine(); renderAtlas(); }
-  for(const el of document.querySelectorAll('input,select')) el.addEventListener('input', ()=>{
-    document.getElementById('zoomv').textContent=document.getElementById('zoom').value+'×'; renderAll(); });
-  document.getElementById('regen').addEventListener('click', ()=>{ seed=(Math.random()*1e9)|0; genCave(); renderAll(); });
+  function renderAll() { renderScene(); renderMine(); renderAtlas(); }
+  for (const el of document.querySelectorAll('input,select')) el.addEventListener('input', () => {
+    document.getElementById('zoomv').textContent = document.getElementById('zoom').value + '×'; renderAll(); });
+  document.getElementById('regen').addEventListener('click', () => { seed = (Math.random() * 1e9) | 0; genCave(); renderAll(); });
   genCave(); renderAll();
 })();
 </script>

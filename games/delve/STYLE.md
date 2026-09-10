@@ -6,10 +6,26 @@ a **logical-resolution buffer that is upscaled with `image-rendering: pixelated`
 so every effect — including gradients, glows and vignette — stays chunky pixels.
 
 > **Status:** this direction is **live in the game** — `index.html` renders the
-> layered cave (background + per-pixel top-lit rock + baked ore veins + per-frame
-> glow/lamp/fog) described here. `style-lab.html` remains the standalone tuning
-> sandbox where the look is iterated before changes land in the game; keep the
-> three (lab, game, this file) in sync as the direction evolves.
+> layered cave (background + per-pixel top-lit rock + ore veins + per-frame
+> lamp/fog/vignette) described here. `style-lab.html` is the tuning sandbox — and it
+> now renders its cave sample, mining matrix and strata swatches through the **exact
+> same shared modules the game uses**, so the two can't drift: iterate a module and
+> both move together. Only this file needs to be kept in sync by hand.
+>
+> **Shared render modules** (all under `scripts/`, each attaches to `self` with no
+> build step, so they work in the window and the Worker alike):
+> - **`cave-render.js`** — the rock renderer (`composeBand`) + the colour/rng/noise
+>   helpers + the depth `STRATA` ramps. Imported by the main thread, the chunk Worker,
+>   and the lab.
+> - **`ore-art.js`** (`DelveOre`) — ore/gem crystal shapes + `drawOreVein`, over any 2D context.
+> - **`sprites.js`** (`DelveSprites`) — the miner sprite (+ future entities).
+> - **`lighting.js`** (`DelveLighting`) — the geometry-aware lighting system as a
+>   config-driven instance: push emitters via `addLight()`, then `render(cfg)` with the
+>   viewport + a `solidTile` predicate. Knows nothing about game state.
+> - **`engine.js`** — the pure sim (also required by `verify.js` in Node).
+>
+> `index.html` keeps only game glue (input, HUD, save, audio, camera, loop); the lab
+> keeps only its UI + sample-cave generator. Both compose the picture from the modules.
 >
 > In the game the rock field is expensive, so it's cached as fixed-position
 > vertical **chunks** (full field width, a few rows tall): each chunk is rendered

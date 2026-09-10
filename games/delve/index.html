@@ -102,8 +102,11 @@
     </div>
   </div>
 
-<script src="engine.js"></script>
-<script src="cave-render.js"></script>
+<script src="scripts/engine.js"></script>
+<script src="scripts/cave-render.js"></script>
+<script src="scripts/ore-art.js"></script>
+<script src="scripts/sprites.js"></script>
+<script src="scripts/lighting.js"></script>
 <script>
 (function () {
   'use strict';
@@ -120,12 +123,9 @@
   const cv = document.getElementById('c');
   const ctx = cv.getContext('2d');
 
-  // scratch buffers: fieldBuf renders one chunk (+margin) at a time; fbuf is the fg alpha layer.
-  // pen1 draws into penCtx — the scratch buffer while baking rock, the screen for per-frame veins.
+  // scratch buffer: fieldBuf renders one chunk (+margin) at a time when baking rock.
   const fieldBuf = document.createElement('canvas'); fieldBuf.width = LW; fieldBuf.height = (CHUNK + 2 * MARGIN) * T;
   const lb = fieldBuf.getContext('2d'); lb.imageSmoothingEnabled = false;
-  let penCtx = lb;
-  const pen1 = (ax, ay, w, h, color) => { penCtx.fillStyle = color; penCtx.fillRect(ax, ay, (w || 1), (h || 1)); };
 
   // ---------- state / persistence ----------
   const SAVE = 'delve.save.v1';
@@ -210,107 +210,20 @@
   let fpsEMA = 0, frameMsEMA = 0, rebuildCount = 0, lastRebuildMs = 0;
   const motes = []; for (let i = 0; i < 10; i++) motes.push({ x: Math.random(), y: Math.random(), s: 0.3 + Math.random() });
 
-  // rock rendering lives in the shared module (cave-render.js), used by the chunk
-  // Worker too. Only the small colour helpers the per-frame overlays need are pulled in.
+  // Shared render modules (all attach to `self`, no build step): cave-render.js (rock +
+  // colour/rng/noise helpers, also used by the chunk Worker), ore-art.js (ore/gem art),
+  // sprites.js (miner), lighting.js (the geometry-aware lighting system). index.html
+  // keeps only game glue, input, HUD, save, audio and the loop.
   const CR = window.CaveRender;
-  const { mix, mulberry, hashXY, hexRgb } = CR;
-
-  // ore art, keyed by engine ore id: crystal shape + [dark, mid, highlight] triad
-  const OUT = '#0a0912';
-  const ORE_ART = {
-    1: { shape: 'nugget',  c: ['#48371f', '#6d5230', '#8f6b3c'], dim: true }, // Dirt clod
-    2: { shape: 'nugget',  c: ['#7a3045', '#cd683d', '#f79617'] },            // Copper
-    3: { shape: 'nugget',  c: ['#3e3546', '#7f708a', '#c7dcd0'] },            // Iron
-    4: { shape: 'nugget',  c: ['#625565', '#9babb2', '#e8eef5'] },            // Silver
-    5: { shape: 'nugget',  c: ['#4c3e24', '#f9c22b', '#fbff86'] },            // Gold
-    6: { shape: 'prism',   c: ['#165a4c', '#1ebc73', '#91db69'] },            // Emerald
-    7: { shape: 'cluster', c: ['#831c5d', '#f04f78', '#f68181'] },            // Ruby
-    8: { shape: 'gem',     c: ['#0b8a8f', '#30e1b9', '#8ff8e2'] },            // Diamond
-    9: { shape: 'shard',   c: ['#484a77', '#905ea9', '#a884f3'] },            // Mythril
-  };
-  // crystal shapes — all symmetric, centred, ~±(r+1) footprint (draw into the cache via pen1)
-  function gem(cx, cy, r, c) { if (r < 1) r = 1;
-    for (let dy = -r; dy <= r; dy++) { const w = r - Math.abs(dy); pen1(cx - w - 1, cy + dy, 1, 1, OUT); pen1(cx + w + 1, cy + dy, 1, 1, OUT); }
-    pen1(cx, cy - r - 1, 1, 1, OUT); pen1(cx, cy + r + 1, 1, 1, OUT);
-    for (let dy = -r; dy <= r; dy++) { const w = r - Math.abs(dy); pen1(cx - w, cy + dy, 2 * w + 1, 1, c[1]); }
-    for (let dy = -r; dy <= 0; dy++) { const w = r - Math.abs(dy); pen1(cx - w, cy + dy, w + 1, 1, c[2]); }
-    for (let dy = 0; dy <= r; dy++) { const w = r - Math.abs(dy); pen1(cx, cy + dy, w + 1, 1, c[0]); }
-    pen1(cx - 1, cy - r + 1, 1, 1, '#ffffff'); }
-  function nugget(cx, cy, r, c) { if (r < 1) r = 1; const R = r;
-    let sd = 0; for (const ch of c[1]) sd = (sd * 31 + ch.charCodeAt(0)) >>> 0; const rnd = mulberry(sd || 1);
-    const a1 = rnd() * 6.283, a2 = rnd() * 6.283, a3 = rnd() * 6.283;
-    const rad = (dx, dy) => { const a = Math.atan2(dy, dx), up = Math.max(0, -Math.sin(a));
-      return R * (1 + 0.05 * up + 0.08 * Math.sin(2 * a + a1) + 0.11 * Math.sin(3 * a + a2) + 0.07 * Math.sin(5 * a + a3)); };
-    for (let dy = -r - 2; dy <= r + 2; dy++) for (let dx = -r - 2; dx <= r + 2; dx++) { if (Math.hypot(dx, dy) <= rad(dx, dy) + 1.0) pen1(cx + dx, cy + dy, 1, 1, OUT); }
-    for (let dy = -r - 2; dy <= r + 2; dy++) for (let dx = -r - 2; dx <= r + 2; dx++) { if (Math.hypot(dx, dy) <= rad(dx, dy)) pen1(cx + dx, cy + dy, 1, 1, (dx + dy) < -r * 0.3 ? c[2] : (dx + dy) > r * 0.6 ? c[0] : c[1]); }
-    const hx = cx - Math.round(r * 0.35), hy = cy - Math.round(r * 0.45);
-    pen1(hx, hy, 1, 1, c[2]); pen1(hx + 1, hy, 1, 1, c[2]); pen1(hx, hy + 1, 1, 1, c[2]);
-    pen1(hx, hy, 1, 1, '#ffffff'); pen1(hx + 1, hy, 1, 1, '#ffffff'); }
-  function prism(cx, cy, r, c) { const w = r, h = r; const ww = dy => (dy < -h + 2 || dy > h - 2) ? Math.max(0, w - 2) : w;
-    for (let dy = -h - 1; dy <= h + 1; dy++) { const a = ww(Math.max(-h, Math.min(h, dy))); pen1(cx - a - 1, cy + dy, 1, 1, OUT); pen1(cx + a + 1, cy + dy, 1, 1, OUT); }
-    pen1(cx, cy - h - 1, 1, 1, OUT); pen1(cx, cy + h + 1, 1, 1, OUT);
-    for (let dy = -h; dy <= h; dy++) { const a = ww(dy); pen1(cx - a, cy + dy, 2 * a + 1, 1, c[1]); }
-    for (let dy = -h; dy <= h; dy++) { const a = ww(dy); pen1(cx - a, cy + dy, a, 1, c[2]); pen1(cx + 1, cy + dy, a, 1, c[0]); }
-    pen1(cx - 1, cy - h + 1, 1, 1, '#ffffff'); }
-  function shardTall(x, y, h, w, c) {
-    for (let dy = -h; dy <= h; dy++) { const t = 1 - Math.abs(dy) / (h + 0.6), ww = Math.max(0, Math.round(w * t));
-      pen1(x - ww - 1, y + dy, 1, 1, OUT); pen1(x + ww + 1, y + dy, 1, 1, OUT);
-      pen1(x - ww, y + dy, 2 * ww + 1, 1, c[1]); pen1(x - ww, y + dy, ww, 1, c[2]); }
-    pen1(x, y - h - 1, 1, 1, OUT); pen1(x, y + h + 1, 1, 1, OUT); pen1(x - 1, y - h + 1, 1, 1, '#ffffff'); }
-  function shard(cx, cy, r, c) {
-    shardTall(cx - (r - 1), cy, Math.max(1, r - 2), 1, c);
-    shardTall(cx + (r - 1), cy, Math.max(1, r - 2), 1, c);
-    shardTall(cx, cy, r, Math.max(1, r - 3), c); }
-  function cluster(cx, cy, r, c) { const rs = Math.max(1, r - 2);
-    gem(cx - 2, cy + 2, rs, c); gem(cx + 2, cy + 2, rs, c); gem(cx, cy - 1, Math.max(1, r - 1), c); }
-  const SHAPES = { gem, nugget, prism, shard, cluster };
+  const { mix, hashXY, hexRgb } = CR;
+  const { ORE_ART } = DelveOre;
 
   // A tile is solid rock when it's below the surface, in-bounds, and not yet dug.
   // Out-of-bounds columns read as bedrock (solid) so the shaft has clean side walls.
   const solidTile = (c, r) => (c < 0 || c >= W) ? true : (r > D.SURFACE && !D.isDug(s, c, r));
 
-  // ore vein baked into the cache: embedded flecks that chip open to a crystal.
-  function drawOreVein(id, X, Y, col, row, frac) {
-    const art = ORE_ART[id]; if (!art) return; const c = art.c, MAXR = 5;
-    const offX = ((!solidTile(col - 1, row)) ? 1 : 0) - ((!solidTile(col + 1, row)) ? 1 : 0);
-    const offY = ((!solidTile(col, row - 1)) ? 1 : 0) - ((!solidTile(col, row + 1)) ? 1 : 0);
-    const OFF = 3.5, mx = (T >> 1) + offX * OFF, my = (T >> 1) + offY * OFF;
-    const rnd = mulberry(hashXY(col, row, 777));
-    const px = (a, b, w, h, cc) => pen1(X + a, Y + b, w, h, cc);
-    const inside = (dx, dy) => dx * dx + dy * dy <= MAXR * MAXR;
-    const specks = [];
-    for (let t = 0; t < 40 && specks.length < 5; t++) {
-      const a = rnd() * 6.283, rr = rnd() * 3, sx = Math.round(mx + Math.cos(a) * rr), sy = Math.round(my + Math.sin(a) * rr);
-      if (!inside(sx - mx, sy - my)) continue;
-      if (specks.some(p => Math.abs(p[0] - sx) <= 1 && Math.abs(p[1] - sy) <= 1)) continue;
-      specks.push([sx, sy]); px(sx, sy, 1, 1, rnd() < 0.3 ? c[2] : c[1]);
-    }
-    if (frac > 0.12) { const cr = mulberry(hashXY(col, row, 9)), nc = 1 + Math.floor(frac * 3);
-      for (let k = 0; k < nc; k++) { let a = cr() * 6.283, dx = Math.cos(a) * 1.5, dy = Math.sin(a) * 1.5; const steps = 2 + Math.floor(frac * 3);
-        for (let stp = 0; stp < steps; stp++) { if (!inside(dx, dy)) break; px(Math.round(mx + dx), Math.round(my + dy), 1, 1, c[0]); dx += Math.cos(a); dy += Math.sin(a); } } }
-    const reveal = Math.max(0, (frac - 0.35) / 0.65);
-    if (reveal > 0.02) { const hole = 1 + reveal * 3;
-      for (let dy = -MAXR; dy <= MAXR; dy++) for (let dx = -MAXR; dx <= MAXR; dx++) { if (!inside(dx, dy)) continue;
-        const d = Math.hypot(dx, dy) - ((hashXY(col * 31 + dx, row * 17 + dy, 5) % 100) / 100) * 1.1; if (d < hole) px(mx + dx, my + dy, 1, 1, c[0]); }
-      SHAPES[art.shape](X + mx, Y + my, Math.max(1, Math.round(reveal * 2.8)), c); }
-  }
-  // ore emits light through the unified lighting system (see addLight in the render loop),
-  // not a baked glow — so a vein lights its own surroundings by the same rule as the lamp.
-
-  // (rock field helpers distField/renderBackground/shadeRock/buildMask now live in cave-render.js)
-
-  function drawMiner(g, X, Y, facing, bob) {
-    const O = '#0a0912', H = '#e6904e', HD = '#cd683d', VIS = '#25222c', GLINT = '#8fd3ff', LAMP = '#fbff86',
-          F = '#e6b98e', FD = '#c7955f', B = '#4d65b4', BD = '#323353', BL = '#4d9be6', BOOT = '#4c3e24', PK = '#9babb2', PKH = '#7a5030';
-    const P = (a, b, w, h, col) => { g.fillStyle = col; g.fillRect(X + a, Y + b + bob, (w || 1), (h || 1)); };
-    P(9, 3, 1, 4, PKH); P(8, 2, 4, 1, PK); P(11, 3, 1, 1, PK); P(8, 3, 1, 1, PK);
-    for (const [a, b, w, h] of [[4, 1, 5, 1], [3, 2, 7, 1], [3, 3, 1, 6], [9, 3, 1, 6], [3, 9, 7, 1], [3, 9, 1, 4], [8, 9, 1, 4], [4, 13, 5, 1]]) P(a, b, w, h, O);
-    P(4, 2, 5, 1, H); P(4, 3, 5, 1, H); P(4, 4, 5, 1, HD);
-    const lx = facing === 'left' ? 3 : facing === 'right' ? 8 : 6; P(lx, 1, 2, 1, LAMP); P(lx, 2, 1, 1, '#f9c22b');
-    P(4, 5, 5, 2, F); P(4, 7, 5, 1, FD); P(4, 5, 5, 1, VIS); P(7, 5, 1, 1, GLINT);
-    P(4, 7, 5, 2, B); P(4, 8, 5, 1, BD); P(6, 7, 1, 2, BL);
-    P(4, 9, 2, 3, B); P(7, 9, 2, 3, B); P(4, 12, 2, 1, BOOT); P(7, 12, 2, 1, BOOT);
-  }
+  // ore veins (DelveOre.drawOreVein), the miner sprite (DelveSprites.drawMiner) and the
+  // rock field (cave-render.js) are all drawn from shared modules now — see the render loop.
 
   const newChunkCanvas = () => { const cvc = document.createElement('canvas'); cvc.width = LW; cvc.height = CHUNK * T; return { cv: cvc, ctx: cvc.getContext('2d') }; };
 
@@ -319,7 +232,7 @@
   const pending = new Map();         // chunkIndex -> [queued dig patches that arrived while pending]
   if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && OffscreenCanvas.prototype.transferToImageBitmap) {
     try {
-      worker = new Worker('chunk-worker.js');
+      worker = new Worker('scripts/chunk-worker.js');
       worker.postMessage({ type: 'init', cfg: { T, W, SURFACE: D.SURFACE, CHUNK, MARGIN } });
       worker.onmessage = (e) => {
         const { ci, bmp } = e.data;
@@ -381,145 +294,13 @@
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
 
-  // ---------- lighting system (geometry-aware) ----------
-  // One independent system: every light source — the miner's lamp, glowing ore veins,
-  // anything later — is an emitter pushed via addLight() and obeys the SAME rules.
-  //
-  // Light is OCCLUDED BY ROCK. Each frame the emitters seed a world-space per-tile
-  // colour field, which is then PROPAGATED across the visible tile window (Terraria's
-  // technique): open/dug tiles conduct light (OPEN_ATTEN per step), solid rock absorbs
-  // it fast (ROCK_ATTEN) — so light pools down the tunnels you carved and dies a couple
-  // tiles into rock. The lit region takes the SHAPE of the dug space, not a circle, and
-  // the first rock layer round a lit tunnel catches a warm rim for free. The tile field
-  // is then bilinear-sampled per pixel and composited exactly as before: a smooth
-  // additive colour glow (warm lamp, coloured ore) + a DITHERED darkness scrim derived
-  // from the same field (the pixel-art fog), plus a shared dithered vignette.
-  //
-  // Grounded in the reference miners (SteamWorld Dig 2, Terraria, Super Motherload):
-  //   warm colour temperature; many small local sources; deep dark beyond reach; light
-  //   that respects the carved geometry.
-  const DSTEP = 10;                                     // dither steps for the darkness scrim + vignette
-  const LBY = [0,8,2,10,12,4,14,6,3,11,1,9,15,7,13,5];  // 4×4 ordered dither, same as the rock
-  const AMB = [0.05, 0.05, 0.08];                       // ambient floor — unlit rock stays dim, faintly cool
-  const SCRIM = [6, 7, 14];                             // colour the darkness fades toward (deep, cool)
-  const ADD = 0.26;                                     // how strongly the light field shows as additive glow
-  const ADD_MAX = 0.5;                                  // ceiling on TOTAL additive per channel (lamp+ore) — no blown sunspot where they overlap
-  const LAMP_COLOR = [1.0, 0.72, 0.42];                 // warm lantern (warmer than before, per feedback)
-  const OPEN_ATTEN = 0.70, ROCK_ATTEN = 0.45;           // per-step light conduction: open tunnel vs solid rock
-  const LMARGIN = 2;                                    // extra tile rows above/below the view for clean edges
-  const ORE_GLOW = 1.6;                                 // ore-glow seed strength (r>0 emitters flood their colour into open space)
-  const GLOW_CAP = 0.42;                                // per-channel ceiling on ore glow (max-propagated already, this is the safety)
-  let LIGHTS = [], lightCount = 0;
-  const addLight = (x, y, r, col, i) => LIGHTS.push({ x, y, r, cr: col[0], cg: col[1], cb: col[2], i });
+  // ---------- lighting ----------
+  // The geometry-aware lighting system lives in scripts/lighting.js (shared with the
+  // style lab's cave sample, so the two light identically). We keep one instance; each
+  // frame we push emitters — the miner's lamp + glowing ore veins — then call
+  // lighting.render() with the viewport + this game's solidTile predicate.
+  const lighting = DelveLighting.create();
 
-  const addCv = document.createElement('canvas'), addX = addCv.getContext('2d');
-  const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
-  const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
-  let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
-  let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // world-space per-tile lamp light field (max-propagated)
-  let ogR = null, ogG = null, ogB = null;              // world-space per-tile ORE-glow field (own colour, occlusion-aware)
-
-  // shared vignette — dithered, screen-space, unchanging → build once per size, blit each frame
-  function ensureVignette() {
-    if (vigW === LW && vigH === LH) return;
-    vigW = LW; vigH = LH; vigCv.width = LW; vigCv.height = LH; vigX.imageSmoothingEnabled = false;
-    const vigImg = vigX.createImageData(LW, LH), vd = vigImg.data;
-    const ccx = LW / 2, ccy = LH / 2, vigIn = LH * 0.34, vigSpan = LH * 0.48;
-    for (let y = 0; y < LH; y++) { const dy = y - ccy;
-      for (let x = 0; x < LW; x++) { const dx = x - ccx, dv = Math.sqrt(dx * dx + dy * dy), bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
-        let vg = (dv - vigIn) / vigSpan; vg = vg < 0 ? 0 : vg > 1 ? 1 : vg; let v = vg * vg * (3 - 2 * vg) * 0.5;
-        const fV = v * DSTEP, lV = fV | 0; v = (lV + ((fV - lV) > bay ? 1 : 0)) / DSTEP;
-        const i = (y * LW + x) * 4; vd[i] = SCRIM[0]; vd[i + 1] = SCRIM[1]; vd[i + 2] = SCRIM[2]; vd[i + 3] = v * 255; } }
-    vigX.putImageData(vigImg, 0, 0);
-  }
-
-  function drawLighting(t, st) {
-    ensureVignette();
-    if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
-      addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
-      scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
-    // the miner's lamp is just another emitter (warm; seed brightness scales gently with
-    // vision so the Deep Lantern reaches further down the tunnel)
-    addLight(dispC * T + 8, dispR * T - camY + 7, 0, LAMP_COLOR, 0.9 + 0.16 * st.vision);
-
-    // ---- world-space per-tile light fields ----
-    // Two fields, both propagated by the SAME occlusion rule so both respect geometry:
-    //   tR/tG/tB — the lamp (warm), drives the darkness scrim / visibility.
-    //   ogR/ogG/ogB — ore colour. Seeded at each exposed vein's tile so it can FLOOD out
-    //     of the exposed face into the shaft (dying in rock), instead of the old
-    //     geometry-blind screen-space halo that read as a standalone ring of light.
-    //     Kept separate from the lamp field so its colour survives (the lamp field is
-    //     max-propagated and would swamp it), and added on top, capped, at composite.
-    const tileTop = Math.floor(camY / T) - LMARGIN;
-    const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = W;
-    if (cols !== gw || rows !== gh) { gw = cols; gh = rows;
-      tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh);
-      ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh); }
-    tR.fill(0); tG.fill(0); tB.fill(0); ogR.fill(0); ogG.fill(0); ogB.fill(0);
-    // seed: lamp (r=0) → lamp field; ore veins (r>0) → ore-glow field, at their own tile
-    for (const L of LIGHTS) {
-      const tc = Math.floor(L.x / T), tr = Math.floor((L.y + camY) / T) - tileTop;
-      if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
-      const idx = tr * gw + tc;
-      if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; }
-      else { tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i; }
-    }
-    // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
-    // tile's opacity, so light dims hard the moment it enters rock). One round converges
-    // because each sweep chains through already-updated neighbours in its direction. Both
-    // fields propagate together in a single relax so the sweep cost is shared.
-    const attenAt = (x, gy) => (x < 0 || x >= W || solidTile(x, gy + tileTop)) ? ROCK_ATTEN : OPEN_ATTEN;
-    const relax = (i, from, a) => {
-      let v = tR[from] * a; if (v > tR[i]) tR[i] = v; v = tG[from] * a; if (v > tG[i]) tG[i] = v; v = tB[from] * a; if (v > tB[i]) tB[i] = v;
-      v = ogR[from] * a; if (v > ogR[i]) ogR[i] = v; v = ogG[from] * a; if (v > ogG[i]) ogG[i] = v; v = ogB[from] * a; if (v > ogB[i]) ogB[i] = v;
-    };
-    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9;   // TL→BR
-      if (x > 0) relax(i, i - 1, a); if (y > 0) relax(i, i - gw, a); if (x > 0 && y > 0) relax(i, i - gw - 1, ad2); }
-    for (let y = 0; y < gh; y++) for (let x = gw - 1; x >= 0; x--) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // TR→BL
-      if (x < gw - 1) relax(i, i + 1, a); if (y > 0) relax(i, i - gw, a); if (x < gw - 1 && y > 0) relax(i, i - gw + 1, ad2); }
-    for (let y = gh - 1; y >= 0; y--) for (let x = gw - 1; x >= 0; x--) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BR→TL
-      if (x < gw - 1) relax(i, i + 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x < gw - 1 && y < gh - 1) relax(i, i + gw + 1, ad2); }
-    for (let y = gh - 1; y >= 0; y--) for (let x = 0; x < gw; x++) { const i = y * gw + x, a = attenAt(x, y), ad2 = a * 0.9; // BL→TR
-      if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
-
-    // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
-    const ad = addImg.data, sd = scrimImg.data, skyY = (D.SURFACE + 1) * T;
-    for (let y = 0; y < LH; y++) {
-      const fy = (y + camY) / T - tileTop - 0.5;         // tile-space (values live at tile centres)
-      let gy = fy | 0; if (gy < 0) gy = 0; else if (gy > gh - 2) gy = gh - 2;
-      const ty = fy - gy < 0 ? 0 : (fy - gy > 1 ? 1 : fy - gy), ty1 = 1 - ty;
-      const aboveSky = (y + camY) <= skyY;
-      for (let x = 0; x < LW; x++) {
-        const j = (y * LW + x) * 4;
-        const fx = x / T - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
-        const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx), tx1 = 1 - tx;
-        const a00 = gy * gw + gx, a10 = a00 + 1, a01 = a00 + gw, a11 = a01 + 1;
-        const w00 = tx1 * ty1, w10 = tx * ty1, w01 = tx1 * ty, w11 = tx * ty;
-        let r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
-        let g = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
-        let b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
-        // ore glow: bilinear-sample the propagated ore-colour field, cap per channel, add on top
-        let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
-        let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
-        let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
-        // total additive (lamp warm + ore colour) capped together so their overlap can't blow to a white sunspot
-        let s = r * ADD + cr; if (s > ADD_MAX) s = ADD_MAX; ad[j] = s * 255;
-        s = g * ADD + cg; if (s > ADD_MAX) s = ADD_MAX; ad[j + 1] = s * 255;
-        s = b * ADD + cb; if (s > ADD_MAX) s = ADD_MAX; ad[j + 2] = s * 255; ad[j + 3] = 255;
-        // scrim brightness: lamp field OR ore glow, so a glowing vein carves its own visibility
-        let br = r > g ? (r > b ? r : b) : (g > b ? g : b);
-        if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;
-        const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
-        let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
-        sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
-      }
-    }
-    addX.putImageData(addImg, 0, 0); scrimX.putImageData(scrimImg, 0, 0);
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(addCv, 0, 0); ctx.restore();
-    ctx.drawImage(scrimCv, 0, 0);                       // dithered darkness
-    ctx.drawImage(vigCv, 0, 0);                         // shared vignette frame
-    lightCount = LIGHTS.length; LIGHTS.length = 0;      // reset emitters for next frame
-  }
 
   function render(t) {
     ctx.clearRect(0, 0, LW, LH);
@@ -548,14 +329,14 @@
     const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
     // ore veins + glow, drawn per-frame ONLY where visible: within lamp range, or
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
-    // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — drawLighting.)
-    penCtx = ctx;
+    // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — lighting.render.)
     for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
         if (!solidTile(c, r)) continue; const info = D.tileInfo(s.seed, c, r); if (!info.ore) continue;
         const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0); if (vis <= 0.06) continue;
         const frac = info.maxHp ? (s.dmg[D.key(c, r)] || 0) / info.maxHp : 0;
-        ctx.globalAlpha = Math.min(1, vis); drawOreVein(info.ore, c * T, r * T, c, r, frac); ctx.globalAlpha = 1;
-        const art = ORE_ART[info.ore]; if (!art || art.dim) continue;         // dirt clods don't shine
+        const art = ORE_ART[info.ore];
+        ctx.globalAlpha = Math.min(1, vis); DelveOre.drawOreVein(ctx, art, c * T, r * T, c, r, frac, solidTile); ctx.globalAlpha = 1;
+        if (!art || art.dim) continue;         // dirt clods don't shine
         const ph = (hashXY(c, r, 55) & 1023) / 1023 * 6.283;
         // an ore vein is a light source too — same system as the lamp. It only emits when
         // EXPOSED (bordering an open tile), so its colour has somewhere to flood: seeded at
@@ -571,7 +352,7 @@
         const exposed = nc !== c || nr !== r;
         if (exposed && (li > 0.16 || frac > 0.05)) {
           const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
-          addLight(nc * T + (T >> 1), nr * T + (T >> 1) - camY, 1,
+          lighting.addLight(nc * T + (T >> 1), nr * T + (T >> 1) - camY, 1,
             [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.9 * li * (0.5 + 0.85 * frac) * pulse);
         }
         const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
@@ -580,7 +361,6 @@
           ctx.fillRect(gx, gy - 1, 1, 3); ctx.fillRect(gx - 1, gy, 3, 1);
           ctx.globalAlpha = a * 0.45; ctx.fillRect(gx - 2, gy, 1, 1); ctx.fillRect(gx + 2, gy, 1, 1); ctx.fillRect(gx, gy - 2, 1, 1); ctx.fillRect(gx, gy + 2, 1, 1);
           ctx.globalAlpha = 1; } } }
-    penCtx = lb;
     // idle dust motes drifting near the lamp
     ctx.fillStyle = '#fff';
     for (const m of motes) { const mx = (dispC + (m.x - 0.5) * st.vision * 1.4) * T + T / 2;
@@ -591,7 +371,7 @@
     ctx.globalAlpha = 1;
     // miner + lamp glow
     const mX = Math.round(dispC * T), mY = Math.round(dispR * T), bob = Math.sin(t * 8) * (moving ? 0.6 : 0.25);
-    drawMiner(ctx, mX, mY, s.facing, bob);   // lamp bloom is now part of drawLighting
+    DelveSprites.drawMiner(ctx, mX, mY, s.facing, bob);   // lamp bloom is part of the lighting pass
     // coin floaties
     ctx.textAlign = 'center';
     for (const f of floaties) { const a = Math.max(0, 1 - f.t / f.life); ctx.globalAlpha = a; ctx.font = `700 ${f.big ? 11 : 8}px ui-monospace,monospace`;
@@ -599,8 +379,11 @@
     ctx.globalAlpha = 1;
     ctx.restore();
 
-    // pixelated lighting: fog (lamp reach) + warm lamp bloom + vignette, all chunky pixels
-    drawLighting(t, st);
+    // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the
+    // Deep Lantern reaches further), then composite the shared geometry-aware system over
+    // the frame. Ore-vein emitters were already pushed in the ore loop above.
+    lighting.addLight(dispC * T + 8, dispR * T - camY + 7, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * st.vision);
+    lighting.render({ g: ctx, LW, LH, T, camY, SURFACE: D.SURFACE, W, solidTile });
   }
 
   // ---------- input ----------
@@ -714,7 +497,7 @@
       `cam   y ${camY.toFixed(1)}  viewRows ${VIEW_ROWS}\n` +
       `canvas ${cv.width}×${cv.height} @${up}×  tile ${(cv.clientWidth / W).toFixed(1)}px  cols ${W}\n` +
       `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
-      `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lightCount}\n` +
+      `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
       `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
       `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}\n` +
       `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +

@@ -132,5 +132,5 @@
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen(cx - w, Y + T - 1 - i, 2 * w + 1, 1, rgbHex(i < 1 ? C.center : C.deep)); } } }
   }
 
-  root.CaveRender = { T, TEX, composeBand, hexRgb, rgbHex, mix, desat, mulberry, hashXY, vnoise, clamp01, rampAt, colorsFor, bgFor };
+  root.CaveRender = { T, TEX, STRATA, composeBand, hexRgb, rgbHex, mix, desat, mulberry, hashXY, vnoise, clamp01, rampAt, colorsFor, bgFor };
 })(self);
