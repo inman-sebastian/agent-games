@@ -61,6 +61,13 @@
   .row button { min-width:96px; }
   .sect { color:var(--dim); font-size:11px; letter-spacing:.14em; text-transform:uppercase; margin:12px 2px 6px; }
   .close { width:100%; margin-top:10px; }
+
+  /* debug overlay (F3 / ?debug) */
+  #dbg { position:fixed; left:10px; bottom:10px; z-index:8; display:none; white-space:pre;
+    font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; color:#9fead0;
+    text-shadow:0 1px 2px #000, 0 0 2px #000; pointer-events:none;
+    background:#060910cc; border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  #dbg.on { display:block; }
 </style>
 </head>
 <body>
@@ -81,6 +88,8 @@
       <div class="stat found">DEEPEST FIND <b id="found" style="color:var(--dim)">—</b></div>
     </div>
   </div>
+
+  <div id="dbg"></div>
 
   <div class="overlay" id="overlay">
     <div class="shop">
@@ -187,6 +196,9 @@
   // in fieldBuf and only rebuilt when the camera crosses a tile row or a tile changes.
   let fieldTop = NaN, fieldDirty = true;
   const TEX = 90210;
+  // debug overlay state (toggle with F3 / backtick, or start with ?debug in the URL)
+  let DEBUG = /(\?|&)debug\b/.test(location.search);
+  let fpsEMA = 0, frameMsEMA = 0, rebuildCount = 0, lastRebuildMs = 0;
   const motes = []; for (let i = 0; i < 10; i++) motes.push({ x: Math.random(), y: Math.random(), s: 0.3 + Math.random() });
 
   const hexRgb = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -390,6 +402,7 @@
 
   // rebuild the cached rock field for the band starting at world row `bandTop`
   function rebuildField(bandTop) {
+    const _t0 = performance.now();
     const PW = LW, PH = BAND * T, oy = bandTop * T;
     const R = rampAt(Math.max(1, bandTop + (BAND >> 1))), C = colorsFor(R), BG = bgFor(R);
     renderBackground(BG, PW, PH, bandTop);
@@ -410,6 +423,7 @@
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen1(cx - w, Y + T - 1 - i, 2 * w + 1, 1, rgbHex(i < 1 ? C.center : C.deep)); } } }
     // ore veins are NOT baked here — they're drawn per-frame in render(), only for tiles
     // the player can actually see (within lamp range or revealed by the Ore Scanner).
+    lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
 
   function render(t) {
@@ -537,6 +551,8 @@
   function frame(now) {
     if (!last) last = now; let dt = (now - last) / 1000; last = now; if (dt > 0.1) dt = 0.1;
     const t = now / 1000;
+    const workStart = performance.now();
+    if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * 0.1;       // smoothed frames/sec from real timestamps
     // step cadence gated by agility
     acc += dt * 1000;
     const interval = D.stats(s).interval;
@@ -557,7 +573,34 @@
 
     render(t);
     updateHUD();
+    frameMsEMA += (performance.now() - workStart - frameMsEMA) * 0.1;   // smoothed per-frame compute time
+    if (DEBUG) updateDebug();
     requestAnimationFrame(frame);
+  }
+
+  // ---------- debug overlay ----------
+  const dbg = document.getElementById('dbg');
+  dbg.classList.toggle('on', DEBUG);
+  addEventListener('keydown', e => {
+    if (e.code === 'F3' || e.code === 'Backquote') { DEBUG = !DEBUG; dbg.classList.toggle('on', DEBUG); e.preventDefault(); }
+  });
+  function updateDebug() {
+    const st = D.stats(s), up = (cv.clientWidth / cv.width).toFixed(2);
+    const ore = D.ORES[s.best];
+    dbg.textContent =
+      `DELVE · debug  (F3 to toggle)\n` +
+      `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
+      `pos   ${s.c},${s.r}  disp ${dispC.toFixed(1)},${dispR.toFixed(1)}  facing ${s.facing}\n` +
+      `depth ${s.depth}m  best ${ore ? ore.name : '—'}\n` +
+      `cam   y ${camY.toFixed(1)}  cachedRow ${fieldTop}  viewRows ${VIEW_ROWS}\n` +
+      `canvas ${cv.width}×${cv.height} @${up}×  tile ${(cv.clientWidth / W).toFixed(1)}px  cols ${W}\n` +
+      `field rebuilds ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
+      `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}\n` +
+      `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
+      `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}\n` +
+      `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
+      `up    pick ${s.up.pick} · speed ${s.up.speed} · refine ${s.up.refine} · fortune ${s.up.fortune}   tech ${s.tech.scanner ? 'scanner' : '—'}/${s.tech.lantern ? 'lantern' : '—'}\n` +
+      `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}`;
   }
 
   // ---------- HUD / shop ----------
