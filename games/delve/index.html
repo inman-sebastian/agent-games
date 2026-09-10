@@ -12,39 +12,37 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; height:100%; overflow:hidden; }
   body {
-    background:radial-gradient(1000px 700px at 50% -20%, #131a24, var(--bg));
+    background:var(--bg);
     color:var(--ink); font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-    display:flex; flex-direction:column; align-items:center;
     height:100%; -webkit-user-select:none; user-select:none; touch-action:none;
   }
-  header {
-    width:100%; max-width:560px; padding:10px 14px 6px; display:flex;
-    align-items:center; gap:12px; justify-content:space-between;
-  }
-  h1 { font-size:13px; letter-spacing:.5em; font-weight:700; margin:0; color:var(--dim); }
-  h1 b { color:var(--ink); }
-  .btns { display:flex; gap:8px; }
+  /* the game canvas fills the whole screen, edge to edge, behind the UI overlay */
+  #c { position:fixed; inset:0; width:100vw; height:100vh;
+    image-rendering:pixelated; image-rendering:crisp-edges; background:#0b0e13; display:block; z-index:0; }
+
+  /* UI is an overlay floating on top of the game; only the controls take pointer input */
+  .topbar { position:fixed; top:0; left:0; right:0; z-index:5; padding:10px 16px 26px;
+    display:flex; flex-direction:column; gap:6px; pointer-events:none;
+    background:linear-gradient(180deg, #060910d9 0%, #06091066 55%, #06091000 100%); }
+  header { display:flex; align-items:center; gap:12px; justify-content:space-between; }
+  h1 { font-size:13px; letter-spacing:.5em; font-weight:700; margin:0; color:var(--ink); text-shadow:0 1px 4px #000; }
+  h1 b { color:var(--gold); }
+  .btns { display:flex; gap:8px; pointer-events:auto; }
   button {
-    font:inherit; font-weight:600; color:var(--ink); background:var(--panel2);
+    font:inherit; font-weight:600; color:var(--ink); background:#1b2230cc; backdrop-filter:blur(4px);
     border:1px solid var(--line); border-radius:8px; padding:7px 11px; cursor:pointer;
     transition:.12s; }
-  button:hover { background:#26304200; border-color:#ffffff33; filter:brightness(1.15); }
+  button:hover { border-color:#ffffff33; filter:brightness(1.15); }
   button:active { transform:translateY(1px); }
   button:disabled { opacity:.4; cursor:default; filter:none; }
 
   .hud {
-    width:100%; max-width:560px; padding:0 14px 8px; display:flex; gap:16px;
-    align-items:center; font-variant-numeric:tabular-nums; flex-wrap:wrap;
+    display:flex; gap:16px; align-items:center; font-variant-numeric:tabular-nums; flex-wrap:wrap;
+    text-shadow:0 1px 4px #000, 0 0 2px #000;
   }
-  .stat { color:var(--dim); font-size:12px; }
-  .stat b { color:var(--ink); font-weight:700; font-size:15px; }
+  .stat { color:#b9c4d2; font-size:12px; }
+  .stat b { color:#fff; font-weight:700; font-size:15px; }
   .stat.coin b { color:var(--gold); }
-
-  .stage { flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; padding:0 8px 8px; }
-  canvas { image-rendering:pixelated; image-rendering:crisp-edges; border-radius:10px;
-    box-shadow:0 10px 40px #000a, 0 0 0 1px var(--line); background:#0d0d15; display:block; }
-
-  .hint { color:var(--dim); font-size:11.5px; padding:0 0 10px; text-align:center; letter-spacing:.02em; }
 
   /* shop overlay */
   .overlay { position:fixed; inset:0; background:#070a0fcc; backdrop-filter:blur(3px);
@@ -66,23 +64,23 @@
 </style>
 </head>
 <body>
-  <header>
-    <h1>DE<b>L</b>VE</h1>
-    <div class="btns">
-      <button id="shopBtn">⛏ Upgrades</button>
-      <button id="muteBtn" title="Mute">♪</button>
-      <button id="newBtn" title="New game">↺</button>
+  <canvas id="c"></canvas>
+
+  <div class="topbar">
+    <header>
+      <h1>DE<b>L</b>VE</h1>
+      <div class="btns">
+        <button id="shopBtn">⛏ Upgrades</button>
+        <button id="muteBtn" title="Mute">♪</button>
+        <button id="newBtn" title="New game">↺</button>
+      </div>
+    </header>
+    <div class="hud">
+      <div class="stat">DEPTH <b><span id="depth">0</span>m</b></div>
+      <div class="stat coin">◈ <b id="coins">0</b></div>
+      <div class="stat found">DEEPEST FIND <b id="found" style="color:var(--dim)">—</b></div>
     </div>
-  </header>
-
-  <div class="hud">
-    <div class="stat">DEPTH <b><span id="depth">0</span>m</b></div>
-    <div class="stat coin">◈ <b id="coins">0</b></div>
-    <div class="stat found">DEEPEST FIND <b id="found" style="color:var(--dim)">—</b></div>
   </div>
-
-  <div class="stage"><canvas id="c"></canvas></div>
-  <div class="hint" id="hint"></div>
 
   <div class="overlay" id="overlay">
     <div class="shop">
@@ -100,22 +98,24 @@
 (function () {
   'use strict';
   const D = window.Delve;
-  // 16px tiles drawn at logical resolution; CSS upscales with image-rendering:pixelated.
-  const T = 16, TILE = T, VIEW_ROWS = 15, W = D.WIDTH, u = 2;
-  const LW = W * T, LH = VIEW_ROWS * T;                 // logical buffer (screen canvas backing store)
-  const BAND = VIEW_ROWS + 4;                           // rows in the cached rock field (2-tile margin top/bottom)
+  // 16px tiles drawn at logical resolution; the canvas is stretched to fill the screen
+  // with image-rendering:pixelated. The field spans the full width (W columns); the
+  // vertical extent (VIEW_ROWS/LH) is recomputed in fit() to match the screen aspect,
+  // so tiles stay square and the canvas fills edge to edge with no letterboxing.
+  const T = 16, TILE = T, W = D.WIDTH, u = 2;
+  const LW = W * T;                                     // logical width = full field width (fixed)
+  let VIEW_ROWS = 15, LH = VIEW_ROWS * T, BAND = VIEW_ROWS + 4;
 
   const cv = document.getElementById('c');
   const ctx = cv.getContext('2d');
-  cv.width = LW; cv.height = LH;
-  ctx.imageSmoothingEnabled = false;
 
-  // offscreen buffers: fieldBuf caches background + rock + ore veins; fbuf is the
-  // foreground rock's alpha layer produced by shadeRock. pen1 draws into the cache.
+  // offscreen buffers: fieldBuf caches background + rock; fbuf is the fg alpha layer.
+  // pen1 draws into penCtx — the cache while baking rock, the screen for per-frame veins.
   const fieldBuf = document.createElement('canvas'); fieldBuf.width = LW; fieldBuf.height = BAND * T;
   const lb = fieldBuf.getContext('2d'); lb.imageSmoothingEnabled = false;
   const fbuf = document.createElement('canvas'); const fx = fbuf.getContext('2d');
-  const pen1 = (ax, ay, w, h, color) => { lb.fillStyle = color; lb.fillRect(ax, ay, (w || 1), (h || 1)); };
+  let penCtx = lb;
+  const pen1 = (ax, ay, w, h, color) => { penCtx.fillStyle = color; penCtx.fillRect(ax, ay, (w || 1), (h || 1)); };
 
   // ---------- state / persistence ----------
   const SAVE = 'delve.save.v1';
@@ -408,10 +408,8 @@
         pen1(cx, Y, 1, 1, rgbHex(C.rimA)); }
       if (solidTile(tx, ty + 1) && hashXY(tx, ty, 24) % 4 === 0) { const cx = tx * T + (T >> 1) + (hashXY(tx, ty, 25) % 5 - 2), len = 2 + hashXY(tx, ty, 26) % 3;
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen1(cx - w, Y + T - 1 - i, 2 * w + 1, 1, rgbHex(i < 1 ? C.center : C.deep)); } } }
-    // ore veins (baked; the glow is drawn per-frame)
-    for (let ty = Math.max(D.SURFACE + 1, bandTop); ty < bandTop + BAND; ty++) for (let tx = 0; tx < W; tx++) {
-      if (!solidTile(tx, ty)) continue; const info = D.tileInfo(s.seed, tx, ty); if (!info.ore) continue;
-      const dmg = s.dmg[D.key(tx, ty)] || 0; drawOreVein(info.ore, tx * T, (ty - bandTop) * T, tx, ty, info.maxHp ? dmg / info.maxHp : 0); }
+    // ore veins are NOT baked here — they're drawn per-frame in render(), only for tiles
+    // the player can actually see (within lamp range or revealed by the Ore Scanner).
   }
 
   function render(t) {
@@ -435,11 +433,16 @@
     for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
         const light = Math.round(lightAt(c, r) * 7) / 7;
         if (light < 1) { ctx.fillStyle = `rgba(6,7,14,${(1 - light) * 0.8})`; ctx.fillRect(c * T, r * T, T, T); } } }
-    // ore glow (additive, over the fog) — scanner reveals ore through unlit rock
+    // ore veins + glow, drawn per-frame ONLY where visible: within lamp range, or
+    // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
+    penCtx = ctx;
     for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
         if (!solidTile(c, r)) continue; const info = D.tileInfo(s.seed, c, r); if (!info.ore) continue;
         const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0); if (vis <= 0.06) continue;
-        const dmg = s.dmg[D.key(c, r)] || 0; oreGlow(ctx, info.ore, c * T, r * T, info.maxHp ? dmg / info.maxHp : 0, vis); } }
+        const frac = info.maxHp ? (s.dmg[D.key(c, r)] || 0) / info.maxHp : 0;
+        ctx.globalAlpha = Math.min(1, vis); drawOreVein(info.ore, c * T, r * T, c, r, frac); ctx.globalAlpha = 1;
+        oreGlow(ctx, info.ore, c * T, r * T, frac, vis); } }
+    penCtx = lb;
     // idle dust motes drifting near the lamp
     ctx.fillStyle = '#fff';
     for (const m of motes) { const mx = (dispC + (m.x - 0.5) * st.vision * 1.4) * T + T / 2;
@@ -514,7 +517,7 @@
     const cx = ev.c != null ? ev.c * TILE + TILE / 2 : 0, cy = ev.c != null ? ev.r * TILE + TILE / 2 : 0;
     if (ev.type === 'move') { moving = true; }
     else if (ev.type === 'dig') {
-      fieldDirty = true;                              // vein cracks / newly-open tile → rebuild the cached rock field
+      if (ev.broke) fieldDirty = true;               // tile became open → rebuild the cached rock field (veins draw per-frame)
       if (!ev.broke) { sfx.chip(); chips(cx, cy, 2, '#8a7a66', 25); shake = Math.min(3, shake + 0.5); }
       else {
         const rar = ev.ore ? D.rarityOf(ev.ore) : 0;
@@ -622,20 +625,21 @@
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   // ---------- responsive sizing ----------
+  // The canvas backing store is W columns wide; its height is chosen so the logical
+  // aspect matches the window's — then CSS stretches it edge to edge with square,
+  // pixelated tiles and no letterboxing. Vertical extent scales with the window.
   function fit() {
-    const stage = document.querySelector('.stage');
-    const availW = stage.clientWidth, availH = stage.clientHeight;
-    const scale = Math.max(1, Math.min(availW / LW, availH / LH));
-    cv.style.width = Math.floor(LW * scale) + 'px';
-    cv.style.height = Math.floor(LH * scale) + 'px';
+    const cssW = innerWidth, cssH = innerHeight;
+    VIEW_ROWS = Math.max(9, Math.min(48, Math.round(W * cssH / cssW)));   // rows to match the screen aspect
+    LH = VIEW_ROWS * T; BAND = VIEW_ROWS + 4;
+    cv.width = LW; cv.height = LH; ctx.imageSmoothingEnabled = false;      // (resetting width clears ctx state)
+    cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    fieldBuf.height = BAND * T; lb.imageSmoothingEnabled = false;
+    fieldTop = NaN; fieldDirty = true;                                    // buffers changed → force a rebuild
   }
   addEventListener('resize', fit);
 
   // ---------- boot ----------
-  const coarse = matchMedia('(pointer: coarse)').matches;
-  el('hint').textContent = coarse
-    ? 'Drag toward rock to dig · ore sells instantly as you break it · ⛏ to spend coins'
-    : 'Move & dig: WASD / arrows or hold the mouse · ore sells the instant you break it · ⛏ to spend coins';
   buildShop(); fit(); updateHUD();
   requestAnimationFrame(frame);
 })();

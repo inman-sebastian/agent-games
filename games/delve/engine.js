@@ -11,7 +11,8 @@
 (function (root) {
   'use strict';
 
-  const WIDTH = 9;          // columns; column 0..WIDTH-1
+  const WIDTH = 21;         // columns; a wide field (0..WIDTH-1) that fills the viewport.
+                            // Bounded horizontally, infinite downward.
   const SURFACE = 0;        // row 0 is the open surface yard
 
   // Ore table. band=[minDepth,maxDepth] rows where it can appear; weight is its

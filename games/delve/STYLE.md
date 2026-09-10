@@ -11,11 +11,17 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 > sandbox where the look is iterated before changes land in the game; keep the
 > three (lab, game, this file) in sync as the direction evolves.
 >
-> In the game the rock field is expensive, so background + rock + baked ore veins
-> are cached in an offscreen buffer and only rebuilt when the camera crosses a
-> tile row or a tile is dug; the lamp, ore glow, fog-of-war, miner, particles and
-> vignette are drawn per-frame on top. All world-space noise is anchored to world
-> coordinates so eroded edges and texture stay put as the view scrolls.
+> In the game the rock field is expensive, so background + rock are cached in an
+> offscreen buffer and only rebuilt when the camera crosses a tile row or a tile
+> breaks; the lamp, ore veins+glow, fog-of-war, miner, particles and vignette are
+> drawn per-frame on top. All world-space noise is anchored to world coordinates
+> so eroded edges and texture stay put as the view scrolls.
+>
+> The world is a **wide, bounded shaft** (WIDTH columns), infinite downward. The
+> canvas **fills the whole viewport edge-to-edge**: its logical width is the full
+> field width and its logical height is chosen to match the window aspect, so
+> tiles stay square with no letterboxing. The HUD (title, depth, coins, deepest
+> find, buttons) floats as an **overlay** on top of the game, not in a chrome bar.
 
 ## Grounding
 Derived from studying real references the user vetted: **Dome Keeper**,
@@ -112,6 +118,11 @@ lumpy `nugget`; the four gems keep their distinct crystal shapes.
 - Undamaged rock shows **embedded flecks** of the ore colour — a tight, centred
   cluster. Everything (flecks, cracks, socket, crystal) is clamped to within ~5px
   of the tile centre so it never overflows the tile.
+- **Veins only render where the player can see them** — within lamp range, or
+  anywhere once the **Ore Scanner** is owned. Unlit, unscanned rock hides its ore
+  (no glinting flecks in the dark), so the scanner has real value. In the game
+  they're drawn as a per-frame pass over the cached rock, faded by visibility;
+  they are deliberately *not* baked into the rock cache.
 - As the tile takes damage: cracks appear early; past ~⅓ damage a **socket** chips
   open and the **crystal grows** (its per-type shape). Fully mined → tile becomes
   open (reveals background). A soft additive glow scales with the reveal.
