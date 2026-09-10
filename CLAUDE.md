@@ -167,7 +167,13 @@ player see, hear, and feel here?"
   explicit, reusable rules in the game's folder: exact color palette (with
   values), typography, shape language, line weights, spacing/scale, lighting and
   shadow treatment, animation character, and any motifs. A vibe in your head
-  drifts asset to asset; a written spec keeps everything coherent.
+  drifts asset to asset; a written spec keeps everything coherent. Keep these
+  docs under `games/<game>/docs/`, one topic per file (e.g. `DESIGN.md` for what
+  the game is and its mechanics, `PALETTE.md` / `RENDERING.md` / `LIGHTING.md` for
+  the look, `ARCHITECTURE.md` for the code), and index them from the game's
+  `README.md`. **One fact, one home:** the design doc owns what the game is, the
+  art docs own the look — don't restate either in `README.md` or a game `CLAUDE.md`,
+  link to them, so information can't drift across files.
 - **Every asset and every piece of art follows the guide.** Treat it as the
   single source of truth — new art references it, and anything that violates it
   is a bug to fix, not a variation to keep. Consistency is most of what makes a

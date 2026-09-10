@@ -12,7 +12,8 @@ Anything specific to one game belongs in that game's package, not the root.
 
 ## Games
 
-- [`games/drift/`](games/drift/) — DRIFT, a minimalist ice-sliding puzzle game.
+- [DELVE](games/delve/)
+- [DRIFT](games/drift/)
 
 ## Working in the monorepo
 
