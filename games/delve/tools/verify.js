@@ -39,6 +39,19 @@ for (const o of ores) {
   chk(typeof o.desc === 'string' && o.desc.length > 0, `ore ${o.name}: codex blurb`);
 }
 
+// --- #8 regression: horizontal movement is unbounded (no leftover WIDTH wall) ---
+// The world is infinite in every direction (#1); movement is continuous physics (#2), not
+// the old grid step that clamped to 0..WIDTH. Walk the open surface far both ways to prove
+// there's no invisible barrier at the old field edges.
+(function () {
+  const s = D.newGame(999);
+  let maxx = s.x, minx = s.x;
+  for (let i = 0; i < 3000; i++) { D.physicsStep(s, { right: true }, 1 / 60); if (s.x > maxx) maxx = s.x; }
+  for (let i = 0; i < 6000; i++) { D.physicsStep(s, { left: true }, 1 / 60); if (s.x < minx) minx = s.x; }
+  chk(maxx > D.WIDTH + 20, `player moves right past the old WIDTH bound (reached x=${maxx.toFixed(0)})`);
+  chk(minx < -20, `player moves left into negative columns (reached x=${minx.toFixed(0)})`);
+})();
+
 // --- world gen: every ore tier must be discoverable within its band ---
 for (const o of D.ORES) {
   const r0 = o.band[0], r1 = Math.min(o.band[1], r0 + 80);
