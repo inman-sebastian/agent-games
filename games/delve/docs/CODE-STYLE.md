@@ -38,6 +38,21 @@ for (let index = 0; index < count; index++) {
 }
 ```
 
+## No magic values
+
+No bare, unexplained numbers or strings in logic — **ever**. Any value that carries meaning
+(a tuning knob, threshold, dimension, seed/salt, key, limit, colour) is a named constant with
+a comment saying **what it is and why it's that value**.
+
+- Hoist tuning constants to the top of the module (or a shared config) with `SCREAMING_SNAKE`
+  names, one rationale line each. Tuning the game should mean editing a named, documented value.
+- The only literals allowed inline are the trivially self-evident: `0`, `1`, `-1`, small loop
+  bounds, and array indices, where the meaning is obvious from the immediate context.
+- A formula that uses a *family* of coefficients (procedural-art harmonics, a PRNG's mixing
+  primes) is documented as a set where it's defined, rather than atomised into a dozen names
+  when that would hurt readability — but the block still says what it is and why.
+- Prefer an `as const` lookup/table over scattered literal branches.
+
 ## DRY — don't repeat yourself
 
 - A rule, constant, formula, or shape lives in **exactly one place** and is imported/derived

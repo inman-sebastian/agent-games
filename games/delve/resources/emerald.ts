@@ -1,0 +1,16 @@
+// Emerald — ore resource (self-registers into the registry).
+import { register } from '../scripts/resources';
+import type { OreResource } from '../scripts/types';
+
+register({
+  type: 'ore',
+  id: 6,
+  name: 'Emerald',
+  band: [132, 240],
+  weight: 7,
+  value: 260,
+  hp: 6,
+  color: '#41cf76',
+  desc: "The first true gem — deep green, deeply prized.",
+  art: { shape: 'prism', c: ["#165a4c", "#1ebc73", "#91db69"] },
+} satisfies OreResource);
