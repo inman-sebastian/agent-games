@@ -195,9 +195,13 @@
     for(let dy=-r;dy<=0;dy++){ const w=r-Math.abs(dy); pen1(cx-w,cy+dy,w+1,1,c[2]); }
     for(let dy=0;dy<=r;dy++){ const w=r-Math.abs(dy); pen1(cx,cy+dy,w+1,1,c[0]); }
     pen1(cx-1,cy-r+1,1,1,'#ffffff'); }
-  function nugget(cx,cy,r,c){ if(r<1)r=1; const R=r+0.5;   // R matches the crystals' ±(r+1) footprint
-    for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ const dd=dx*dx+dy*dy; if(dd<=(R+0.7)*(R+0.7) && dd>(R-0.3)*(R-0.3)) pen1(cx+dx,cy+dy,1,1,OUT); }
-    for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ const dd=dx*dx+dy*dy; if(dd<=R*R) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
+  function nugget(cx,cy,r,c){ if(r<1)r=1; const R=r;   // lumpy blob: radius wobbles per-angle, bulges up to ~r+1
+    // seed the lump pattern from the ore colour so the three metals are each misshapen differently
+    let s=0; for(const ch of c[1]) s=(s*31+ch.charCodeAt(0))>>>0; const rnd=mulberry(s||1);
+    const a1=rnd()*6.283, a2=rnd()*6.283, a3=rnd()*6.283;
+    const rad=(dx,dy)=>{ const a=Math.atan2(dy,dx); return R*(1 + 0.14*Math.sin(2*a+a1) + 0.09*Math.sin(3*a+a2) + 0.05*Math.sin(5*a+a3)); };
+    for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)+1.0) pen1(cx+dx,cy+dy,1,1,OUT); }        // outline disk
+    for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
     // metallic sheen: a bright upper-left highlight streak + hot specular
     const hx=cx-Math.round(r*0.35), hy=cy-Math.round(r*0.45);
     pen1(hx,hy,1,1,c[2]); pen1(hx+1,hy,1,1,c[2]); pen1(hx,hy+1,1,1,c[2]);
