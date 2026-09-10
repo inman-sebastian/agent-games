@@ -46,17 +46,59 @@ Derived from studying real references the user vetted: **Dome Keeper**,
 - **Rim** is desaturated and varied between the warm rock tone and a grayer rock
   tone — reads as stone, not molten orange. No moss/flora here (see below).
 
-## Palette (Resurrect 64 based)
-Each depth stratum is a 6-step ramp, `shadow[0] → rim[5]`, with a distinct
-identity so depth reads by colour:
-- **Topsoil** (red-brown): `#2e222f #45293f #7a3045 #9e4539 #cd683d #e6904e`
-- **Clay** (warm ochre/tan): `#2a2018 #48371f #6d5230 #8f6b3c #b28a4e #d0aa66`
-- **Stone** (cool gray): `#25222c #3e3546 #625565 #7f708a #9babb2 #c7dcd0`
-- **Deep Stone** (blue): `#20202e #323353 #484a77 #4d65b4 #4d9be6 #8fd3ff`
-- **Basalt** (violet): `#211a2b #45293f #6b3e75 #905ea9 #a884f3 #eaaded`
+## Base palette — Resurrect 64
+Every colour in DELVE is drawn from **Resurrect 64** by Kerrie Lake — a curated
+64-colour Lospec palette (<https://lospec.com/palette-list/resurrect-64>). Staying
+within it is what keeps the whole game cohesive; new art must pick from this list
+(or a `mix()`/`desat()` of these) rather than introducing fresh colours.
 
-Background wall is derived per-stratum: `desat(mix(ramp[1], '#4a4864', .64), .52)`
-(a lighter, cooler, desaturated version — always lighter than the rock body).
+The full 64, grouped by hue family (in palette order):
+
+Neutrals / grays:
+**<span style="color: #2e222f;">■</span>** `#2e222f` **<span style="color: #3e3546;">■</span>** `#3e3546` **<span style="color: #625565;">■</span>** `#625565` **<span style="color: #966c6c;">■</span>** `#966c6c` **<span style="color: #ab947a;">■</span>** `#ab947a` **<span style="color: #694f62;">■</span>** `#694f62` **<span style="color: #7f708a;">■</span>** `#7f708a` **<span style="color: #9babb2;">■</span>** `#9babb2` **<span style="color: #c7dcd0;">■</span>** `#c7dcd0` **<span style="color: #ffffff;">■</span>** `#ffffff`
+
+Reds:
+**<span style="color: #6e2727;">■</span>** `#6e2727` **<span style="color: #b33831;">■</span>** `#b33831` **<span style="color: #ea4f36;">■</span>** `#ea4f36` **<span style="color: #f57d4a;">■</span>** `#f57d4a` **<span style="color: #ae2334;">■</span>** `#ae2334` **<span style="color: #e83b3b;">■</span>** `#e83b3b`
+
+Oranges / browns:
+**<span style="color: #fb6b1d;">■</span>** `#fb6b1d` **<span style="color: #f79617;">■</span>** `#f79617` **<span style="color: #f9c22b;">■</span>** `#f9c22b` **<span style="color: #7a3045;">■</span>** `#7a3045` **<span style="color: #9e4539;">■</span>** `#9e4539` **<span style="color: #cd683d;">■</span>** `#cd683d` **<span style="color: #e6904e;">■</span>** `#e6904e` **<span style="color: #fbb954;">■</span>** `#fbb954`
+
+Yellows / olives:
+**<span style="color: #4c3e24;">■</span>** `#4c3e24` **<span style="color: #676633;">■</span>** `#676633` **<span style="color: #a2a947;">■</span>** `#a2a947` **<span style="color: #d5e04b;">■</span>** `#d5e04b` **<span style="color: #fbff86;">■</span>** `#fbff86`
+
+Greens:
+**<span style="color: #165a4c;">■</span>** `#165a4c` **<span style="color: #239063;">■</span>** `#239063` **<span style="color: #1ebc73;">■</span>** `#1ebc73` **<span style="color: #91db69;">■</span>** `#91db69` **<span style="color: #cddf6c;">■</span>** `#cddf6c`
+
+Gray-greens:
+**<span style="color: #313638;">■</span>** `#313638` **<span style="color: #374e4a;">■</span>** `#374e4a` **<span style="color: #547e64;">■</span>** `#547e64` **<span style="color: #92a984;">■</span>** `#92a984` **<span style="color: #b2ba90;">■</span>** `#b2ba90`
+
+Teals:
+**<span style="color: #0b5e65;">■</span>** `#0b5e65` **<span style="color: #0b8a8f;">■</span>** `#0b8a8f` **<span style="color: #0eaf9b;">■</span>** `#0eaf9b` **<span style="color: #30e1b9;">■</span>** `#30e1b9` **<span style="color: #8ff8e2;">■</span>** `#8ff8e2`
+
+Blues:
+**<span style="color: #323353;">■</span>** `#323353` **<span style="color: #484a77;">■</span>** `#484a77` **<span style="color: #4d65b4;">■</span>** `#4d65b4` **<span style="color: #4d9be6;">■</span>** `#4d9be6` **<span style="color: #8fd3ff;">■</span>** `#8fd3ff`
+
+Purples:
+**<span style="color: #45293f;">■</span>** `#45293f` **<span style="color: #6b3e75;">■</span>** `#6b3e75` **<span style="color: #905ea9;">■</span>** `#905ea9` **<span style="color: #a884f3;">■</span>** `#a884f3` **<span style="color: #eaaded;">■</span>** `#eaaded`
+
+Mauves / pinks:
+**<span style="color: #753c54;">■</span>** `#753c54` **<span style="color: #a24b6f;">■</span>** `#a24b6f` **<span style="color: #cf657f;">■</span>** `#cf657f` **<span style="color: #ed8099;">■</span>** `#ed8099` **<span style="color: #831c5d;">■</span>** `#831c5d` **<span style="color: #c32454;">■</span>** `#c32454` **<span style="color: #f04f78;">■</span>** `#f04f78` **<span style="color: #f68181;">■</span>** `#f68181` **<span style="color: #fca790;">■</span>** `#fca790` **<span style="color: #fdcbb0;">■</span>** `#fdcbb0`
+
+## Palette (Resurrect 64 based)
+Each depth stratum is a 6-step ramp, `shadow[0] → rim[5]`, drawn from the base
+palette above, with a distinct identity so depth reads by colour:
+- **Topsoil** (red-brown): `#2e222f #45293f #7a3045 #9e4539 #cd683d #e6904e` — all R64
+- **Clay** (warm ochre/tan): `#2a2018 #48371f #6d5230 #8f6b3c #b28a4e #d0aa66` — hand-tuned ochre; R64 has no clean warm-tan mid-ramp, so this stratum is an R64-*spirit* derivation
+- **Stone** (cool gray): `#2e222f #3e3546 #625565 #7f708a #9babb2 #c7dcd0` — all R64
+- **Deep Stone** (blue): `#2e222f #323353 #484a77 #4d65b4 #4d9be6 #8fd3ff` — all R64
+- **Basalt** (violet): `#2e222f #45293f #6b3e75 #905ea9 #a884f3 #eaaded` — all R64
+
+Ramps use `#2e222f` (R64's darkest) as the shadow step. Shading then blends these
+toward black and toward the background tone via `mix()`/`desat()`, so on-screen
+pixels include intermediate values — R64 is the *source* palette, not a hard
+64-colour quantisation. Background wall is derived per-stratum:
+`desat(mix(ramp[1], '#4a4864', .64), .52)` — a lighter, cooler, desaturated version,
+always lighter than the rock body.
 
 Ore is the only saturated element, so it pops against the muted rock. Each ore has
 a `[dark, mid, highlight]` triad and a **crystal shape**:
