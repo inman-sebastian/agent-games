@@ -69,7 +69,7 @@
       <h2>Mining a vein — every ore × the 4 steps + the extracted ore</h2>
       <canvas id="mine"></canvas>
       <div class="note">Step 1 = a faint speck hint; the crystal emerges past ~⅓ damage. Distinct per-type shapes: metals = nuggets, emerald = prism, ruby = cluster, diamond = gem, mythril = shards.</div>
-      <h2 style="margin-top:16px">Depth strata &amp; ore crystals</h2>
+      <h2 style="margin-top:16px">Depth strata</h2>
       <canvas id="atlas"></canvas>
     </div>
   </div>
@@ -208,14 +208,18 @@
     for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,2*a+1,1,c[1]); }
     for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,a,1,c[2]); pen1(cx+1,cy+dy,a,1,c[0]); }
     pen1(cx-1,cy-h+1,1,1,'#ffffff'); }
-  function shard(cx,cy,r,c){ const base=cy+Math.round(r*0.45);   // centre the cluster
-    const spike=(x,y,len,dir)=>{ for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.3));
-      pen1(x-w-1,y+dir*i,1,1,OUT); pen1(x+w+1,y+dir*i,1,1,OUT);
-      pen1(x-w,y+dir*i,2*w+1,1,c[1]); pen1(x-w,y+dir*i,w,1,c[2]); }
-      pen1(x,y+dir*len,1,1,OUT); pen1(x-1,y+dir*(len-2),1,1,'#ffffff'); };
-    spike(cx, base, r+2, -1);            // tall centre shard
-    spike(cx-r+1, base+1, r, -1);        // left
-    spike(cx+r-1, base, r-1, -1); }      // right
+  // A thin, double-pointed crystal shard (diamond) centred at (x,y).
+  function shardTall(x,y,h,w,c){
+    for(let dy=-h;dy<=h;dy++){ const t=1-Math.abs(dy)/(h+0.6), ww=Math.max(0,Math.round(w*t));
+      pen1(x-ww-1,y+dy,1,1,OUT); pen1(x+ww+1,y+dy,1,1,OUT);
+      pen1(x-ww,y+dy,2*ww+1,1,c[1]); pen1(x-ww,y+dy,ww,1,c[2]); }
+    pen1(x,y-h-1,1,1,OUT); pen1(x,y+h+1,1,1,OUT); pen1(x-1,y-h+1,1,1,'#ffffff');
+  }
+  function shard(cx,cy,r,c){                        // mythril: a centred cluster of shards, self-contained
+    shardTall(cx, cy, r-1, Math.max(1,r-3), c);     // tall centre
+    shardTall(cx-r+1, cy+1, Math.max(1,r-2), 1, c); // left
+    shardTall(cx+r-1, cy+1, Math.max(1,r-2), 1, c); // right
+  }
   function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r+1,cy+2,Math.max(1,r-2),c); gem(cx+r-1,cy+1,Math.max(1,r-2),c); }
   const SHAPES={gem,nugget,prism,shard,cluster};
 
@@ -243,10 +247,16 @@
       for(let dy=-MAXR;dy<=MAXR;dy++)for(let dx=-MAXR;dx<=MAXR;dx++){ if(!inside(dx,dy))continue;
         const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.1; if(d<hole) px(mx+dx,my+dy,1,1,c[0]); }
       SHAPES[ore.shape](X+mx, Y+my, Math.max(1,Math.round(reveal*2.8)), c); }
-    if(o.ore!==false){ ctx.save(); ctx.globalCompositeOperation='lighter';
-      const gx=X+mx, gy=Y+my, rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
-      rg.addColorStop(0,mix(c[2],'#ffffff',0.25)); rg.addColorStop(1,'transparent');
-      ctx.globalAlpha=0.28+0.5*reveal; ctx.fillStyle=rg; ctx.fillRect(X-T,Y-T,T*3,T*3); ctx.restore(); }
+  }
+  // Glow is a SEPARATE additive layer (never baked into the ore sprite), so the ore
+  // itself works as a standalone icon. Draw it after the veins.
+  function oreGlow(ctx, oreI, X, Y, damage, offX, offY){
+    const c=ORES[oreI].c, mx=(T>>1)+(offX||0), my=(T>>1)+(offY||0);
+    const reveal=Math.max(0,(damage-0.35)/0.65), gx=X+mx, gy=Y+my;
+    ctx.save(); ctx.globalCompositeOperation='lighter';
+    const rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
+    rg.addColorStop(0,mix(c[2],'#ffffff',0.25)); rg.addColorStop(1,'transparent');
+    ctx.globalAlpha=0.28+0.5*reveal; ctx.fillStyle=rg; ctx.fillRect(X-T,Y-T,T*3,T*3); ctx.restore();
   }
 
   // ---------- miner ----------
@@ -318,10 +328,12 @@
       if(grid[y+1] && grid[y+1][x] && hashXY(x,y,24)%4===0){ const cx=x*T+(T>>1)+(hashXY(x,y,25)%5-2), len=2+hashXY(x,y,26)%3;
         for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.2)); pen1(cx-w,(y+1)*T-1-i,2*w+1,1, rgbHex(i<1?C.center:C.deep)); } } }
     const sol=(xx,yy)=> xx<0||xx>=COLS||yy<0||yy>=ROWS ? true : grid[yy][xx];
-    if(o.ore) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]&&oreGrid[y][x]>=0){
-      const OFF=3.5;   // push the vein away from exposed edges, into the solid part of the tile
-      const offX=((!sol(x-1,y))?1:0)-((!sol(x+1,y))?1:0), offY=((!sol(x,y-1))?1:0)-((!sol(x,y+1))?1:0);
-      drawOre(lb, oreGrid[y][x], x*T, y*T, x, y, dmgGrid[y][x], o, offX*OFF, offY*OFF); }
+    const OFF=3.5, oreCells=[];   // push the vein away from exposed edges, into the solid part of the tile
+    if(o.ore){ for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]&&oreGrid[y][x]>=0){
+        const offX=((!sol(x-1,y))?1:0)-((!sol(x+1,y))?1:0), offY=((!sol(x,y-1))?1:0)-((!sol(x,y+1))?1:0);
+        oreCells.push([x,y,offX*OFF,offY*OFF]); }
+      for(const [x,y,ox,oy] of oreCells) drawOre(lb, oreGrid[y][x], x*T, y*T, x, y, dmgGrid[y][x], o, ox, oy);
+      for(const [x,y,ox,oy] of oreCells) oreGlow(lb, oreGrid[y][x], x*T, y*T, dmgGrid[y][x], ox, oy); }   // glow layer on top
     drawMiner(miner.px*T, miner.py*T, 'right');
     if(o.lamp){ lb.save(); lb.globalCompositeOperation='lighter';
       const gx=miner.px*T+8, gy=miner.py*T+7, rg=lb.createRadialGradient(gx,gy,0,gx,gy,T*3.4);
@@ -351,29 +363,23 @@
       steps.forEach((d,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
         renderBackground(BG,T,T,o); shadeRock(solid,T,T,C,o,true); lb.drawImage(fbuf,0,0);
         drawOre(lb, r, 0,0, r+5, 6, d, o);          // fixed seed per ore → the 4 steps evolve the same vein
+        oreGlow(lb, r, 0,0, d);                      // glow as its own additive pass
         blit(labelW+i*(cell+gx), y); });
-      // the extracted ore: pure crystal on a neutral dark swatch, so its colour pops
+      // the extracted ore ICON: pure crystal only (NO glow), centred with margin, on a neutral swatch
       lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
       lb.fillStyle='#0e0e16'; lb.fillRect(0,0,T,T);
-      SHAPES[ore.shape](8,9,5,ore.c);
-      lb.save(); lb.globalCompositeOperation='lighter';
-      const rg=lb.createRadialGradient(8,8,0,8,8,11); rg.addColorStop(0,mix(ore.c[2],'#ffffff',0.3)); rg.addColorStop(1,'transparent');
-      lb.globalAlpha=0.55; lb.fillStyle=rg; lb.fillRect(-8,-8,32,32); lb.restore();
+      SHAPES[ore.shape](8,8,4,ore.c);
       blit(labelW+steps.length*(cell+gx)+colGap, y);
     }); }
 
   // ---------- atlas ----------
   const atlas=document.getElementById('atlas'), actx=atlas.getContext('2d');
   function renderAtlas(){ const S=5,gap=6, o=opts(); const mats=Object.values(MATERIALS);
-    atlas.width=Math.max(mats.length,ORES.length)*(T*S+gap)-gap; atlas.height=2*(T*S)+gap+8; actx.imageSmoothingEnabled=false; actx.clearRect(0,0,atlas.width,atlas.height);
+    atlas.width=mats.length*(T*S+gap)-gap; atlas.height=T*S; actx.imageSmoothingEnabled=false; actx.clearRect(0,0,atlas.width,atlas.height);
     const topMask=()=>{ const m=new Uint8Array(T*T); for(let py=0;py<T;py++)for(let px=0;px<T;px++){ const d=py-4+0.5; const thr=o.stones?0.4+1.4*vnoise(px*0.3+9,py*0.3,TEX+2):0; m[py*T+px]= (py>=4 && d>thr) ?1:0; } return m; };
     mats.forEach((mm,i)=>{ const C=colorsFor(mm), BG=bgFor(mm.ramp); lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
       renderBackground(BG,T,T,o); shadeRock(topMask(),T,T,C,o,false); lb.drawImage(fbuf,0,0);
-      actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); });
-    const C=colorsFor(M()), BG=bgFor(M().ramp), solid=new Uint8Array(T*T).fill(1), oy=T*S+gap;
-    ORES.forEach((ore,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
-      renderBackground(BG,T,T,o); shadeRock(solid,T,T,C,o,true); lb.drawImage(fbuf,0,0); drawOre(lb,i,0,0, i+5,6, 0.85, o);
-      actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),oy, T*S,T*S); }); }
+      actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); }); }
 
   function renderAll(){ renderScene(); renderMine(); renderAtlas(); }
   for(const el of document.querySelectorAll('input,select')) el.addEventListener('input', ()=>{
