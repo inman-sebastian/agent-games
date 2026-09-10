@@ -43,6 +43,7 @@
     const scrimCv = document.createElement('canvas'), scrimX = scrimCv.getContext('2d');
     const vigCv = document.createElement('canvas'), vigX = vigCv.getContext('2d');
     let addImg = null, scrimImg = null, accW = 0, accH = 0, vigW = 0, vigH = 0;
+    let gxCol = null, txCol = null, tx1Col = null;   // per-x bilinear setup, precomputed once per frame
     let tR = null, tG = null, tB = null, gw = 0, gh = 0;  // lamp field (max-propagated)
     let ogR = null, ogG = null, ogB = null;              // ore-glow field (own colour, occlusion-aware)
 
@@ -67,7 +68,8 @@
       ensureVignette(LW, LH);
       if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
         addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
-        scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
+        scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH);
+        gxCol = new Int32Array(LW); txCol = new Float32Array(LW); tx1Col = new Float32Array(LW); }
 
       // ---- world-space per-tile light fields (windowed around the view) ----
       const tileTop = Math.floor(camY / T) - LMARGIN, tileLeft = Math.floor(camX / T) - LMARGIN;
@@ -77,11 +79,12 @@
         ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh); }
       tR.fill(0); tG.fill(0); tB.fill(0); ogR.fill(0); ogG.fill(0); ogB.fill(0);
       // seed: lamp (r=0) → lamp field; ore veins (r>0) → ore-glow field, at their own tile
+      let oreSeeded = false;   // skip the ore-glow field entirely when nothing seeds it (common)
       for (const L of LIGHTS) {
         const tc = Math.floor(L.x / T) - tileLeft, tr = Math.floor(L.y / T) - tileTop;
         if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
         const idx = tr * gw + tc;
-        if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; }
+        if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; oreSeeded = true; }
         else { tR[idx] += L.cr * L.i; tG[idx] += L.cg * L.i; tB[idx] += L.cb * L.i; }
       }
       // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
@@ -102,31 +105,41 @@
         if (x > 0) relax(i, i - 1, a); if (y < gh - 1) relax(i, i + gw, a); if (x > 0 && y < gh - 1) relax(i, i + gw - 1, ad2); }
 
       // ---- composite: bilinear-sample the tile field per pixel → additive glow + dithered scrim ----
+      // The x-dependent bilinear setup (column index + weights) is the same for every row,
+      // so precompute it once per frame; and skip the ore-glow field wholesale when unlit.
       const ad = addImg.data, sd = scrimImg.data, skyY = (SURFACE + 1) * T;
+      for (let x = 0; x < LW; x++) {
+        const fx = (x + camX) / T - tileLeft - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
+        const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx);
+        gxCol[x] = gx; txCol[x] = tx; tx1Col[x] = 1 - tx;
+      }
       for (let y = 0; y < LH; y++) {
         const fy = (y + camY) / T - tileTop - 0.5;         // tile-space (values live at tile centres)
         let gy = fy | 0; if (gy < 0) gy = 0; else if (gy > gh - 2) gy = gh - 2;
         const ty = fy - gy < 0 ? 0 : (fy - gy > 1 ? 1 : fy - gy), ty1 = 1 - ty;
+        const row0 = gy * gw, row1 = row0 + gw, rowJ = y * LW * 4;
         const aboveSky = (y + camY) <= skyY;
         for (let x = 0; x < LW; x++) {
-          const j = (y * LW + x) * 4;
-          const fx = (x + camX) / T - tileLeft - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
-          const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx), tx1 = 1 - tx;
-          const a00 = gy * gw + gx, a10 = a00 + 1, a01 = a00 + gw, a11 = a01 + 1;
+          const j = rowJ + x * 4;
+          const gx = gxCol[x], tx = txCol[x], tx1 = tx1Col[x];
+          const a00 = row0 + gx, a10 = a00 + 1, a01 = row1 + gx, a11 = a01 + 1;
           const w00 = tx1 * ty1, w10 = tx * ty1, w01 = tx1 * ty, w11 = tx * ty;
-          let r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
-          let g2 = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
-          let b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
-          let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
-          let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
-          let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
-          // total additive (lamp warm + ore colour) capped together so their overlap can't blow to a white sunspot
-          let s = r * ADD + cr; if (s > ADD_MAX) s = ADD_MAX; ad[j] = s * 255;
-          s = g2 * ADD + cg; if (s > ADD_MAX) s = ADD_MAX; ad[j + 1] = s * 255;
-          s = b * ADD + cb; if (s > ADD_MAX) s = ADD_MAX; ad[j + 2] = s * 255; ad[j + 3] = 255;
-          // scrim brightness: lamp field OR ore glow, so a glowing vein carves its own visibility
+          const r = tR[a00] * w00 + tR[a10] * w10 + tR[a01] * w01 + tR[a11] * w11 + AMB[0];
+          const g2 = tG[a00] * w00 + tG[a10] * w10 + tG[a01] * w01 + tG[a11] * w11 + AMB[1];
+          const b = tB[a00] * w00 + tB[a10] * w10 + tB[a01] * w01 + tB[a11] * w11 + AMB[2];
           let br = r > g2 ? (r > b ? r : b) : (g2 > b ? g2 : b);
-          if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;
+          let sr = r * ADD, sg = g2 * ADD, sb = b * ADD;
+          if (oreSeeded) {                                  // ore colour only where it exists
+            let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
+            let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
+            let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
+            sr += cr; sg += cg; sb += cb;
+            if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb;
+          }
+          // total additive (lamp warm + ore colour) capped so their overlap can't blow to a white sunspot
+          if (sr > ADD_MAX) sr = ADD_MAX; if (sg > ADD_MAX) sg = ADD_MAX; if (sb > ADD_MAX) sb = ADD_MAX;
+          ad[j] = sr * 255; ad[j + 1] = sg * 255; ad[j + 2] = sb * 255; ad[j + 3] = 255;
+          if (br > 1) br = 1;
           const bay = (LBY[(x & 3) | ((y & 3) << 2)] + 0.5) / 16;
           let dark = aboveSky ? 0 : (1 - br) * 0.85; const fD = dark * DSTEP, lD = fD | 0; dark = (lD + ((fD - lD) > bay ? 1 : 0)) / DSTEP;
           sd[j] = SCRIM[0]; sd[j + 1] = SCRIM[1]; sd[j + 2] = SCRIM[2]; sd[j + 3] = dark * 255;
