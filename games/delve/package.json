@@ -4,6 +4,18 @@
   "description": "A pixel-art incremental mining game — dig deeper, get richer.",
   "private": true,
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write \"**/*.{ts,html,css,md,json}\"",
     "verify": "node tools/verify.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5"
   }
 }

@@ -1,3 +1,5 @@
 packages:
   - games/*
   - shared/*
+allowBuilds:
+  esbuild: true

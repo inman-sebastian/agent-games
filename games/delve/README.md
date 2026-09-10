@@ -13,6 +13,7 @@ The design and art direction live in [`docs/`](docs/); this README is the index.
 | --- | --- |
 | [docs/DESIGN.md](docs/DESIGN.md) | **Start here** — what the game is, the core loop, controls, ore tiers, upgrades, economy, design pillars, and the roadmap. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The shared `scripts/` modules, how the game / style lab / tools compose from them, the `f(seed,c,r)` world model, and the rock chunk pipeline. |
+| [docs/CODE-STYLE.md](docs/CODE-STYLE.md) | Coding standards — readable-over-terse source, naming, TypeScript conventions, comments, formatting. |
 | [docs/PALETTE.md](docs/PALETTE.md) | Resurrect 64, the per-stratum depth ramps, and the ore triads + crystal shapes. |
 | [docs/RENDERING.md](docs/RENDERING.md) | Resolution/pixel-density, the composited layers, the per-pixel rock model, and the ore nodes/blocks. |
 | [docs/LIGHTING.md](docs/LIGHTING.md) | The independent, geometry-aware lighting system (occlusion, lamp field, gem glow, tuning knobs). |

@@ -19,6 +19,10 @@ just the DELVE-specific working rules.
   See the design pillars in DESIGN.md.
 - **All art is drawn in code** on the Resurrect 64 palette, at logical resolution
   upscaled with `image-rendering: pixelated`. No emoji, clip art, or found images.
+- **Write for humans — readable over terse.** Descriptive names, one statement per line,
+  named intermediates, typed public surfaces; never hand-compact or minify (the build does
+  that). Full standard: [docs/CODE-STYLE.md](docs/CODE-STYLE.md). When porting the old dense
+  JS to TS, expand it to this standard — don't transliterate the compaction.
 - **Update the docs *first*** when a rule or the art direction changes, then the code —
   the docs are the source of truth others read.
 
