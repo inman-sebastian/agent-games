@@ -66,9 +66,9 @@
       <div class="note">Dark top-lit rock (FG) over a lighter cool background (BG). Toggle <i>background</i> to see the layers separate.</div>
     </div>
     <div class="card">
-      <h2>Mining a vein — chip to reveal</h2>
+      <h2>Mining a vein — every ore × the 4 steps + the extracted ore</h2>
       <canvas id="mine"></canvas>
-      <div class="note">Flecks persist; crystal emerges past ~⅓ damage. Broken tile reveals the background. Per-type shapes.</div>
+      <div class="note">Step 1 = a faint speck hint; the crystal emerges past ~⅓ damage. Distinct per-type shapes: metals = nuggets, emerald = prism, ruby = cluster, diamond = gem, mythril = shards.</div>
       <h2 style="margin-top:16px">Depth strata &amp; ore crystals</h2>
       <canvas id="atlas"></canvas>
     </div>
@@ -197,18 +197,25 @@
     pen1(cx-1,cy-r+1,1,1,'#ffffff'); }
   function nugget(cx,cy,r,c){ if(r<1)r=1;
     for(let dy=-r-1;dy<=r+1;dy++)for(let dx=-r-1;dx<=r+1;dx++){ if(dx*dx+dy*dy<=(r+0.7)*(r+0.7) && dx*dx+dy*dy>(r-0.3)*(r-0.3)) pen1(cx+dx,cy+dy,1,1,OUT); }
-    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){ const dd=dx*dx+dy*dy; if(dd<=r*r) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.5?c[0] : c[1]); }
-    pen1(cx-Math.round(r*0.4),cy-Math.round(r*0.4),1,1,'#ffffff'); }
+    for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++){ const dd=dx*dx+dy*dy; if(dd<=r*r) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
+    // metallic sheen: a bright upper-left highlight streak + hot specular
+    const hx=cx-Math.round(r*0.35), hy=cy-Math.round(r*0.45);
+    pen1(hx,hy,1,1,c[2]); pen1(hx+1,hy,1,1,c[2]); pen1(hx,hy+1,1,1,c[2]);
+    pen1(hx,hy,1,1,'#ffffff'); pen1(hx+1,hy,1,1,'#ffffff'); }
   function prism(cx,cy,r,c){ const w=Math.max(1,r-1), h=r+1; const ww=dy=> (dy<-h+2||dy>h-2)?Math.max(0,w-2):w;
     for(let dy=-h-1;dy<=h+1;dy++){ const a=ww(Math.max(-h,Math.min(h,dy))); pen1(cx-a-1,cy+dy,1,1,OUT); pen1(cx+a+1,cy+dy,1,1,OUT); }
     pen1(cx,cy-h-1,1,1,OUT); pen1(cx,cy+h+1,1,1,OUT);
     for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,2*a+1,1,c[1]); }
     for(let dy=-h;dy<=h;dy++){ const a=ww(dy); pen1(cx-a,cy+dy,a,1,c[2]); pen1(cx+1,cy+dy,a,1,c[0]); }
     pen1(cx-1,cy-h+1,1,1,'#ffffff'); }
-  function shard(cx,cy,r,c){ const spike=(x,y,len,dir)=>{ for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.4));
-      pen1(x-w-1,y+dir*i,1,1,OUT); pen1(x+w+1,y+dir*i,1,1,OUT); pen1(x-w,y+dir*i,2*w+1,1,c[1]); pen1(x-w,y+dir*i,w,1,c[2]); }
-      pen1(x-1,y+dir*(len-2),1,1,'#ffffff'); };
-    spike(cx,cy+r,r+2,-1); spike(cx-r+1,cy+r,r,-1); spike(cx+r-1,cy+r,r-1,-1); }
+  function shard(cx,cy,r,c){ const base=cy+Math.round(r*0.45);   // centre the cluster
+    const spike=(x,y,len,dir)=>{ for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.3));
+      pen1(x-w-1,y+dir*i,1,1,OUT); pen1(x+w+1,y+dir*i,1,1,OUT);
+      pen1(x-w,y+dir*i,2*w+1,1,c[1]); pen1(x-w,y+dir*i,w,1,c[2]); }
+      pen1(x,y+dir*len,1,1,OUT); pen1(x-1,y+dir*(len-2),1,1,'#ffffff'); };
+    spike(cx, base, r+2, -1);            // tall centre shard
+    spike(cx-r+1, base+1, r, -1);        // left
+    spike(cx+r-1, base, r-1, -1); }      // right
   function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r+1,cy+2,Math.max(1,r-2),c); gem(cx+r-1,cy+1,Math.max(1,r-2),c); }
   const SHAPES={gem,nugget,prism,shard,cluster};
 
@@ -327,17 +334,33 @@
       for(let x=0;x<=COLS;x++){ sctx.beginPath(); sctx.moveTo(x*T*S+0.5,0); sctx.lineTo(x*T*S+0.5,PH*S); sctx.stroke(); }
       for(let y=0;y<=ROWS;y++){ sctx.beginPath(); sctx.moveTo(0,y*T*S+0.5); sctx.lineTo(PW*S,y*T*S+0.5); sctx.stroke(); } } }
 
-  // ---------- mining strip ----------
+  // ---------- mining matrix: every ore × the 4 mining steps + the extracted ore ----------
   const mine=document.getElementById('mine'), mctx=mine.getContext('2d');
-  function renderMine(){ const S=6, gap=8, o=opts(), C=colorsFor(M()), BG=bgFor(M().ramp);
-    const oreI=({topsoil:0,claystone:2,stone:1,deepstone:5,basalt:6})[matSel.value]||0;
-    const stages=[0,0.4,0.65,0.9,'broken'], solid=new Uint8Array(T*T).fill(1);
-    mine.width=stages.length*(T*S+gap)-gap; mine.height=T*S; mctx.imageSmoothingEnabled=false; mctx.clearRect(0,0,mine.width,mine.height);
-    stages.forEach((d,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
-      renderBackground(BG,T,T,o);
-      shadeRock(d==='broken'?new Uint8Array(T*T):solid, T, T, C, o, true); lb.drawImage(fbuf,0,0);
-      if(d!=='broken') drawOre(lb, oreI, 0,0, 3,3, d, o);
-      mctx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); }); }
+  function renderMine(){ const S=5, cell=T*S, gx=6, gy=12, labelW=68, headH=22, colGap=22, o=opts();
+    const C=colorsFor(M()), BG=bgFor(M().ramp), solid=new Uint8Array(T*T).fill(1);
+    const steps=[0,0.5,0.78,1.0];
+    mine.width = labelW + steps.length*(cell+gx) + colGap + cell;
+    mine.height = headH + ORES.length*(cell+gy);
+    mctx.imageSmoothingEnabled=false; mctx.clearRect(0,0,mine.width,mine.height); mctx.textBaseline='middle';
+    mctx.fillStyle='#8494a8'; mctx.font='600 11px ui-sans-serif';
+    steps.forEach((d,i)=> mctx.fillText('Step '+(i+1), labelW+i*(cell+gx)+2, headH/2));
+    mctx.fillText('Ore', labelW+steps.length*(cell+gx)+colGap+cell/2-9, headH/2);
+    const blit=(cx,cy)=> mctx.drawImage(lbuf,0,0,T,T, cx,cy, cell,cell);
+    ORES.forEach((ore,r)=>{ const y=headH + r*(cell+gy);
+      mctx.fillStyle=ore.c[2]; mctx.font='600 11px ui-sans-serif'; mctx.fillText(ore.name, 2, y+cell/2);
+      steps.forEach((d,i)=>{ lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
+        renderBackground(BG,T,T,o); shadeRock(solid,T,T,C,o,true); lb.drawImage(fbuf,0,0);
+        drawOre(lb, r, 0,0, r+5, 6, d, o);          // fixed seed per ore → the 4 steps evolve the same vein
+        blit(labelW+i*(cell+gx), y); });
+      // the extracted ore: pure crystal on a neutral dark swatch, so its colour pops
+      lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
+      lb.fillStyle='#0e0e16'; lb.fillRect(0,0,T,T);
+      SHAPES[ore.shape](8,9,5,ore.c);
+      lb.save(); lb.globalCompositeOperation='lighter';
+      const rg=lb.createRadialGradient(8,8,0,8,8,11); rg.addColorStop(0,mix(ore.c[2],'#ffffff',0.3)); rg.addColorStop(1,'transparent');
+      lb.globalAlpha=0.55; lb.fillStyle=rg; lb.fillRect(-8,-8,32,32); lb.restore();
+      blit(labelW+steps.length*(cell+gx)+colGap, y);
+    }); }
 
   // ---------- atlas ----------
   const atlas=document.getElementById('atlas'), actx=atlas.getContext('2d');
