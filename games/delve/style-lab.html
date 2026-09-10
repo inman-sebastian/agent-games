@@ -286,7 +286,7 @@
       if(!solidTile(tx+1,ty-1)) dmin=Math.min(dmin, Math.hypot(T-lx-0.5,ly+0.5));
       if(!solidTile(tx-1,ty+1)) dmin=Math.min(dmin, Math.hypot(lx+0.5,T-ly-0.5));
       if(!solidTile(tx+1,ty+1)) dmin=Math.min(dmin, Math.hypot(T-lx-0.5,T-ly-0.5));
-      const thr = o.stones ? 0.6 + 3.0*vnoise(px*0.28, py*0.28, TEX+2) : 0.0;
+      const thr = o.stones ? 0.4 + 1.4*vnoise(px*0.28, py*0.28, TEX+2) : 0.0;   // gentle erosion (~0.4–1.8px)
       mask[py*PW+px] = dmin > thr ? 1 : 0; }
     return mask; }
 
@@ -331,7 +331,7 @@
   const atlas=document.getElementById('atlas'), actx=atlas.getContext('2d');
   function renderAtlas(){ const S=5,gap=6, o=opts(); const mats=Object.values(MATERIALS);
     atlas.width=Math.max(mats.length,ORES.length)*(T*S+gap)-gap; atlas.height=2*(T*S)+gap+8; actx.imageSmoothingEnabled=false; actx.clearRect(0,0,atlas.width,atlas.height);
-    const topMask=()=>{ const m=new Uint8Array(T*T); for(let py=0;py<T;py++)for(let px=0;px<T;px++){ const d=py-4+0.5; const thr=o.stones?0.6+2.6*vnoise(px*0.3+9,py*0.3,TEX+2):0; m[py*T+px]= (py>=4 && d>thr) ?1:0; } return m; };
+    const topMask=()=>{ const m=new Uint8Array(T*T); for(let py=0;py<T;py++)for(let px=0;px<T;px++){ const d=py-4+0.5; const thr=o.stones?0.4+1.4*vnoise(px*0.3+9,py*0.3,TEX+2):0; m[py*T+px]= (py>=4 && d>thr) ?1:0; } return m; };
     mats.forEach((mm,i)=>{ const C=colorsFor(mm), BG=bgFor(mm.ramp); lbuf.width=T; lbuf.height=T; lb.imageSmoothingEnabled=false;
       renderBackground(BG,T,T,o); shadeRock(topMask(),T,T,C,o,false); lb.drawImage(fbuf,0,0);
       actx.drawImage(lbuf,0,0,T,T, i*(T*S+gap),0, T*S,T*S); });
