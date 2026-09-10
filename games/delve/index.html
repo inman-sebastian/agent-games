@@ -111,11 +111,14 @@
 (function () {
   'use strict';
   const D = window.Delve;
-  // 16px tiles drawn at logical resolution; the canvas is stretched to fill the screen
-  // with image-rendering:pixelated. The field spans the full width (W columns); the
-  // vertical extent (VIEW_ROWS/LH) is recomputed in fit() to match the screen aspect,
-  // so tiles stay square and the canvas fills edge to edge with no letterboxing.
+  // Art is authored at T=16 logical px per tile (a fine, Terraria-ish world grid). It's
+  // rendered at logical resolution, then DISPLAYED at TILE_PX CSS px per tile with
+  // image-rendering:pixelated — so a tile "looks like" TILE_PX on screen while the art
+  // stays 16px. TILE_PX/16 is the display scale — 32px is a clean 2× integer scale (crisp
+  // on any DPR; on a 2× display that's a 4× device scale). (Not stretched to fill the
+  // viewport yet — fit is a later pass.)
   const T = 16, TILE = T, W = D.WIDTH, u = 2;
+  const TILE_PX = 32;                     // on-screen size of a tile (CSS px) — clean 2× of the 16px art
   const LW = W * T;                                     // logical width = full field width (fixed)
   let VIEW_ROWS = 15, LH = VIEW_ROWS * T;
   const CHUNK = 4, MARGIN = 1;                          // rows per cached chunk; tiles of shading context around it
@@ -325,7 +328,7 @@
     if (worker) for (let ci = c0 - 2; ci <= c1 + 2; ci++) requestChunk(ci);
     else for (let ci = c0 - 1; ci <= c1 + 1; ci++) { if (!chunks.has(ci)) { renderChunkSync(ci); break; } }
     // bound memory: drop chunks well outside the view
-    if (chunks.size > 64) for (const ci of [...chunks.keys()]) if (ci < c0 - 24 || ci > c1 + 24) chunks.delete(ci);
+    if (chunks.size > 160) for (const ci of [...chunks.keys()]) if (ci < c0 - 48 || ci > c1 + 48) chunks.delete(ci);
     const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
     // ore veins + glow, drawn per-frame ONLY where visible: within lamp range, or
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
@@ -570,15 +573,21 @@
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   // ---------- responsive sizing ----------
-  // The canvas backing store is W columns wide; its height is chosen so the logical
-  // aspect matches the window's — then CSS stretches it edge to edge with square,
-  // pixelated tiles and no letterboxing. Vertical extent scales with the window.
+  // Tiles render at a FIXED "looks-like-16px" size: 1 art px = 1 CSS px, so a 16px tile
+  // is 16 CSS px and `image-rendering: pixelated` upscales it crisply to device pixels
+  // (32px on a 2× display) for free — no per-DPR render path needed. We do NOT stretch to
+  // fill the viewport right now (the world is wider than the screen; it overflows/clips) —
+  // fitting/centering + a horizontal camera are a deliberate later pass.
+  // ponytail: fixed 1:1 for now; revisit fit + h-camera when we tackle viewport framing.
   function fit() {
-    const cssW = innerWidth, cssH = innerHeight;
-    VIEW_ROWS = Math.max(9, Math.min(48, Math.round(W * cssH / cssW)));   // rows to match the screen aspect
+    VIEW_ROWS = Math.max(9, Math.min(56, Math.ceil(innerHeight / TILE_PX) + 1));  // rows to cover the viewport at TILE_PX
     LH = VIEW_ROWS * T;
-    cv.width = LW; cv.height = LH; ctx.imageSmoothingEnabled = false;      // (resetting width clears ctx state)
-    cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    cv.width = LW; cv.height = LH; ctx.imageSmoothingEnabled = false;             // (resetting width clears ctx state)
+    const cssW = W * TILE_PX;
+    cv.style.width = cssW + 'px'; cv.style.height = (VIEW_ROWS * TILE_PX) + 'px'; // display 16px art at TILE_PX
+    cv.style.left = Math.round((innerWidth - cssW) / 2) + 'px'; cv.style.top = '0';  // centre the (overflowing) world horizontally
+    // The world is wider than the viewport; centring keeps the down-digging miner near
+    // mid-screen. A true horizontal camera (for lateral movement) is a later fit pass.
     // chunk cache is world-space and LW is fixed, so it survives resize — no invalidation needed.
   }
   addEventListener('resize', fit);

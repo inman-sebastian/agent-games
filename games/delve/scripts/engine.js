@@ -11,8 +11,11 @@
 (function (root) {
   'use strict';
 
-  const WIDTH = 41;         // columns; a wide field (0..WIDTH-1) that fills the viewport.
-                            // Bounded horizontally, infinite downward.
+  const WIDTH = 82;         // columns; a wide field (0..WIDTH-1) that fills the viewport.
+                            // Bounded horizontally, infinite downward. The grid is a
+                            // fine 16px-cell world (Terraria-ish): ~2× the columns of the
+                            // old coarse grid, and every row-based constant below is scaled
+                            // to match, so the PHYSICAL world is unchanged — just finer.
   const SURFACE = 0;        // row 0 is the open surface yard
 
   // Ore table. band=[minDepth,maxDepth] rows where it can appear; weight is its
@@ -20,15 +23,15 @@
   // toughness on top of depth-based rock hp. Ordered surface→deep (= discovery
   // order / rarity index).
   const ORES = [
-    { id: 1, name: 'Dirt',    band: [1, 4],       weight: 60, value: 1,    hp: 0, color: '#a06a3c' },
-    { id: 2, name: 'Copper',  band: [2, 12],      weight: 26, value: 5,    hp: 1, color: '#d67b40' },
-    { id: 3, name: 'Iron',    band: [8, 26],      weight: 22, value: 12,   hp: 2, color: '#c2ccd8' },
-    { id: 4, name: 'Silver',  band: [20, 46],     weight: 15, value: 34,   hp: 3, color: '#f0f4fa' },
-    { id: 5, name: 'Gold',    band: [38, 78],     weight: 11, value: 95,   hp: 4, color: '#f5c84e' },
-    { id: 6, name: 'Emerald', band: [66, 120],    weight: 7,  value: 260,  hp: 6, color: '#41cf76' },
-    { id: 7, name: 'Ruby',    band: [108, 185],   weight: 5,  value: 720,  hp: 8, color: '#ee4f66' },
-    { id: 8, name: 'Diamond', band: [165, 265],   weight: 3,  value: 2100, hp: 11, color: '#66e0ee' },
-    { id: 9, name: 'Mythril', band: [240, 99999], weight: 2,  value: 6200, hp: 15, color: '#bd77f5' },
+    { id: 1, name: 'Dirt',    band: [2, 8],        weight: 60, value: 1,    hp: 0, color: '#a06a3c' },
+    { id: 2, name: 'Copper',  band: [4, 24],       weight: 26, value: 5,    hp: 1, color: '#d67b40' },
+    { id: 3, name: 'Iron',    band: [16, 52],      weight: 22, value: 12,   hp: 2, color: '#c2ccd8' },
+    { id: 4, name: 'Silver',  band: [40, 92],      weight: 15, value: 34,   hp: 3, color: '#f0f4fa' },
+    { id: 5, name: 'Gold',    band: [76, 156],     weight: 11, value: 95,   hp: 4, color: '#f5c84e' },
+    { id: 6, name: 'Emerald', band: [132, 240],    weight: 7,  value: 260,  hp: 6, color: '#41cf76' },
+    { id: 7, name: 'Ruby',    band: [216, 370],    weight: 5,  value: 720,  hp: 8, color: '#ee4f66' },
+    { id: 8, name: 'Diamond', band: [330, 530],    weight: 3,  value: 2100, hp: 11, color: '#66e0ee' },
+    { id: 9, name: 'Mythril', band: [480, 99999],  weight: 2,  value: 6200, hp: 15, color: '#bd77f5' },
   ];
   const ORE_BY_ID = Object.fromEntries(ORES.map(o => [o.id, o]));
   const rarityOf = (id) => ORES.findIndex(o => o.id === id);
@@ -54,15 +57,18 @@
     return ((h ^ (h >>> 14)) >>> 0) / 4294967296;
   }
 
-  // Base rock hp from depth (row). Grows so deep rock needs upgraded picks.
-  function rockHp(r) { return 2 + Math.floor(r * 0.62); }
+  // Base rock hp from depth (row). Grows so deep rock needs upgraded picks. Slope is
+  // halved vs the old coarse grid because rows are now 2× denser — hp per *physical*
+  // depth is unchanged (and each of the 2× cells is quicker to break, so total effort
+  // to descend a given distance stays the same). (ponytail: economy retune is a later pass.)
+  function rockHp(r) { return 2 + Math.floor(r * 0.31); }
 
   // What ore (if any) a solid tile holds. Pure function of world coords.
   function oreAt(seed, c, r) {
     if (r <= SURFACE) return 0;
     const elig = ORES.filter(o => r >= o.band[0] && r <= o.band[1]);
     if (!elig.length) return 0;
-    const rich = 0.22 + Math.min(0.13, r * 0.0006);   // richness rises with depth
+    const rich = 0.22 + Math.min(0.13, r * 0.0003);   // richness rises with depth (slope halved for 2× rows)
     if (tileRand(seed, c, r) > rich) return 0;
     const total = elig.reduce((s, o) => s + o.weight, 0);
     let roll = tileRand(seed, c + 7777, r + 3331) * total;

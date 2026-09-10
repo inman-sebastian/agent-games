@@ -24,13 +24,15 @@
     const sm = t => t * t * (3 - 2 * t), au = sm(tx), av = sm(ty), a = h(fx, fy), b = h(fx + 1, fy), c = h(fx, fy + 1), d = h(fx + 1, fy + 1);
     return (a * (1 - au) + b * au) * (1 - av) + (c * (1 - au) + d * au) * av; }
 
-  // depth strata → an interpolated 6-stop Resurrect-64 ramp, so colour reads by depth
+  // depth strata → an interpolated 6-stop Resurrect-64 ramp, so colour reads by depth.
+  // `top` rows are ×2 the old coarse grid (the world is now a 2× finer 16px-cell grid),
+  // so strata sit at the same PHYSICAL depth as before.
   const STRATA = [
-    { top: 1,   ramp: ['#2e222f', '#45293f', '#7a3045', '#9e4539', '#cd683d', '#e6904e'] }, // topsoil (red-brown)
-    { top: 12,  ramp: ['#2a2018', '#48371f', '#6d5230', '#8f6b3c', '#b28a4e', '#d0aa66'] }, // clay (ochre)
-    { top: 42,  ramp: ['#2e222f', '#3e3546', '#625565', '#7f708a', '#9babb2', '#c7dcd0'] }, // stone (gray)
-    { top: 95,  ramp: ['#2e222f', '#323353', '#484a77', '#4d65b4', '#4d9be6', '#8fd3ff'] }, // deep stone (blue)
-    { top: 185, ramp: ['#2e222f', '#45293f', '#6b3e75', '#905ea9', '#a884f3', '#eaaded'] }, // basalt (violet)
+    { top: 2,   ramp: ['#2e222f', '#45293f', '#7a3045', '#9e4539', '#cd683d', '#e6904e'] }, // topsoil (red-brown)
+    { top: 24,  ramp: ['#2a2018', '#48371f', '#6d5230', '#8f6b3c', '#b28a4e', '#d0aa66'] }, // clay (ochre)
+    { top: 84,  ramp: ['#2e222f', '#3e3546', '#625565', '#7f708a', '#9babb2', '#c7dcd0'] }, // stone (gray)
+    { top: 190, ramp: ['#2e222f', '#323353', '#484a77', '#4d65b4', '#4d9be6', '#8fd3ff'] }, // deep stone (blue)
+    { top: 370, ramp: ['#2e222f', '#45293f', '#6b3e75', '#905ea9', '#a884f3', '#eaaded'] }, // basalt (violet)
   ];
   const smoothstep = t => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
   function rampAt(row) {

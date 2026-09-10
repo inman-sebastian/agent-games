@@ -20,7 +20,7 @@ for (const k in D.UPGRADES) chk(D.upgradeCost(k, 1) > D.upgradeCost(k, 0), `${k}
 
 // --- world gen: every ore tier must be discoverable within its band ---
 for (const o of D.ORES) {
-  const r0 = o.band[0], r1 = Math.min(o.band[1], r0 + 40);
+  const r0 = o.band[0], r1 = Math.min(o.band[1], r0 + 80);
   let found = 0;
   for (let r = r0; r <= r1; r++)
     for (let c = 0; c < D.WIDTH; c++)
@@ -33,7 +33,7 @@ function play(seed) {
   const s = D.newGame(seed);
   const seenTier = {};                 // oreId -> first action it was mined
   let steps = 0;
-  const BUDGET = 3_000_000, TARGET = 250;
+  const BUDGET = 3_000_000, TARGET = 520;   // rows; Mythril band now starts at 480 (2× finer grid)
 
   const shop = () => {                  // buy cheapest affordable upgrade repeatedly
     for (;;) {
@@ -66,15 +66,15 @@ console.log(`\nGreedy bot: depth ${run.s.depth}, ${run.steps.toLocaleString()} a
   `${run.s.earned.toLocaleString()} coins earned`);
 console.log('upgrades', run.s.up, 'tech', run.s.tech);
 
-chk(run.s.depth >= 240, `bot reached Mythril depth (got ${run.s.depth})`);
+chk(run.s.depth >= 480, `bot reached Mythril depth (got ${run.s.depth})`);
 chk(run.steps < 3_000_000, `bot finished within action budget (used ${run.steps})`);
 for (const o of D.ORES) {
   const got = run.seenTier[o.id];
   console.log(`  ${got ? 'OK ' : '-- '}  ${o.name.padEnd(8)} ${got ? 'first mined @ action ' + got : '(shallow band, not on shaft path)'}`);
-  // Dirt lives only in rows 1-4, which a single-column shaft can skip; its
+  // Dirt/Copper live in shallow rows a single-column shaft can skip; their
   // reachability is covered by the static world-scan above. Everything deeper
   // must fall on the descent path.
-  if (o.band[0] > 4) chk(!!got, `${o.name} was mined by the greedy bot`);
+  if (o.band[0] > 8) chk(!!got, `${o.name} was mined by the greedy bot`);
 }
 chk(Number.isFinite(run.s.coins) && run.s.coins >= 0, 'coins stay finite & non-negative');
 
