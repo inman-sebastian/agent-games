@@ -142,16 +142,20 @@
       const o = JSON.parse(localStorage.getItem(SAVE));
       if (!o || !o.seed) return null;
       const base = D.newGame(o.seed);                 // fill any fields added since the save was written
-      return { ...base, ...o, up: { ...base.up, ...o.up }, tech: { ...base.tech, ...o.tech } };
+      const st = { ...base, ...o, up: { ...base.up, ...o.up }, tech: { ...base.tech, ...o.tech } };
+      if (o.x === undefined && o.c !== undefined) { st.x = o.c + 0.5; st.y = o.r + 0.5; }  // migrate pre-physics grid saves
+      st.vx = 0; st.vy = 0; st.grounded = false; st.digKey = null; st.digTime = 0;         // reset transient physics fields
+      return st;
     } catch (e) { return null; }
   }
   function save() { try { localStorage.setItem(SAVE, JSON.stringify(s)); } catch (e) {} }
   setInterval(save, 2500);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-  // display position (lerped) & 2-axis camera (keeps the miner centred on screen)
-  let dispC = s.c, dispR = s.r, camX = 0, camY = 0;
-  function snapCam() { camX = dispC * T - LW / 2 + T / 2; camY = dispR * T - LH / 2 + T / 2; }
+  // 2-axis camera (keeps the miner centred). The sim position (s.x, s.y) is already
+  // continuous and smooth from the physics step, so the camera follows it directly.
+  let camX = 0, camY = 0;
+  function snapCam() { camX = s.x * T - LW / 2 + T / 2; camY = s.y * T - LH / 2 + T / 2; }
 
   // ---------- audio (synth) ----------
   let AC = null, muted = false, master = null;
@@ -315,8 +319,9 @@
 
   function render(t) {
     ctx.clearRect(0, 0, LW, LH);
+    const px = s.x, py = s.y;   // continuous player centre (tile units)
     // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
-    const targetCamX = dispC * T - LW / 2 + T / 2, targetCamY = dispR * T - LH / 2 + T / 2;
+    const targetCamX = px * T - LW / 2 + T / 2, targetCamY = py * T - LH / 2 + T / 2;
     camX += (targetCamX - camX) * 0.16; camY += (targetCamY - camY) * 0.16;
     const shx = SHAKE ? (Math.random() * 2 - 1) * shake : 0, shy = SHAKE ? (Math.random() * 2 - 1) * shake : 0;
     const st = D.stats(s);
@@ -339,7 +344,7 @@
     // bound memory: drop chunks well outside the view (both axes)
     if (chunks.size > 400) for (const key of [...chunks.keys()]) { const j = key.indexOf(','), kx = +key.slice(0, j), ky = +key.slice(j + 1);
       if (kx < cx0 - 12 || kx > cx1 + 12 || ky < cy0 - 12 || ky > cy1 + 12) chunks.delete(key); }
-    const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
+    const lightAt = (c, r) => { const dist = Math.hypot(c - px, r - py); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
     // ore blocks + glow, drawn per-frame ONLY where visible: within lamp range, or
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
     // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — lighting.render.)
@@ -378,14 +383,15 @@
           ctx.globalAlpha = 1; } } }
     // idle dust motes drifting near the lamp
     ctx.fillStyle = '#fff';
-    for (const m of motes) { const mx = (dispC + (m.x - 0.5) * st.vision * 1.4) * T + T / 2;
-      const my = (dispR + (((m.y + t * 0.03 * m.s) % 1) - 0.5) * st.vision * 1.3) * T + T / 2;
-      ctx.globalAlpha = 0.10 * m.s * (dispR > 0 ? 1 : 0); ctx.fillRect(Math.round(mx + Math.sin(t + m.x * 9) * 1.5), Math.round(my), 1, 1); }
+    for (const m of motes) { const mx = (px + (m.x - 0.5) * st.vision * 1.4) * T + T / 2;
+      const my = (py + (((m.y + t * 0.03 * m.s) % 1) - 0.5) * st.vision * 1.3) * T + T / 2;
+      ctx.globalAlpha = 0.10 * m.s * (py > 0 ? 1 : 0); ctx.fillRect(Math.round(mx + Math.sin(t + m.x * 9) * 1.5), Math.round(my), 1, 1); }
     ctx.globalAlpha = 1;
     for (const p of particles) { ctx.globalAlpha = Math.max(0, 1 - p.t / p.life); ctx.fillStyle = p.col; ctx.fillRect(Math.round(p.x), Math.round(p.y), p.sz, p.sz); }
     ctx.globalAlpha = 1;
-    // miner + lamp glow
-    const mX = Math.round(dispC * T), mY = Math.round(dispR * T), bob = Math.sin(t * 8) * (moving ? 0.6 : 0.25);
+    // miner + lamp glow — sprite is 1 tile, centred on the player x and standing on its feet (y+HH)
+    const HH = D.PHYS.HH, bob = s.grounded ? Math.sin(t * 10) * (moving ? 0.5 : 0.2) : 0;
+    const mX = Math.round(px * T - T / 2), mY = Math.round((py + HH) * T - T);
     DelveSprites.drawMiner(ctx, mX, mY, s.facing, bob);   // lamp bloom is part of the lighting pass
     // coin floaties
     ctx.textAlign = 'center';
@@ -397,71 +403,67 @@
     // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the
     // Deep Lantern reaches further), then composite the shared geometry-aware system over
     // the frame. Ore-vein emitters were already pushed in the ore loop above.
-    lighting.addLight(dispC * T + 8, dispR * T + 7, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * st.vision);
+    lighting.addLight(px * T, (py - 0.1) * T, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * st.vision);
     lighting.render({ g: ctx, LW, LH, T, camX, camY, SURFACE: D.SURFACE, solidTile });
   }
 
   // ---------- input ----------
-  const held = {};                 // dir -> true
+  // Platformer controls: left/right run, up/W/Space jump, down mines below. Mining is
+  // coupled to movement (walk into rock to tunnel) — a dedicated aim/mine action is #3.
+  const held = { left: false, right: false, jump: false, down: false };
   let moving = false;
-  const KEYMAP = { ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
-    ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
+  const KEYMAP = { ArrowUp:'jump', KeyW:'jump', Space:'jump',
+    ArrowDown:'down', KeyS:'down', ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
   addEventListener('keydown', e => {
     if (overlay.classList.contains('on')) return;
     const d = KEYMAP[e.code]; if (!d) return; e.preventDefault(); held[d] = true; audio();
   });
   addEventListener('keyup', e => { const d = KEYMAP[e.code]; if (d) held[d] = false; });
 
-  // pointer-hold-to-dig-toward-pointer (works for mouse AND touch = big target)
-  let pointerDir = null;
-  function pointerToDir(clientX, clientY) {
+  // pointer/touch → the same input booleans (works for mouse AND touch = big target):
+  // point left/right of the miner to run that way, above to jump, below to dig down.
+  let pointer = null;
+  function pointerToInput(clientX, clientY) {
     const rect = cv.getBoundingClientRect();
-    const lx = (clientX - rect.left) / rect.width * LW;
-    const ly = (clientY - rect.top) / rect.height * LH;
-    const mx = dispC * TILE - camX + TILE / 2, my = dispR * TILE - camY + TILE / 2;
-    const dx = lx - mx, dy = ly - my;
-    if (Math.abs(dx) < u && Math.abs(dy) < u) return null;
-    return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+    const lx = (clientX - rect.left) / rect.width * LW, ly = (clientY - rect.top) / rect.height * LH;
+    const mx = s.x * TILE - camX + TILE / 2, my = s.y * TILE - camY + TILE / 2;
+    const dx = lx - mx, dy = ly - my, o = { left: false, right: false, jump: false, down: false };
+    if (Math.abs(dx) > TILE * 0.4) o[dx > 0 ? 'right' : 'left'] = true;
+    if (dy < -TILE * 0.8) o.jump = true; else if (dy > TILE * 0.8) o.down = true;
+    return o;
   }
-  function setPointer(e) { const t = e.touches ? e.touches[0] : e; if (!t) return;
-    pointerDir = pointerToDir(t.clientX, t.clientY); }
-  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return;
-    e.preventDefault(); audio(); setPointer(e); });
-  cv.addEventListener('pointermove', e => { if (pointerDir !== null || e.pressure > 0) if (e.buttons) setPointer(e); });
-  addEventListener('pointerup', () => { pointerDir = null; });
-  addEventListener('pointercancel', () => { pointerDir = null; });
+  function setPointer(e) { const t = e.touches ? e.touches[0] : e; if (!t) return; pointer = pointerToInput(t.clientX, t.clientY); }
+  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return; e.preventDefault(); audio(); setPointer(e); });
+  cv.addEventListener('pointermove', e => { if (e.buttons) setPointer(e); });
+  addEventListener('pointerup', () => { pointer = null; });
+  addEventListener('pointercancel', () => { pointer = null; });
 
-  function currentDir() {
-    if (held.up) return 'up'; if (held.down) return 'down';
-    if (held.left) return 'left'; if (held.right) return 'right';
-    return pointerDir;
+  // merge keyboard + pointer into one input state for the physics step
+  function inputState() {
+    const i = { left: held.left, right: held.right, jump: held.jump, down: held.down };
+    if (pointer) { i.left = i.left || pointer.left; i.right = i.right || pointer.right; i.jump = i.jump || pointer.jump; i.down = i.down || pointer.down; }
+    return i;
   }
 
   // ---------- game loop ----------
-  let last = 0, acc = 0;
+  let last = 0;
 
-  function step() {
-    const dir = currentDir();
-    if (!dir) { moving = false; return; }
-    const ev = D.attemptStep(s, dir);
-    const cx = ev.c != null ? ev.c * TILE + TILE / 2 : 0, cy = ev.c != null ? ev.r * TILE + TILE / 2 : 0;
-    if (ev.type === 'move') { moving = true; }
-    else if (ev.type === 'dig') {
-      // tile became open → patch just the area around it into the cached chunk(s), cheaply.
-      if (ev.broke) patchDig(ev.c, ev.r);
-      if (!ev.broke) { sfx.chip(); chips(cx, cy, 2, '#8a7a66', 25); shake = Math.min(3, shake + 0.5); }
-      else {
-        const rar = ev.ore ? D.rarityOf(ev.ore) : 0;
-        sfx.dig(ev.r); sfx.break(rar);
-        chips(cx, cy, 5 + rar, ev.ore ? D.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
-        shake = Math.min(7, shake + 1.2 + rar * 0.5 + (ev.rich ? 2 : 0));
-        if (ev.ore) {                                  // ore sells instantly, in place
-          sfx.ore(rar + (ev.rich ? 2 : 0)); if (ev.rich) sfx.sell(ev.coin);
-          const col = ev.rich ? '#f2c14e' : D.ORE_BY_ID[ev.ore].color;
-          floaty(cx, cy - 4, '+' + ev.coin + (ev.rich ? '!' : ''), col, rar >= 4 || ev.rich);
-          for (let i = 0; i < 4 + rar + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
-        }
-      }
+  // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and
+  // the cached-chunk patch when a tile breaks.
+  function onEvent(ev) {
+    const cx = ev.c * TILE + TILE / 2, cy = ev.r * TILE + TILE / 2;
+    if (ev.type === 'chip') { sfx.chip(); chips(cx, cy, 2, '#8a7a66', 25); shake = Math.min(3, shake + 0.4); return; }
+    if (ev.type !== 'break') return;
+    patchDig(ev.c, ev.r);                              // tile became open → patch the cached chunk(s)
+    const rar = ev.ore ? D.rarityOf(ev.ore) : 0;
+    sfx.dig(ev.r); sfx.break(rar);
+    chips(cx, cy, 5 + rar, ev.ore ? D.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
+    shake = Math.min(7, shake + 1.2 + rar * 0.5 + (ev.rich ? 2 : 0));
+    if (ev.ore) {                                      // ore sells instantly, in place
+      sfx.ore(rar + (ev.rich ? 2 : 0)); if (ev.rich) sfx.sell(ev.coin);
+      const col = ev.rich ? '#f2c14e' : D.ORE_BY_ID[ev.ore].color;
+      floaty(cx, cy - 4, '+' + ev.coin + (ev.rich ? '!' : ''), col, rar >= 4 || ev.rich);
+      for (let i = 0; i < 4 + rar + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
     }
   }
 
@@ -470,15 +472,12 @@
     const t = now / 1000;
     const workStart = performance.now();
     if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * 0.1;       // smoothed frames/sec from real timestamps
-    // step cadence gated by agility
-    acc += dt * 1000;
-    const interval = D.stats(s).interval;
-    let guard = 0;
-    while (acc >= interval && guard++ < 4) { acc -= interval; if (overlay.classList.contains('on')) { acc = 0; break; } step(); }
-
-    // lerp display position toward logical grid pos
-    const rate = Math.min(1, dt * 16);
-    dispC += (s.c - dispC) * rate; dispR += (s.r - dispR) * rate;
+    // advance the platformer sim once per frame (paused while the shop is open)
+    if (!overlay.classList.contains('on')) {
+      const res = D.physicsStep(s, inputState(), dt);
+      for (const ev of res.events) onEvent(ev);
+      moving = Math.abs(s.vx) > 0.5;
+    } else moving = false;
 
     // update particles / floaties / shake
     for (const p of particles) { p.t += dt; p.vy += 120 * dt; p.x += p.vx * dt; p.y += p.vy * dt; }
@@ -507,7 +506,7 @@
     dbg.textContent =
       `DELVE · debug  (F3 to toggle)\n` +
       `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
-      `pos   ${s.c},${s.r}  disp ${dispC.toFixed(1)},${dispR.toFixed(1)}  facing ${s.facing}\n` +
+      `pos   ${s.x.toFixed(2)},${s.y.toFixed(2)}  vel ${s.vx.toFixed(1)},${s.vy.toFixed(1)}  ${s.grounded ? 'ground' : 'air'}  facing ${s.facing}\n` +
       `depth ${s.depth}m  best ${ore ? ore.name : '—'}\n` +
       `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
       `canvas ${cv.width}×${cv.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
@@ -567,7 +566,7 @@
       else { b.textContent = tt.cost.toLocaleString() + ' ◈'; b.disabled = s.coins < tt.cost; }
     }
   }
-  function openShop() { audio(); for (const d in held) held[d] = false; pointerDir = null;
+  function openShop() { audio(); for (const d in held) held[d] = false; pointer = null;
     refreshShop(); overlay.classList.add('on'); }
   function closeShop() { overlay.classList.remove('on'); }
   el('shopBtn').onclick = openShop; el('closeBtn').onclick = closeShop;
@@ -577,7 +576,7 @@
     this.textContent = muted ? '♪̸' : '♪'; this.style.opacity = muted ? .5 : 1; };
   el('newBtn').onclick = function () {
     if (!confirm('Start a new mine? Your current progress is lost.')) return;
-    s = fresh(); dispC = s.c; dispR = s.r; snapCam(); chunks.clear(); pending.clear(); save(); refreshShop();
+    s = fresh(); snapCam(); chunks.clear(); pending.clear(); save(); refreshShop();
   };
 
   // block scroll/zoom gestures on the game

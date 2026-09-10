@@ -29,11 +29,14 @@ for (const o of D.ORES) {
 }
 
 // --- greedy playthrough: dig straight down, reinvest coins as they accrue ---
+// The bot drives the SAME physics step the player uses, holding Down: it mines the tile
+// directly below and gravity drops it in, one row at a time — a single-column shaft, the
+// same path the old grid bot took. Frames stand in for the old discrete "actions".
 function play(seed) {
   const s = D.newGame(seed);
-  const seenTier = {};                 // oreId -> first action it was mined
-  let steps = 0;
-  const BUDGET = 3_000_000, TARGET = 520;   // rows; Mythril band now starts at 480 (2× finer grid)
+  const seenTier = {};                 // oreId -> first frame it was mined
+  let frames = 0;
+  const dt = 1 / 60, BUDGET = 3_000_000, TARGET = 520;   // rows; Mythril band starts at 480 (2× finer grid)
 
   const shop = () => {                  // buy cheapest affordable upgrade repeatedly
     for (;;) {
@@ -49,28 +52,28 @@ function play(seed) {
     D.buyTech(s, 'scanner'); D.buyTech(s, 'lantern');
   };
 
-  while (s.depth < TARGET && steps < BUDGET) {
+  while (s.depth < TARGET && frames < BUDGET) {
     shop();
-    for (let i = 0; i < 40 && s.depth < TARGET && steps < BUDGET; i++) {
-      const ev = D.attemptStep(s, 'down');
-      steps++;
-      if (ev.type === 'dig' && ev.broke && ev.coin > 0) seenTier[ev.ore] = seenTier[ev.ore] || steps;
+    for (let i = 0; i < 4000 && s.depth < TARGET && frames < BUDGET; i++) {
+      const ev = D.physicsStep(s, { down: true }, dt);
+      frames++;
+      for (const e of ev.events) if (e.type === 'break' && e.coin > 0) seenTier[e.ore] = seenTier[e.ore] || frames;
     }
   }
   shop();
-  return { s, steps, seenTier };
+  return { s, frames, seenTier };
 }
 
 const run = play(12345);
-console.log(`\nGreedy bot: depth ${run.s.depth}, ${run.steps.toLocaleString()} actions, ` +
+console.log(`\nGreedy bot: depth ${run.s.depth}, ${run.frames.toLocaleString()} frames, ` +
   `${run.s.earned.toLocaleString()} coins earned`);
 console.log('upgrades', run.s.up, 'tech', run.s.tech);
 
 chk(run.s.depth >= 480, `bot reached Mythril depth (got ${run.s.depth})`);
-chk(run.steps < 3_000_000, `bot finished within action budget (used ${run.steps})`);
+chk(run.frames < 3_000_000, `bot finished within frame budget (used ${run.frames})`);
 for (const o of D.ORES) {
   const got = run.seenTier[o.id];
-  console.log(`  ${got ? 'OK ' : '-- '}  ${o.name.padEnd(8)} ${got ? 'first mined @ action ' + got : '(shallow band, not on shaft path)'}`);
+  console.log(`  ${got ? 'OK ' : '-- '}  ${o.name.padEnd(8)} ${got ? 'first mined @ frame ' + got : '(shallow band, not on shaft path)'}`);
   // Dirt/Copper live in shallow rows a single-column shaft can skip; their
   // reachability is covered by the static world-scan above. Everything deeper
   // must fall on the descent path.

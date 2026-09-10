@@ -13,7 +13,8 @@ finer grid, animation) is queued for later.*
 
 ## Motion & juice (game layer)
 
-- **Nothing teleports:** the miner lerps between tiles; the lamp glow pulses.
+- **Nothing teleports:** the miner moves under continuous platformer physics (run,
+  gravity, jump); the camera eases to keep it centred; the lamp glow pulses.
 - **Chipping rock:** fine pixel debris (mostly 1px, shaded off the source colour toward
   a bright chip / dark fleck so it reads as chipped stone, not flat chunky squares).
 - **Breaking rock:** a debris burst scaled to ore rarity. **Ore sells the instant it

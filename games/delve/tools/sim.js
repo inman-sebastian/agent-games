@@ -6,8 +6,9 @@
 //   node tools/sim.js state  [--seed N] [--from save.json]      → raw state as JSON
 //   node tools/sim.js probe  --seed N --c C --r R               → tileInfo at one cell
 //   node tools/sim.js map    --seed N [--c C --r R --w W --h H] → ASCII ore/world map
-//   node tools/sim.js play   --seed N --do "d40 r5 d40" [--from save.json]
-//        → run an action script (u/d/l/r + count), print resulting state + a summary
+//   node tools/sim.js play   --seed N --do "d600 r120" [--from save.json]
+//        → run an action script through the physics (d/l/r/u=jump + frames @1/60s),
+//          print resulting state + a mined-ore summary
 //
 // Notes: the world is a pure f(seed,c,r); a "state" is just {seed, c, r, dug, dmg,
 // coins, up, tech, …}. --from loads a save JSON (merged over newGame, like the game).
@@ -59,23 +60,24 @@ function cmdMap() {
     D.ORES.map(o => `${o.name}:${counts[o.id] || 0}`).join('  '));
 }
 
-// Run an action script and report. Tokens: <dir><count>, dir in u/d/l/r. e.g. "d40 r5 d40".
+// Run an action script through the platformer physics and report. Tokens: <key><frames>,
+// key in d(own) / l(eft) / r(ight) / u(=jump); frames are 1/60s each. e.g. "d600 r120".
 function cmdPlay() {
   const s = loadState();
-  const DIRS = { u: 'up', d: 'down', l: 'left', r: 'right' };
-  const seen = {}; let steps = 0, blocked = 0;
+  const IN = { d: 'down', l: 'left', r: 'right', u: 'jump' };
+  const seen = {}; let frames = 0; const dt = 1 / 60;
   for (const tok of String(opt.do || '').trim().split(/\s+/).filter(Boolean)) {
-    const dir = DIRS[tok[0]], n = +tok.slice(1) || 1;
-    if (!dir) { console.error('bad action token: ' + tok); process.exit(2); }
+    const k = IN[tok[0]], n = +tok.slice(1) || 1;
+    if (!k) { console.error('bad action token: ' + tok); process.exit(2); }
     for (let i = 0; i < n; i++) {
-      const ev = D.attemptStep(s, dir); steps++;
-      if (ev.type === 'blocked') blocked++;
-      if (ev.type === 'dig' && ev.broke && ev.ore) { const nm = D.ORE_BY_ID[ev.ore].name; seen[nm] = seen[nm] || { count: 0, coin: 0 }; seen[nm].count++; seen[nm].coin += ev.coin || 0; }
+      const input = { left: false, right: false, jump: false, down: false }; input[k] = true;
+      const ev = D.physicsStep(s, input, dt); frames++;
+      for (const e of ev.events) if (e.type === 'break' && e.ore) { const nm = D.ORE_BY_ID[e.ore].name; seen[nm] = seen[nm] || { count: 0, coin: 0 }; seen[nm].count++; seen[nm].coin += e.coin || 0; }
     }
   }
   console.log(JSON.stringify({
-    pos: [s.c, s.r], depth: s.depth, coins: s.coins, earned: s.earned,
-    steps, blocked, up: s.up, tech: s.tech,
+    pos: [+s.x.toFixed(2), +s.y.toFixed(2)], depth: s.depth, coins: s.coins, earned: s.earned,
+    frames, grounded: s.grounded, up: s.up, tech: s.tech,
     mined: seen,
   }, null, 2));
 }

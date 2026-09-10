@@ -9,9 +9,9 @@ so the two can't drift.
 
 ## What it is
 
-A moody, pixel-art **incremental mining game**. You tunnel straight down through
-deepening rock strata, break ore where you find it, and reinvest the coins to dig
-deeper — where the rock is tougher and the ore is rarer.
+A moody, pixel-art **incremental mining game**. You dig down and outward through an
+open, deepening world of rock strata, breaking ore where you find it, and reinvest
+the coins to delve deeper — where the rock is tougher and the ore is rarer.
 
 > This describes the game **as currently implemented**. DELVE is mid-evolution toward
 > a Terraria-like mining/exploration game — see [Direction & roadmap](#direction--roadmap)
@@ -19,7 +19,7 @@ deeper — where the rock is tougher and the ore is rarer.
 
 ## Core loop
 
-1. **Dig** — move into a rock cell to chip it; enough hits break the block.
+1. **Dig** — run and jump around, pushing into rock to chip it; enough hits break the block.
 2. **Earn** — ore sells the instant its block breaks, **in place**. There is no
    cargo and no hauling back to the surface; the loop never asks you to stop digging.
 3. **Spend** — the ⛏ Upgrades panel: leveled upgrades and one-time tech.
@@ -27,12 +27,15 @@ deeper — where the rock is tougher and the ore is rarer.
 
 ## Controls
 
-- **Keyboard:** WASD / arrow keys.
-- **Mouse:** hold toward a wall to dig.
-- **Touch:** drag toward a wall (larger targets on coarse pointers).
+Smooth 2D-platformer movement (physics — gravity, running, jumping; see the design
+pillars):
 
-One input drives one dig/step; the sim gates the next action until the current one
-settles, and unclaimed intent is buffered rather than dropped.
+- **Keyboard:** A/D or ←/→ to run, W / ↑ / Space to jump, S / ↓ to dig straight down.
+- **Mouse / touch:** point left/right of the miner to run that way, above it to jump,
+  below it to dig down — big, forgiving targets on coarse pointers.
+
+Mining is coupled to movement — you dig the rock you push into (walk into a wall to
+tunnel sideways, hold Down to tunnel below). A dedicated aim/mine action is #3.
 
 ## Ore tiers
 
@@ -78,11 +81,13 @@ truth for balance.
 
 ## Design pillars
 
-- **No gravity, no fuel, no cargo.** All three are classic soft-lock generators
-  (dig down, can't get back / strand yourself). Traversal is your own persistent
-  tunnels — you can always climb back the way you came — so the economy is provably
-  **progress-only**, and `tools/verify.js` proves a greedy bot reaches Mythril within a
-  sane budget.
+- **Platformer traversal; no fuel, no cargo.** Movement is real 2D platforming —
+  gravity, running, jumping — with mining coupled to it. The economy stays
+  **progress-only** where it counts: digging is free and ore sells in place, so there
+  is no economic soft-lock, and `tools/verify.js` proves a greedy bot reaches Mythril
+  within a sane budget. (Fuel and cargo — the classic soft-lock generators — stay out.)
+  Climbing back up a sheer shaft isn't possible yet; dedicated upward traversal
+  (ropes / platforms / ladders) is a future pass.
 - **Deterministic, infinite world.** Every cell's static contents are a pure
   `f(seed, c, r)` (see [ARCHITECTURE.md](ARCHITECTURE.md)); the same seed always
   generates the same mine, and only what you've changed is saved.
@@ -105,8 +110,9 @@ into them as it ships. Tracked as an epic in
 - **Open, infinite world in all directions** — no more bounded fixed-column shaft; the
   world generates infinitely horizontally as well as down.
   [#1](https://github.com/inman-sebastian/agent-games/issues/1)
-- **Smooth platformer movement** — gravity, jumping and falling with continuous
-  sub-tile position, replacing grid-locked omnidirectional no-gravity movement.
+- **Smooth platformer movement** *(shipped)* — gravity, jumping and falling with
+  continuous sub-tile position + AABB tile collision, replacing grid-locked
+  omnidirectional no-gravity movement.
   [#2](https://github.com/inman-sebastian/agent-games/issues/2)
 - **Mining decoupled from movement** — mining becomes its own aim/target action, not a
   side effect of walking into rock.
