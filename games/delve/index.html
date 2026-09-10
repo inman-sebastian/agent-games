@@ -403,6 +403,7 @@
   const AMB = [0.05, 0.05, 0.08];                       // ambient floor — unlit rock stays dim, faintly cool
   const SCRIM = [6, 7, 14];                             // colour the darkness fades toward (deep, cool)
   const ADD = 0.26;                                     // how strongly the light field shows as additive glow
+  const ADD_MAX = 0.5;                                  // ceiling on TOTAL additive per channel (lamp+ore) — no blown sunspot where they overlap
   const LAMP_COLOR = [1.0, 0.72, 0.42];                 // warm lantern (warmer than before, per feedback)
   const OPEN_ATTEN = 0.70, ROCK_ATTEN = 0.45;           // per-step light conduction: open tunnel vs solid rock
   const LMARGIN = 2;                                    // extra tile rows above/below the view for clean edges
@@ -501,9 +502,10 @@
         let cr = ogR[a00] * w00 + ogR[a10] * w10 + ogR[a01] * w01 + ogR[a11] * w11; if (cr > GLOW_CAP) cr = GLOW_CAP;
         let cg = ogG[a00] * w00 + ogG[a10] * w10 + ogG[a01] * w01 + ogG[a11] * w11; if (cg > GLOW_CAP) cg = GLOW_CAP;
         let cb = ogB[a00] * w00 + ogB[a10] * w10 + ogB[a01] * w01 + ogB[a11] * w11; if (cb > GLOW_CAP) cb = GLOW_CAP;
-        let av = (r * ADD + cr) * 255; ad[j] = av > 255 ? 255 : av;
-        av = (g * ADD + cg) * 255; ad[j + 1] = av > 255 ? 255 : av;
-        av = (b * ADD + cb) * 255; ad[j + 2] = av > 255 ? 255 : av; ad[j + 3] = 255;
+        // total additive (lamp warm + ore colour) capped together so their overlap can't blow to a white sunspot
+        let s = r * ADD + cr; if (s > ADD_MAX) s = ADD_MAX; ad[j] = s * 255;
+        s = g * ADD + cg; if (s > ADD_MAX) s = ADD_MAX; ad[j + 1] = s * 255;
+        s = b * ADD + cb; if (s > ADD_MAX) s = ADD_MAX; ad[j + 2] = s * 255; ad[j + 3] = 255;
         // scrim brightness: lamp field OR ore glow, so a glowing vein carves its own visibility
         let br = r > g ? (r > b ? r : b) : (g > b ? g : b);
         if (cr > br) br = cr; if (cg > br) br = cg; if (cb > br) br = cb; if (br > 1) br = 1;
@@ -561,10 +563,15 @@
         // dies in rock (occlusion-aware), instead of a geometry-blind halo. Brightness
         // fades with lamp distance (lightAt), so far tunnels don't blaze; brighter as mined.
         const li = lightAt(c, r);
-        const exposed = !solidTile(c, r - 1) || !solidTile(c, r + 1) || !solidTile(c - 1, r) || !solidTile(c + 1, r);
+        // pick the exposed OPEN face so the glow floods the tunnel, not the solid rock
+        // behind the vein (seeding the buried tile sent a green plume down into the rock).
+        let nc = c, nr = r;
+        if (!solidTile(c, r - 1)) nr = r - 1; else if (!solidTile(c, r + 1)) nr = r + 1;
+        else if (!solidTile(c - 1, r)) nc = c - 1; else if (!solidTile(c + 1, r)) nc = c + 1;
+        const exposed = nc !== c || nr !== r;
         if (exposed && (li > 0.16 || frac > 0.05)) {
           const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
-          addLight(c * T + (T >> 1), r * T + (T >> 1) - camY, 1,
+          addLight(nc * T + (T >> 1), nr * T + (T >> 1) - camY, 1,
             [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.9 * li * (0.5 + 0.85 * frac) * pulse);
         }
         const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
