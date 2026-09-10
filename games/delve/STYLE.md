@@ -14,11 +14,20 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 > In the game the rock field is expensive, so it's cached as fixed-position
 > vertical **chunks** (full field width, a few rows tall): each chunk is rendered
 > once the first time it scrolls into view and kept, so scrolling back over
-> explored ground is a cheap blit. Digging re-renders only a small window around
-> the changed tile and patches it into the affected chunk(s) — mining doesn't
-> re-render whole chunks. The lamp, ore veins+glow, fog-of-war, miner, particles
-> and vignette draw per-frame on top. All world-space noise is anchored to world
-> coordinates so a chunk (or a patch) looks identical wherever it's rendered.
+> explored ground is a cheap blit. Chunk generation runs **off the main thread**
+> in a Web Worker (`chunk-worker.js`) that renders into an OffscreenCanvas and
+> ships the result back as a transferable ImageBitmap, so descending into fresh
+> depth never stalls the game loop (a not-yet-arrived chunk shows a flat bg
+> placeholder for a frame or two). Digging re-renders only a small window around
+> the changed tile and patches it into the affected chunk(s) — synchronously on
+> the main thread (cheap, no dig latency). The lamp, ore veins+glow, fog-of-war,
+> miner, particles and vignette draw per-frame on top.
+>
+> The rock renderer itself lives in **`cave-render.js`**, imported by BOTH the
+> main thread and the Worker, so the look can never drift between them (the
+> workspace's "one shared ruleset" rule applied to presentation). All world-space
+> noise is anchored to world coordinates, so a chunk or a patch looks identical
+> wherever it is rendered.
 >
 > The world is a **wide, bounded shaft** (WIDTH columns), infinite downward. The
 > canvas **fills the whole viewport edge-to-edge**: its logical width is the full
