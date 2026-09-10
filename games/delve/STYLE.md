@@ -11,11 +11,14 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 > sandbox where the look is iterated before changes land in the game; keep the
 > three (lab, game, this file) in sync as the direction evolves.
 >
-> In the game the rock field is expensive, so background + rock are cached in an
-> offscreen buffer and only rebuilt when the camera crosses a tile row or a tile
-> breaks; the lamp, ore veins+glow, fog-of-war, miner, particles and vignette are
-> drawn per-frame on top. All world-space noise is anchored to world coordinates
-> so eroded edges and texture stay put as the view scrolls.
+> In the game the rock field is expensive, so it's cached as fixed-position
+> vertical **chunks** (full field width, a few rows tall): each chunk is rendered
+> once the first time it scrolls into view and kept, so scrolling back over
+> explored ground is a cheap blit. Digging re-renders only a small window around
+> the changed tile and patches it into the affected chunk(s) — mining doesn't
+> re-render whole chunks. The lamp, ore veins+glow, fog-of-war, miner, particles
+> and vignette draw per-frame on top. All world-space noise is anchored to world
+> coordinates so a chunk (or a patch) looks identical wherever it's rendered.
 >
 > The world is a **wide, bounded shaft** (WIDTH columns), infinite downward. The
 > canvas **fills the whole viewport edge-to-edge**: its logical width is the full

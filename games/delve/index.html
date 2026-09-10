@@ -113,14 +113,15 @@
   // so tiles stay square and the canvas fills edge to edge with no letterboxing.
   const T = 16, TILE = T, W = D.WIDTH, u = 2;
   const LW = W * T;                                     // logical width = full field width (fixed)
-  let VIEW_ROWS = 15, LH = VIEW_ROWS * T, BAND = VIEW_ROWS + 4;
+  let VIEW_ROWS = 15, LH = VIEW_ROWS * T;
+  const CHUNK = 4, MARGIN = 1;                          // rows per cached chunk; tiles of shading context around it
 
   const cv = document.getElementById('c');
   const ctx = cv.getContext('2d');
 
-  // offscreen buffers: fieldBuf caches background + rock; fbuf is the fg alpha layer.
-  // pen1 draws into penCtx — the cache while baking rock, the screen for per-frame veins.
-  const fieldBuf = document.createElement('canvas'); fieldBuf.width = LW; fieldBuf.height = BAND * T;
+  // scratch buffers: fieldBuf renders one chunk (+margin) at a time; fbuf is the fg alpha layer.
+  // pen1 draws into penCtx — the scratch buffer while baking rock, the screen for per-frame veins.
+  const fieldBuf = document.createElement('canvas'); fieldBuf.width = LW; fieldBuf.height = (CHUNK + 2 * MARGIN) * T;
   const lb = fieldBuf.getContext('2d'); lb.imageSmoothingEnabled = false;
   const fbuf = document.createElement('canvas'); const fx = fbuf.getContext('2d');
   let penCtx = lb;
@@ -192,9 +193,13 @@
 
   // ---------- layered pixel-art cave renderer (ported from style-lab.html) ----------
   // The rock is a per-pixel field composited over a lighter background layer, top-lit
-  // with dark mass centres. It's expensive, so bg + rock + baked ore veins are cached
-  // in fieldBuf and only rebuilt when the camera crosses a tile row or a tile changes.
-  let fieldTop = NaN, fieldDirty = true;
+  // with dark mass centres. It's expensive, so instead of re-rendering on every scroll
+  // we cache the rock as fixed-position vertical CHUNKS (full field width, CHUNK rows
+  // tall): each chunk is rendered ONCE the first time it's needed and kept; digging only
+  // invalidates the affected chunk(s). Chunks are rendered with a MARGIN of shading
+  // context above/below so seams are invisible. fieldBuf is the reusable scratch buffer.
+  const chunks = new Map();                 // chunkIndex -> {cv, ctx}
+  const chunkOf = (r) => Math.floor(r / CHUNK);
   const TEX = 90210;
   // debug overlay state (toggle with F3 / backtick, or start with ?debug in the URL)
   let DEBUG = /(\?|&)debug\b/.test(location.search);
@@ -334,35 +339,37 @@
     for (let y = PH - 1; y >= 0; y--) for (let x = PW - 1; x >= 0; x--) { const i = y * PW + x; if (d[i] === 0) continue; d[i] = Math.min(d[i], at(x + 1, y) + 1, at(x, y + 1) + 1, at(x + 1, y + 1) + 1.414, at(x - 1, y + 1) + 1.414); }
     return d; }
 
-  function renderBackground(BG, PW, PH, bandTop) { const oy = bandTop * T;
-    for (let py = 0; py < PH; py++) { lb.fillStyle = mix(BG.top, BG.bot, py / (PH - 1)); lb.fillRect(0, py, PW, 1); }
-    lb.fillStyle = BG.sil;
-    for (let py = 0; py < PH; py += 2) for (let px = 0; px < PW; px += 2) { if (vnoise(px * 0.045, (oy + py) * 0.06, TEX + 50) < 0.42) lb.fillRect(px, py, 2, 2); }
+  function renderBackground(BG, PW, PH, bandLeft, bandTop) { const ox = bandLeft * T, oy = bandTop * T;
+    // flat fill (midpoint of the depth ramp) so adjacent cached chunks meet seamlessly;
+    // depth still reads via the per-chunk material shift, fog and vignette.
+    lb.fillStyle = mix(BG.top, BG.bot, 0.5); lb.fillRect(0, 0, PW, PH);
+    lb.fillStyle = BG.sil;                                                             // distant silhouettes (world-anchored)
+    for (let py = 0; py < PH; py += 2) for (let px = 0; px < PW; px += 2) { if (vnoise((ox + px) * 0.045, (oy + py) * 0.06, TEX + 50) < 0.42) lb.fillRect(px, py, 2, 2); }
   }
 
   // foreground rock → fbuf (alpha layer): top-lit, dark-bodied, organic edges
-  function shadeRock(mask, PW, PH, C, bandTop, borderOpen) { const oy = bandTop * T;
+  function shadeRock(mask, PW, PH, C, bandLeft, bandTop, borderOpen) { const ox = bandLeft * T, oy = bandTop * T;
     const openAt = (x, y) => (x < 0 || x >= PW || y < 0 || y >= PH) ? (borderOpen ? 1 : 0) : (mask[y * PW + x] ? 0 : 1);
     const rock = distField(i => mask[i] === 1, PW, PH, borderOpen ? 1e6 : 0);
     const edge = distField(i => mask[i] === 0, PW, PH, borderOpen ? 0 : 1e6);
     const top = new Float32Array(PW * PH);
-    for (let x = 0; x < PW; x++) { const wc = (x / T) | 0; let sa = 0; for (let k = 1; k <= 12; k++) { if (solidTile(wc, bandTop - k)) sa++; else break; }
+    for (let x = 0; x < PW; x++) { const wc = bandLeft + ((x / T) | 0); let sa = 0; for (let k = 1; k <= 12; k++) { if (solidTile(wc, bandTop - k)) sa++; else break; }
       let depth = sa >= 12 ? 1e6 : sa * T;
       for (let y = 0; y < PH; y++) { if (openAt(x, y)) depth = 0; top[y * PW + x] = depth; depth++; } }
     const LV = [C.center, C.deep, C.body, C.body2, C.lit, C.rimA];
     fbuf.width = PW; fbuf.height = PH; fx.imageSmoothingEnabled = false;
     const img = fx.createImageData(PW, PH), d = img.data;
     const set = (i, c, a) => { const j = i * 4; d[j] = c[0]; d[j + 1] = c[1]; d[j + 2] = c[2]; d[j + 3] = a; };
-    for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) { const i = py * PW + px, wy = oy + py;
+    for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) { const i = py * PW + px, wx = ox + px, wy = oy + py;
       if (mask[i]) { const ed = edge[i], td = top[i];
         const range = (td <= ed + 0.8) ? 6.0 : 3.8; let L = 1 - ed / range;
-        L += (vnoise(px * 0.16, wy * 0.16, TEX) - 0.5) * 0.55 + (vnoise(px * 0.45 + 7, wy * 0.45, TEX) - 0.5) * 0.30 + (vnoise(px * 1.05, wy * 1.05 + 3, TEX) - 0.5) * 0.14;
+        L += (vnoise(wx * 0.16, wy * 0.16, TEX) - 0.5) * 0.55 + (vnoise(wx * 0.45 + 7, wy * 0.45, TEX) - 0.5) * 0.30 + (vnoise(wx * 1.05, wy * 1.05 + 3, TEX) - 0.5) * 0.14;
         L = clamp01(L);
         const f = L * 5, lo = f | 0, b = (BAYER[(px & 3) | ((py & 3) << 2)] + 0.5) / 16;
         let c = LV[Math.min(5, lo + ((f - lo) > b ? 1 : 0))];
-        if (L > 0.6 && vnoise(px * 0.5 + 2, wy * 0.5, TEX + 8) < 0.40) c = C.rimRock;
-        if (L > 0.25 && L < 0.72 && vnoise(px * 0.75, wy * 0.75, TEX + 5) > 0.86) c = C.center;
-        if (L > 0.88 && vnoise(px * 0.7, wy * 0.5, TEX) > 0.6) c = C.rimB;
+        if (L > 0.6 && vnoise(wx * 0.5 + 2, wy * 0.5, TEX + 8) < 0.40) c = C.rimRock;
+        if (L > 0.25 && L < 0.72 && vnoise(wx * 0.75, wy * 0.75, TEX + 5) > 0.86) c = C.center;
+        if (L > 0.88 && vnoise(wx * 0.7, wy * 0.5, TEX) > 0.6) c = C.rimB;
         set(i, c, 255);
       } else { const dr = rock[i];
         if (dr < 1.4) set(i, [0, 0, 0], 105); else if (dr < 2.7) set(i, [0, 0, 0], 48); else set(i, [0, 0, 0], 0);
@@ -370,11 +377,13 @@
     fx.putImageData(img, 0, 0);
   }
 
-  // per-pixel solidity field for the band, with gently eroded (organic) edges
-  function buildMask(PW, PH, bandTop) { const oy = bandTop * T, mask = new Uint8Array(PW * PH);
-    for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) { const tx = (px / T) | 0, ty = bandTop + ((py / T) | 0);
+  // per-pixel solidity field for the window, with gently eroded (organic) edges.
+  // bandLeft/bandTop are the world tile coords of the buffer's top-left; noise is
+  // sampled in WORLD space so texture/edges are identical wherever a window lands.
+  function buildMask(PW, PH, bandLeft, bandTop) { const ox = bandLeft * T, oy = bandTop * T, mask = new Uint8Array(PW * PH);
+    for (let py = 0; py < PH; py++) for (let px = 0; px < PW; px++) { const tx = bandLeft + ((px / T) | 0), ty = bandTop + ((py / T) | 0);
       if (!solidTile(tx, ty)) { mask[py * PW + px] = 0; continue; }
-      const lx = px - tx * T, ly = py - ((ty - bandTop) * T); let dmin = 99;
+      const lx = px % T, ly = py % T; let dmin = 99;
       if (!solidTile(tx, ty - 1)) dmin = Math.min(dmin, ly + 0.5);
       if (!solidTile(tx, ty + 1)) dmin = Math.min(dmin, (T - 1 - ly) + 0.5);
       if (!solidTile(tx - 1, ty)) dmin = Math.min(dmin, lx + 0.5);
@@ -383,7 +392,7 @@
       if (!solidTile(tx + 1, ty - 1)) dmin = Math.min(dmin, Math.hypot(T - lx - 0.5, ly + 0.5));
       if (!solidTile(tx - 1, ty + 1)) dmin = Math.min(dmin, Math.hypot(lx + 0.5, T - ly - 0.5));
       if (!solidTile(tx + 1, ty + 1)) dmin = Math.min(dmin, Math.hypot(T - lx - 0.5, T - ly - 0.5));
-      const thr = 0.4 + 1.4 * vnoise(px * 0.28, (oy + py) * 0.28, TEX + 2);
+      const thr = 0.4 + 1.4 * vnoise((ox + px) * 0.28, (oy + py) * 0.28, TEX + 2);
       mask[py * PW + px] = dmin > thr ? 1 : 0; }
     return mask; }
 
@@ -400,29 +409,58 @@
     P(4, 9, 2, 3, B); P(7, 9, 2, 3, B); P(4, 12, 2, 1, BOOT); P(7, 12, 2, 1, BOOT);
   }
 
-  // rebuild the cached rock field for the band starting at world row `bandTop`
-  function rebuildField(bandTop) {
-    const _t0 = performance.now();
-    const PW = LW, PH = BAND * T, oy = bandTop * T;
-    const R = rampAt(Math.max(1, bandTop + (BAND >> 1))), C = colorsFor(R), BG = bgFor(R);
-    renderBackground(BG, PW, PH, bandTop);
-    const mask = buildMask(PW, PH, bandTop);
-    shadeRock(mask, PW, PH, C, bandTop, false);
+  // Compose bg + rock + sky + stalactites for a world rectangle into the scratch buffer
+  // (fieldBuf top-left, PW×PH). Used both for full chunks and small dig patches.
+  function composeBand(bandLeft, bandTop, colsW, rowsH) {
+    const PW = colsW * T, PH = rowsH * T, oy = bandTop * T;
+    const R = rampAt(Math.max(1, bandTop + (rowsH >> 1))), C = colorsFor(R), BG = bgFor(R);
+    renderBackground(BG, PW, PH, bandLeft, bandTop);
+    shadeRock(buildMask(PW, PH, bandLeft, bandTop), PW, PH, C, bandLeft, bandTop, false);
     lb.drawImage(fbuf, 0, 0);
     // sky fills the open space above the ground (world y < row 1)
     const skyBot = (D.SURFACE + 1) * T;
     if (oy < skyBot) for (let py = 0; py < PH; py++) { const wy = oy + py; if (wy >= skyBot) break;
       lb.fillStyle = mix('#0e1830', '#6a86b4', clamp01((wy - oy) / (skyBot - oy))); lb.fillRect(0, py, PW, 1); }
     // stalactites / stalagmites where open tiles meet rock
-    for (let ty = Math.max(D.SURFACE + 1, bandTop); ty < bandTop + BAND; ty++) for (let tx = 0; tx < W; tx++) {
-      if (solidTile(tx, ty)) continue; const Y = (ty - bandTop) * T;
-      if (solidTile(tx, ty - 1) && hashXY(tx, ty, 21) % 3 === 0) { const cx = tx * T + (T >> 1) + (hashXY(tx, ty, 22) % 5 - 2), len = 3 + hashXY(tx, ty, 23) % 4;
+    penCtx = lb;
+    for (let ty = Math.max(D.SURFACE + 1, bandTop); ty < bandTop + rowsH; ty++) for (let tx = bandLeft; tx < bandLeft + colsW; tx++) {
+      if (tx < 0 || tx >= W || solidTile(tx, ty)) continue; const X = (tx - bandLeft) * T, Y = (ty - bandTop) * T;
+      if (solidTile(tx, ty - 1) && hashXY(tx, ty, 21) % 3 === 0) { const cx = X + (T >> 1) + (hashXY(tx, ty, 22) % 5 - 2), len = 3 + hashXY(tx, ty, 23) % 4;
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen1(cx - w, Y + i, 2 * w + 1, 1, rgbHex(i < 2 ? C.center : C.deep)); }
         pen1(cx, Y, 1, 1, rgbHex(C.rimA)); }
-      if (solidTile(tx, ty + 1) && hashXY(tx, ty, 24) % 4 === 0) { const cx = tx * T + (T >> 1) + (hashXY(tx, ty, 25) % 5 - 2), len = 2 + hashXY(tx, ty, 26) % 3;
+      if (solidTile(tx, ty + 1) && hashXY(tx, ty, 24) % 4 === 0) { const cx = X + (T >> 1) + (hashXY(tx, ty, 25) % 5 - 2), len = 2 + hashXY(tx, ty, 26) % 3;
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen1(cx - w, Y + T - 1 - i, 2 * w + 1, 1, rgbHex(i < 1 ? C.center : C.deep)); } } }
-    // ore veins are NOT baked here — they're drawn per-frame in render(), only for tiles
-    // the player can actually see (within lamp range or revealed by the Ore Scanner).
+  }
+
+  // Render a full CHUNK-tall slice (rows [ci*CHUNK .. +CHUNK-1]) into a kept canvas, with
+  // MARGIN tiles of context above/below so seams are invisible; only the core is copied out.
+  function renderChunk(ci) {
+    const _t0 = performance.now();
+    composeBand(0, ci * CHUNK - MARGIN, W, CHUNK + 2 * MARGIN);
+    let e = chunks.get(ci);
+    if (!e) { const cvc = document.createElement('canvas'); cvc.width = LW; cvc.height = CHUNK * T; e = { cv: cvc, ctx: cvc.getContext('2d') }; chunks.set(ci, e); }
+    e.ctx.clearRect(0, 0, LW, CHUNK * T);
+    e.ctx.drawImage(fieldBuf, 0, MARGIN * T, LW, CHUNK * T, 0, 0, LW, CHUNK * T);
+    lastRebuildMs = performance.now() - _t0; rebuildCount++;
+    return e;
+  }
+  const ensureChunk = (ci) => chunks.get(ci) || renderChunk(ci);
+
+  // A dig changes one tile → re-render only a small window around it (with a margin of
+  // shading context) and patch it into the cached chunk(s) it overlaps. Cheap (~a few ms)
+  // vs. re-rendering the whole chunk, so mining doesn't hitch. Chunks not yet cached are
+  // skipped — they'll render correctly when first needed.
+  function patchDig(c, r) {
+    const _t0 = performance.now();
+    const coreColL = Math.max(0, c - 1), coreColR = Math.min(W - 1, c + 1);
+    const coreRowT = r - 1, coreRowB = r + 1;
+    const bandLeft = coreColL - MARGIN, bandTop = coreRowT - MARGIN;
+    composeBand(bandLeft, bandTop, (coreColR - coreColL + 1) + 2 * MARGIN, (coreRowB - coreRowT + 1) + 2 * MARGIN);
+    const w = (coreColR - coreColL + 1) * T, srcX = (coreColL - bandLeft) * T, dstX = coreColL * T;
+    for (let ry = coreRowT; ry <= coreRowB; ry++) {
+      const e = chunks.get(chunkOf(ry)); if (!e) continue;
+      e.ctx.drawImage(fieldBuf, srcX, (ry - bandTop) * T, w, T, dstX, (ry - chunkOf(ry) * CHUNK) * T, w, T);
+    }
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
 
@@ -432,15 +470,20 @@
     camY += (targetCam - camY) * 0.16;
     if (camY < -LH * 0.45) camY = -LH * 0.45;
     const shx = (Math.random() * 2 - 1) * shake, shy = (Math.random() * 2 - 1) * shake;
-    const camRowTop = Math.floor(camY / T), bandTop = camRowTop - 2;
-    if (bandTop !== fieldTop || fieldDirty) { rebuildField(bandTop); fieldTop = bandTop; fieldDirty = false; }
+    const camRowTop = Math.floor(camY / T);
     const st = D.stats(s);
 
     ctx.save();
     ctx.translate(Math.round(shx), Math.round(shy - camY));
-    ctx.drawImage(fieldBuf, 0, bandTop * T);
 
     const rTop = camRowTop - 2, rBot = camRowTop + VIEW_ROWS + 2;
+    // blit the cached rock chunks that span the view (rendering any missing one on demand)
+    const c0 = chunkOf(rTop), c1 = chunkOf(rBot);
+    for (let ci = c0; ci <= c1; ci++) ctx.drawImage(ensureChunk(ci).cv, 0, ci * CHUNK * T);
+    // warm ONE not-yet-cached neighbour per frame so scrolling into it never hitches
+    for (let ci = c0 - 1; ci <= c1 + 1; ci++) { if (!chunks.has(ci)) { renderChunk(ci); break; } }
+    // bound memory: drop chunks well outside the view
+    if (chunks.size > 64) for (const ci of [...chunks.keys()]) if (ci < c0 - 24 || ci > c1 + 24) chunks.delete(ci);
     const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
     // fog of war: unexplored rock fades to a dim ambient floor (still faintly legible,
     // atmospheric) rather than pure black; the lamp reach defines what's fully lit.
@@ -531,7 +574,8 @@
     const cx = ev.c != null ? ev.c * TILE + TILE / 2 : 0, cy = ev.c != null ? ev.r * TILE + TILE / 2 : 0;
     if (ev.type === 'move') { moving = true; }
     else if (ev.type === 'dig') {
-      if (ev.broke) fieldDirty = true;               // tile became open → rebuild the cached rock field (veins draw per-frame)
+      // tile became open → patch just the area around it into the cached chunk(s), cheaply.
+      if (ev.broke) patchDig(ev.c, ev.r);
       if (!ev.broke) { sfx.chip(); chips(cx, cy, 2, '#8a7a66', 25); shake = Math.min(3, shake + 0.5); }
       else {
         const rar = ev.ore ? D.rarityOf(ev.ore) : 0;
@@ -592,9 +636,9 @@
       `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
       `pos   ${s.c},${s.r}  disp ${dispC.toFixed(1)},${dispR.toFixed(1)}  facing ${s.facing}\n` +
       `depth ${s.depth}m  best ${ore ? ore.name : '—'}\n` +
-      `cam   y ${camY.toFixed(1)}  cachedRow ${fieldTop}  viewRows ${VIEW_ROWS}\n` +
+      `cam   y ${camY.toFixed(1)}  viewRows ${VIEW_ROWS}\n` +
       `canvas ${cv.width}×${cv.height} @${up}×  tile ${(cv.clientWidth / W).toFixed(1)}px  cols ${W}\n` +
-      `field rebuilds ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
+      `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
       `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}\n` +
       `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
       `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}\n` +
@@ -660,7 +704,7 @@
     this.textContent = muted ? '♪̸' : '♪'; this.style.opacity = muted ? .5 : 1; };
   el('newBtn').onclick = function () {
     if (!confirm('Start a new mine? Your current progress is lost.')) return;
-    s = fresh(); dispC = s.c; dispR = s.r; camY = 0; fieldDirty = true; save(); refreshShop();
+    s = fresh(); dispC = s.c; dispR = s.r; camY = 0; chunks.clear(); save(); refreshShop();
   };
 
   // block scroll/zoom gestures on the game
@@ -674,11 +718,10 @@
   function fit() {
     const cssW = innerWidth, cssH = innerHeight;
     VIEW_ROWS = Math.max(9, Math.min(48, Math.round(W * cssH / cssW)));   // rows to match the screen aspect
-    LH = VIEW_ROWS * T; BAND = VIEW_ROWS + 4;
+    LH = VIEW_ROWS * T;
     cv.width = LW; cv.height = LH; ctx.imageSmoothingEnabled = false;      // (resetting width clears ctx state)
     cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
-    fieldBuf.height = BAND * T; lb.imageSmoothingEnabled = false;
-    fieldTop = NaN; fieldDirty = true;                                    // buffers changed → force a rebuild
+    // chunk cache is world-space and LW is fixed, so it survives resize — no invalidation needed.
   }
   addEventListener('resize', fit);
 
