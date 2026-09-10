@@ -68,6 +68,7 @@
     </div>
   </div>
 
+<script src="scripts/blocks.js"></script>
 <script src="scripts/cave-render.js"></script>
 <script src="scripts/ore-art.js"></script>
 <script src="scripts/sprites.js"></script>
@@ -81,7 +82,7 @@
   // Depth strata come straight from cave-render's shared STRATA (single source of truth for
   // the ramps); the lab only adds display names. The selector picks a representative world
   // row so composeBand's rampAt() paints that stratum's palette.
-  const STRATA = CR.STRATA;
+  const STRATA = window.Blocks.STRATA;
   const STRATA_NAMES = ['Topsoil', 'Clay', 'Stone', 'Deep Stone', 'Basalt'];
   const DEMO_ORES = [2, 3, 4, 5, 6, 7, 8, 9];   // Copper..Mythril (skip Dirt, a dim clod)
   const ORE_NAMES = { 2: 'Copper', 3: 'Iron', 4: 'Silver', 5: 'Gold', 6: 'Emerald', 7: 'Ruby', 8: 'Diamond', 9: 'Mythril' };

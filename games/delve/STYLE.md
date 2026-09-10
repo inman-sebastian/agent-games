@@ -12,20 +12,26 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 > same shared modules the game uses**, so the two can't drift: iterate a module and
 > both move together. Only this file needs to be kept in sync by hand.
 >
-> **Shared render modules** (all under `scripts/`, each attaches to `self` with no
-> build step, so they work in the window and the Worker alike):
-> - **`cave-render.js`** — the rock renderer (`composeBand`) + the colour/rng/noise
->   helpers + the depth `STRATA` ramps. Imported by the main thread, the chunk Worker,
->   and the lab.
-> - **`ore-art.js`** (`DelveOre`) — ore/gem crystal shapes + `drawOreVein`, over any 2D context.
+> **Shared modules** (all under `scripts/`, each attaches to `self` — and `blocks.js`/
+> `engine.js` also `module.exports` for Node — with no build step, so they work in the
+> window, the Worker, and Node alike):
+> - **`blocks.js`** (`Blocks`) — the **world definition** and single source of truth for
+>   "what is at a cell": world bounds, the block types (depth `STRATA` + ore table), the
+>   procedural generation, and the canonical query **`blockAt(seed,c,r)`** (full static
+>   descriptor) + cheap **`solidAt(seed,c,r)`**. Pure `f(seed,c,r)`; depends on nothing.
+>   Everything below reads from it. *Static only* — dug/damage state lives in the save.
+> - **`engine.js`** (`Delve`) — the pure **sim** (state, dig/economy, upgrades) layered
+>   over `Blocks`; re-exports the world query for callers. Required by `verify.js`/tools.
+> - **`cave-render.js`** — the rock renderer (`composeBand`) + colour/rng/noise helpers;
+>   reads the depth `STRATA` ramps from `Blocks`. Used by the main thread, Worker, lab.
+> - **`ore-art.js`** (`DelveOre`) — ore/gem crystal art + `drawOreBlock` (cluster-aware).
 > - **`sprites.js`** (`DelveSprites`) — the miner sprite (+ future entities).
 > - **`lighting.js`** (`DelveLighting`) — the geometry-aware lighting system as a
->   config-driven instance: push emitters via `addLight()`, then `render(cfg)` with the
->   viewport + a `solidTile` predicate. Knows nothing about game state.
-> - **`engine.js`** — the pure sim (also required by `verify.js` in Node).
+>   config-driven instance: push emitters via `addLight()`, then `render(cfg)`.
 >
 > `index.html` keeps only game glue (input, HUD, save, audio, camera, loop); the lab
 > keeps only its UI + sample-cave generator. Both compose the picture from the modules.
+> Dev tools (`tools/sim.js`, `tools/render.html`) read the same modules — see `tools/`.
 >
 > In the game the rock field is expensive, so it's cached as fixed-position
 > vertical **chunks** (full field width, a few rows tall): each chunk is rendered

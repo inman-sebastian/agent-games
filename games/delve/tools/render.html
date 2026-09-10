@@ -22,6 +22,7 @@
        miner 1 = draw the miner at centre | 0 (default 1)
        vision lamp reach seed (default 9)
      e.g. render.html?c=41&r=100&w=18&h=14&scale=3&cave=shaft -->
+<script src="../scripts/blocks.js"></script>
 <script src="../scripts/engine.js"></script>
 <script src="../scripts/cave-render.js"></script>
 <script src="../scripts/ore-art.js"></script>
@@ -61,10 +62,10 @@
   // ore blocks (all of them — the harness always reveals ore; use lamp=0 for raw art)
   for (let r = bandTop; r < bandTop + rows; r++) for (let c = bandLeft; c < bandLeft + cols; c++) {
     if (!solidTile(c, r)) continue;
-    const oid = D.tileInfo(seed, c, r).ore, art = oid && DelveOre.ORE_ART[oid];
+    const oid = D.blockAt(seed, c, r).ore, art = oid && DelveOre.ORE_ART[oid];
     if (!art || art.dim) continue;
     const frac = 0;
-    const sameOre = (dc, dr) => solidTile(c + dc, r + dr) && D.tileInfo(seed, c + dc, r + dr).ore === oid;
+    const sameOre = (dc, dr) => solidTile(c + dc, r + dr) && D.oreAt(seed, c + dc, r + dr) === oid;
     DelveOre.drawOreBlock(g, art, (c - bandLeft) * T, (r - bandTop) * T, c, r, frac, sameOre);
   }
 
@@ -76,7 +77,7 @@
     L.addLight((cx - bandLeft) * T + 8, (cy - bandTop) * T + 8, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * vision);
     for (let r = bandTop; r < bandTop + rows; r++) for (let c = bandLeft; c < bandLeft + cols; c++) {
       if (!solidTile(c, r)) continue;
-      const oid = D.tileInfo(seed, c, r).ore, art = oid && DelveOre.ORE_ART[oid];
+      const oid = D.blockAt(seed, c, r).ore, art = oid && DelveOre.ORE_ART[oid];
       if (!art || art.dim) continue;
       let nx = c, ny = r;
       if (!solidTile(c, r - 1)) ny = r - 1; else if (!solidTile(c, r + 1)) ny = r + 1;

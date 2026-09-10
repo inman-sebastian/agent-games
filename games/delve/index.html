@@ -102,6 +102,7 @@
     </div>
   </div>
 
+<script src="scripts/blocks.js"></script>
 <script src="scripts/engine.js"></script>
 <script src="scripts/cave-render.js"></script>
 <script src="scripts/ore-art.js"></script>
@@ -223,7 +224,7 @@
 
   // A tile is solid rock when it's below the surface, in-bounds, and not yet dug.
   // Out-of-bounds columns read as bedrock (solid) so the shaft has clean side walls.
-  const solidTile = (c, r) => (c < 0 || c >= W) ? true : (r > D.SURFACE && !D.isDug(s, c, r));
+  const solidTile = (c, r) => D.solidAt(s.seed, c, r) && !D.isDug(s, c, r);   // static block ∧ not dug
 
   // ore veins (DelveOre.drawOreVein), the miner sprite (DelveSprites.drawMiner) and the
   // rock field (cave-render.js) are all drawn from shared modules now — see the render loop.
@@ -334,13 +335,13 @@
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
     // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — lighting.render.)
     for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
-        if (!solidTile(c, r)) continue; const info = D.tileInfo(s.seed, c, r); if (!info.ore) continue;
+        if (!solidTile(c, r)) continue; const b = D.blockAt(s.seed, c, r); if (!b.ore) continue;
         const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0); if (vis <= 0.06) continue;
-        const art = ORE_ART[info.ore]; if (!art || art.dim) continue;    // dirt: no block, shows as plain rock
-        const frac = info.maxHp ? (s.dmg[D.key(c, r)] || 0) / info.maxHp : 0;
+        const art = ORE_ART[b.ore]; if (!art || art.dim) continue;       // dirt: no block, shows as plain rock
+        const frac = b.hp ? (s.dmg[D.key(c, r)] || 0) / b.hp : 0;
         // cluster-aware: a neighbour is "same ore" if it's still solid and the same node,
-        // so a pocket of ore cells tiles into one mass. (D.tileInfo is a cheap pure lookup.)
-        const oid = info.ore, sameOre = (dc, dr) => solidTile(c + dc, r + dr) && D.tileInfo(s.seed, c + dc, r + dr).ore === oid;
+        // so a pocket of ore cells tiles into one mass. (D.oreAt is a cheap id-only lookup.)
+        const oid = b.ore, sameOre = (dc, dr) => solidTile(c + dc, r + dr) && D.oreAt(s.seed, c + dc, r + dr) === oid;
         ctx.globalAlpha = Math.min(1, vis); DelveOre.drawOreBlock(ctx, art, c * T, r * T, c, r, frac, sameOre); ctx.globalAlpha = 1;
         const ph = (hashXY(c, r, 55) & 1023) / 1023 * 6.283;
         // an ore vein is a light source too — same system as the lamp. It only emits when

@@ -17,7 +17,9 @@ for CHROME in \
   "/Applications/Chromium.app/Contents/MacOS/Chromium"; do
   [ -x "$CHROME" ] && break
 done
-timeout 30 "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
+TO=""   # optional watchdog (not present on stock macOS)
+if command -v timeout >/dev/null 2>&1; then TO="timeout 30"; elif command -v gtimeout >/dev/null 2>&1; then TO="gtimeout 30"; fi
+$TO "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
   --no-first-run --no-default-browser-check \
   --screenshot="$out" --window-size="$ww,$wh" "file://$dir/tools/render.html?$q" 2>/dev/null
 echo "$out (${ww}x${wh})"

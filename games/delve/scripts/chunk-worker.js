@@ -3,7 +3,7 @@
 // (cave-render.js) into an OffscreenCanvas, and ships the finished chunk back as a
 // transferable ImageBitmap (zero-copy). Rock shape depends only on dug state, so
 // each request carries the dug tiles overlapping the chunk's region.
-importScripts('cave-render.js');
+importScripts('blocks.js', 'cave-render.js');
 
 let cfg = { T: 16, W: 21, SURFACE: 0, CHUNK: 4, MARGIN: 1 };
 let scratch = null, sctx = null, core = null, cctx = null;
