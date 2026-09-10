@@ -197,9 +197,11 @@
     pen1(cx-1,cy-r+1,1,1,'#ffffff'); }
   function nugget(cx,cy,r,c){ if(r<1)r=1; const R=r;   // lumpy blob: radius wobbles per-angle, bulges up to ~r+1
     // seed the lump pattern from the ore colour so the three metals are each misshapen differently
-    let s=0; for(const ch of c[1]) s=(s*31+ch.charCodeAt(0))>>>0; const rnd=mulberry(s||1);
+    let s=0; for(const ch of (c[0]+c[1]+c[2])) s=(s*31+ch.charCodeAt(0))>>>0; const rnd=mulberry(s||1);
     const a1=rnd()*6.283, a2=rnd()*6.283, a3=rnd()*6.283;
-    const rad=(dx,dy)=>{ const a=Math.atan2(dy,dx); return R*(1 + 0.14*Math.sin(2*a+a1) + 0.09*Math.sin(3*a+a2) + 0.05*Math.sin(5*a+a3)); };
+    // top-biased so the crown never caves in (a top notch + bottom point reads as a heart)
+    const rad=(dx,dy)=>{ const a=Math.atan2(dy,dx), up=Math.max(0,-Math.sin(a));
+      return R*(1 + 0.05*up + 0.08*Math.sin(2*a+a1) + 0.11*Math.sin(3*a+a2) + 0.07*Math.sin(5*a+a3)); };
     for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)+1.0) pen1(cx+dx,cy+dy,1,1,OUT); }        // outline disk
     for(let dy=-r-2;dy<=r+2;dy++)for(let dx=-r-2;dx<=r+2;dx++){ if(Math.hypot(dx,dy)<=rad(dx,dy)) pen1(cx+dx,cy+dy,1,1, (dx+dy)<-r*0.3?c[2] : (dx+dy)>r*0.6?c[0] : c[1]); }
     // metallic sheen: a bright upper-left highlight streak + hot specular
