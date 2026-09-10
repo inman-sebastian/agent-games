@@ -78,6 +78,11 @@
     color:var(--ink); background:#1b2230bb; backdrop-filter:blur(4px); border:1px solid var(--line);
     touch-action:none; -webkit-user-select:none; user-select:none; }
   .tbtn:active { filter:brightness(1.3); }
+
+  /* ore item icons (drawn from the authored crystal art) + inventory rows */
+  .oreic { image-rendering:pixelated; width:20px; height:20px; vertical-align:middle; }
+  .invrow { display:inline-flex; align-items:center; gap:5px; margin:0 12px 5px 0; font-size:13px; }
+  #codexList .oreic { width:26px; height:26px; }
 </style>
 </head>
 <body>
@@ -88,6 +93,7 @@
       <h1>DE<b>L</b>VE</h1>
       <div class="btns">
         <button id="shopBtn">⛏ Upgrades</button>
+        <button id="codexBtn" title="Collection">✦ Collection</button>
         <button id="muteBtn" title="Mute">♪</button>
         <button id="newBtn" title="New game">↺</button>
       </div>
@@ -122,6 +128,15 @@
       <div class="sect">Technology</div>
       <div id="tech"></div>
       <button class="close" id="closeBtn">Back to the mine</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="codexOverlay">
+    <div class="shop">
+      <h2>Collection</h2>
+      <div class="sub">Ores discovered on your descent</div>
+      <div id="codexList"></div>
+      <button class="close" id="codexClose">Back to the mine</button>
     </div>
   </div>
 
@@ -253,6 +268,18 @@
   const CR = window.CaveRender;
   const { mix, hashXY, hexRgb } = CR;
   const { ORE_ART } = DelveOre;
+
+  // draw an ore's authored crystal/nugget art into a small canvas — used as its item icon
+  // in the inventory and the collection codex (so ores read as distinct collectibles).
+  function oreIcon(oreId, artPx) {
+    artPx = artPx || 16;
+    const art = DelveOre.ORE_ART[oreId], c = document.createElement('canvas');
+    c.width = c.height = artPx; c.className = 'oreic';
+    const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+    if (art) { const pen = (a, b, w, h, col) => { g.fillStyle = col; g.fillRect(a, b, w || 1, h || 1); };
+      DelveOre.SHAPES[art.shape](pen, artPx >> 1, artPx >> 1, (artPx >> 1) - 2, art.c); }
+    return c;
+  }
 
   // A tile is solid rock when it's below the surface and not yet dug. The world is
   // unbounded — every column below the surface is rock until you dig it (no side walls).
@@ -446,7 +473,7 @@
     ArrowDown:'down', KeyS:'down', ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right',
     KeyJ:'mine', KeyK:'mine' };
   addEventListener('keydown', e => {
-    if (overlay.classList.contains('on')) return;
+    if (paused()) return;
     const d = KEYMAP[e.code]; if (!d) return; e.preventDefault(); held[d] = true; audio();
   });
   addEventListener('keyup', e => { const d = KEYMAP[e.code]; if (d) held[d] = false; });
@@ -455,7 +482,7 @@
   // holding the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons.
   const aim = { cx: 0, cy: 0, has: false, down: false };
   function setAim(e) { aim.cx = e.clientX; aim.cy = e.clientY; aim.has = true; }
-  cv.addEventListener('pointerdown', e => { if (overlay.classList.contains('on')) return; e.preventDefault(); audio(); setAim(e); aim.down = true; });
+  cv.addEventListener('pointerdown', e => { if (paused()) return; e.preventDefault(); audio(); setAim(e); aim.down = true; });
   cv.addEventListener('pointermove', e => { setAim(e); });
   addEventListener('pointerup', () => { aim.down = false; });
   addEventListener('pointercancel', () => { aim.down = false; });
@@ -497,8 +524,8 @@
     const t = now / 1000;
     const workStart = performance.now();
     if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * 0.1;       // smoothed frames/sec from real timestamps
-    // advance the platformer sim once per frame (paused while the shop is open)
-    if (!overlay.classList.contains('on')) {
+    // advance the platformer sim once per frame (paused while a menu overlay is open)
+    if (!paused()) {
       const hover = pointerTile();
       const mineNow = aim.down ? hover : (held.mine ? keyboardAimTile() : null);
       curTarget = hover || (held.mine ? keyboardAimTile() : null);      // reticle follows the cursor
@@ -551,6 +578,8 @@
   // ---------- HUD / shop ----------
   const el = (id) => document.getElementById(id);
   const overlay = el('overlay');
+  const codexOverlay = el('codexOverlay');
+  const paused = () => overlay.classList.contains('on') || codexOverlay.classList.contains('on');
   function updateHUD() {
     el('depth').textContent = s.depth;
     el('coins').textContent = Math.floor(s.coins).toLocaleString();
@@ -587,10 +616,14 @@
   }
   function refreshShop() {
     el('shopCoins').textContent = Math.floor(s.coins).toLocaleString();
-    // cargo list + sell button
-    const ids = Object.keys(s.inv).filter(k => s.inv[k] > 0);
-    el('cargoList').textContent = ids.length
-      ? ids.map(k => `${D.ORE_BY_ID[k].name} ×${s.inv[k]}`).join('  ·  ') : 'empty';
+    // cargo list (ore icon rows) + sell button
+    const cl = el('cargoList'); cl.innerHTML = '';
+    const ids = Object.keys(s.inv).filter(k => s.inv[k] > 0).sort((a, b) => a - b);
+    if (!ids.length) cl.textContent = 'empty';
+    else for (const k of ids) { const row = document.createElement('span'); row.className = 'invrow';
+      row.appendChild(oreIcon(k, 16));
+      const t = document.createElement('span'); t.innerHTML = `${D.ORE_BY_ID[k].name} <b>×${s.inv[k]}</b>`;
+      row.appendChild(t); cl.appendChild(row); }
     const val = D.invValue(s), sb = el('sellBtn');
     sb.textContent = val > 0 ? `Sell all  +${val.toLocaleString()} ◈` : 'Sell all';
     sb.disabled = val <= 0;
@@ -612,6 +645,27 @@
   el('shopBtn').onclick = openShop; el('closeBtn').onclick = closeShop;
   overlay.addEventListener('click', e => { if (e.target === overlay) closeShop(); });
 
+  // ---------- collection codex ----------
+  function renderCodex() {
+    const cx = el('codexList'); cx.innerHTML = '';
+    for (const o of D.ORES) {
+      const L = s.log[o.id], found = !!L;
+      const row = document.createElement('div'); row.className = 'row';
+      const ic = document.createElement('div'); ic.style.cssText = 'width:30px; text-align:center; flex:0 0 auto';
+      if (found) ic.appendChild(oreIcon(o.id, 22)); else { ic.textContent = '?'; ic.style.color = 'var(--dim)'; ic.style.fontWeight = '700'; }
+      const info = document.createElement('div'); info.className = 'info';
+      info.innerHTML = found
+        ? `<div class="nm">${o.name}</div><div class="ds">${o.desc}</div>` +
+          `<div class="ds" style="color:var(--gold)">mined ${L.mined.toLocaleString()} · deepest ${L.deepest}m · ${o.value} ◈ each</div>`
+        : `<div class="nm" style="color:var(--dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
+      row.appendChild(ic); row.appendChild(info); cx.appendChild(row);
+    }
+  }
+  function openCodex() { audio(); for (const d in held) held[d] = false; aim.down = false; renderCodex(); codexOverlay.classList.add('on'); }
+  function closeCodex() { codexOverlay.classList.remove('on'); }
+  el('codexBtn').onclick = openCodex; el('codexClose').onclick = closeCodex;
+  codexOverlay.addEventListener('click', e => { if (e.target === codexOverlay) closeCodex(); });
+
   el('muteBtn').onclick = function () { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.5;
     this.textContent = muted ? '♪̸' : '♪'; this.style.opacity = muted ? .5 : 1; };
   el('newBtn').onclick = function () {
@@ -620,7 +674,7 @@
   };
 
   // block scroll/zoom gestures on the game
-  addEventListener('wheel', e => { if (!overlay.classList.contains('on')) e.preventDefault(); }, { passive: false });
+  addEventListener('wheel', e => { if (!paused()) e.preventDefault(); }, { passive: false });
   document.addEventListener('gesturestart', e => e.preventDefault());
 
   // ---------- responsive sizing ----------

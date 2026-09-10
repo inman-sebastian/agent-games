@@ -48,18 +48,23 @@
   function strataIndexAt(r) { let i = 0; while (i < STRATA.length - 1 && r >= STRATA[i + 1].top) i++; return i; }
 
   // --- ORE blocks (nodes) -----------------------------------------------------------
-  // band=[minRow,maxRow] where it can appear; weight = spawn share within its band;
-  // value = coins per block; hp = toughness on top of the rock hp. Ordered surface→deep.
+  // The ORE table is the first-class ITEM DEFINITION for each ore: the single gameplay
+  // source of truth for name / value / depth band / rarity (array order) / flavour, paired
+  // with the authored crystal art in ore-art.js (keyed by the same id). Mined ore is held
+  // as these items in the inventory (see engine.js).
+  //   band=[minRow,maxRow] where it can appear; weight = spawn share within its band;
+  //   value = coins per unit when sold; hp = toughness on top of the rock hp; desc = codex
+  //   blurb. Ordered surface→deep, so the array index is the rarity/tier (see rarityOf).
   const ORES = [
-    { id: 1, name: 'Dirt',    band: [2, 8],        weight: 60, value: 1,    hp: 0,  color: '#a06a3c', dim: true }, // plain clod
-    { id: 2, name: 'Copper',  band: [4, 24],       weight: 26, value: 5,    hp: 1,  color: '#d67b40' },
-    { id: 3, name: 'Iron',    band: [16, 52],      weight: 22, value: 12,   hp: 2,  color: '#c2ccd8' },
-    { id: 4, name: 'Silver',  band: [40, 92],      weight: 15, value: 34,   hp: 3,  color: '#f0f4fa' },
-    { id: 5, name: 'Gold',    band: [76, 156],     weight: 11, value: 95,   hp: 4,  color: '#f5c84e' },
-    { id: 6, name: 'Emerald', band: [132, 240],    weight: 7,  value: 260,  hp: 6,  color: '#41cf76' },
-    { id: 7, name: 'Ruby',    band: [216, 370],    weight: 5,  value: 720,  hp: 8,  color: '#ee4f66' },
-    { id: 8, name: 'Diamond', band: [330, 530],    weight: 3,  value: 2100, hp: 11, color: '#66e0ee' },
-    { id: 9, name: 'Mythril', band: [480, 99999],  weight: 2,  value: 6200, hp: 15, color: '#bd77f5' },
+    { id: 1, name: 'Dirt',    band: [2, 8],        weight: 60, value: 1,    hp: 0,  color: '#a06a3c', dim: true, desc: 'Loose surface clod. Worth almost nothing, but it counts.' },
+    { id: 2, name: 'Copper',  band: [4, 24],       weight: 26, value: 5,    hp: 1,  color: '#d67b40', desc: 'Ruddy starter metal, common in the shallows.' },
+    { id: 3, name: 'Iron',    band: [16, 52],      weight: 22, value: 12,   hp: 2,  color: '#c2ccd8', desc: 'Tough, dependable ore of the upper stone.' },
+    { id: 4, name: 'Silver',  band: [40, 92],      weight: 15, value: 34,   hp: 3,  color: '#f0f4fa', desc: 'Bright and soft, glinting in cool grey rock.' },
+    { id: 5, name: 'Gold',    band: [76, 156],     weight: 11, value: 95,   hp: 4,  color: '#f5c84e', desc: 'Heavy, radiant, and reliably valuable.' },
+    { id: 6, name: 'Emerald', band: [132, 240],    weight: 7,  value: 260,  hp: 6,  color: '#41cf76', desc: 'The first true gem — deep green, deeply prized.' },
+    { id: 7, name: 'Ruby',    band: [216, 370],    weight: 5,  value: 720,  hp: 8,  color: '#ee4f66', desc: 'A cluster of crimson fire from the deep stone.' },
+    { id: 8, name: 'Diamond', band: [330, 530],    weight: 3,  value: 2100, hp: 11, color: '#66e0ee', desc: 'Flawless and adamant. Few dig deep enough to find it.' },
+    { id: 9, name: 'Mythril', band: [480, 99999],  weight: 2,  value: 6200, hp: 15, color: '#bd77f5', desc: 'The legendary violet ore of the abyss.' },
   ];
   const ORE_BY_ID = Object.fromEntries(ORES.map(o => [o.id, o]));
   const rarityOf = (id) => ORES.findIndex(o => o.id === id);

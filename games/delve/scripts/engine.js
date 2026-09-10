@@ -73,6 +73,7 @@
       coins: 0,
       earned: 0,         // lifetime coins (for progression display)
       inv: {},           // inventory: oreId -> count (mined ore is held here until sold)
+      log: {},           // codex: oreId -> { mined, deepest } (lifetime discovery, persists through sales)
       depth: 0,          // deepest row reached
       best: 0,           // deepest ore rarity index discovered
       up: { pick: 0, speed: 0, refine: 0, fortune: 0 },
@@ -138,6 +139,8 @@
           rich = isRich(s.seed, c, r, st.fortune);
           qty = rich ? 3 : 1;                              // rich vein → 3× the ore (value multiplies at sale)
           s.inv[b.ore] = (s.inv[b.ore] || 0) + qty;
+          const L = s.log[b.ore] || (s.log[b.ore] = { mined: 0, deepest: 0 });   // codex: lifetime record
+          L.mined += qty; if (r > L.deepest) L.deepest = r;
           const rar = rarityOf(b.ore); if (rar > s.best) s.best = rar;
         }
         events.push({ type: 'break', c, r, ore: b.ore, qty, rich, maxHp: b.hp });

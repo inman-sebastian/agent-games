@@ -46,11 +46,16 @@ shallow → deep:
 
 > Dirt · Copper · Iron · Silver · Gold · Emerald · Ruby · Diamond · Mythril
 
-Each tier has a depth band, spawn weight, coin value and bonus hp — all defined in
-the `ORES` table in `scripts/blocks.js`, **the source of truth** (this list is only
-the ordering). Deeper tiers are exponentially more valuable and tougher, and appear
-only within their depth band, so descending is what unlocks the next tier. **Dirt**
-is a near-worthless surface filler; **Mythril** is the deep-end payoff.
+Each tier is a first-class **item**: name, value, depth band, rarity (array order),
+bonus hp and a codex blurb, all defined in the `ORES` table in `scripts/blocks.js`
+(**the source of truth**), paired with the authored crystal art in `ore-art.js` under
+the same id. Deeper tiers are exponentially more valuable and tougher, and appear only
+within their depth band, so descending is what unlocks the next tier. **Dirt** is a
+near-worthless surface filler; **Mythril** is the deep-end payoff.
+
+Mined ore is held in the inventory as these items (with their icons), and every tier
+you've ever mined is recorded in the **Collection** codex — lifetime count, deepest
+find, and blurb, with undiscovered tiers shown locked.
 
 ## Upgrades & tech
 
@@ -122,8 +127,8 @@ into them as it ships. Tracked as an epic in
 - **Inventory system** *(shipped)* — mined ore is held as per-type stacks and sold for
   coins from the Upgrades panel, instead of auto-selling on break.
   [#4](https://github.com/inman-sebastian/agent-games/issues/4)
-- **Ores as distinct collectibles** — each ore is its own gathered item, not a single
-  auto-sold currency.
+- **Ores as distinct collectibles** *(shipped)* — first-class item defs, ore icons in
+  the inventory, and a Collection codex (lifetime mined / deepest, locked until found).
   [#5](https://github.com/inman-sebastian/agent-games/issues/5)
 - **Reworked incremental / economy mechanics** — progression rebuilt around the
   inventory, collectibles, and exploration.
