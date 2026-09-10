@@ -212,24 +212,26 @@
   function cluster(cx,cy,r,c){ gem(cx,cy,r,c); gem(cx-r+1,cy+2,Math.max(1,r-2),c); gem(cx+r-1,cy+1,Math.max(1,r-2),c); }
   const SHAPES={gem,nugget,prism,shard,cluster};
 
-  function drawOre(ctx, oreI, X, Y, x, y, damage, o){
-    const ore=ORES[oreI], c=ore.c, m=(T>>1), MAXR=5;            // keep the vein/crystal within MAXR of the tile centre
+  function drawOre(ctx, oreI, X, Y, x, y, damage, o, offX, offY){
+    const ore=ORES[oreI], c=ore.c, MAXR=5;                      // keep the vein/crystal within MAXR of its (offset) centre
+    // Nestle the vein into the solid part of the tile: shift away from exposed
+    // edges (a top-right corner tile pushes the vein toward its bottom-left).
+    const mx=(T>>1)+(offX||0), my=(T>>1)+(offY||0);
     const rnd=mulberry(hashXY(x,y,777)), px=(a,b,w,h,col)=>pen1(X+a,Y+b,w,h,col);
     const inside=(dx,dy)=> dx*dx+dy*dy <= MAXR*MAXR;
-    // embedded flecks — a tight, centred cluster
     for(let i=0;i<8;i++){ const a=rnd()*6.283, rr=1+rnd()*2.6, dx=Math.cos(a)*rr, dy=Math.sin(a)*rr;
-      if(!inside(dx,dy))continue; const fxp=Math.round(m+dx), fyp=Math.round(m+dy);
+      if(!inside(dx,dy))continue; const fxp=Math.round(mx+dx), fyp=Math.round(my+dy);
       px(fxp,fyp,1,1,c[1]); if(rnd()<0.4 && inside(dx,dy+1))px(fxp,fyp+1,1,1,c[0]); }
     if(damage>0.12){ const cr=mulberry(hashXY(x,y,9)), nc=1+Math.floor(damage*3);   // short cracks, clamped inside
       for(let k=0;k<nc;k++){ let a=cr()*6.283, dx=Math.cos(a)*1.5, dy=Math.sin(a)*1.5; const steps=2+Math.floor(damage*3);
-        for(let s=0;s<steps;s++){ if(!inside(dx,dy))break; px(Math.round(m+dx),Math.round(m+dy),1,1,c[0]); dx+=Math.cos(a); dy+=Math.sin(a); } } }
+        for(let s=0;s<steps;s++){ if(!inside(dx,dy))break; px(Math.round(mx+dx),Math.round(my+dy),1,1,c[0]); dx+=Math.cos(a); dy+=Math.sin(a); } } }
     const reveal=Math.max(0,(damage-0.35)/0.65);
     if(reveal>0.02){ const hole=1+reveal*3;                                          // socket bounded by MAXR
       for(let dy=-MAXR;dy<=MAXR;dy++)for(let dx=-MAXR;dx<=MAXR;dx++){ if(!inside(dx,dy))continue;
-        const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.1; if(d<hole) px(m+dx,m+dy,1,1,c[0]); }
-      SHAPES[ore.shape](X+m, Y+m, Math.max(1,Math.round(reveal*2.8)), c); }
+        const d=Math.hypot(dx,dy)-((hashXY(x*31+dx,y*17+dy,5)%100)/100)*1.1; if(d<hole) px(mx+dx,my+dy,1,1,c[0]); }
+      SHAPES[ore.shape](X+mx, Y+my, Math.max(1,Math.round(reveal*2.8)), c); }
     if(o.ore!==false){ ctx.save(); ctx.globalCompositeOperation='lighter';
-      const gx=X+m, gy=Y+m, rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
+      const gx=X+mx, gy=Y+my, rg=ctx.createRadialGradient(gx,gy,0,gx,gy,T*0.6);
       rg.addColorStop(0,mix(c[2],'#ffffff',0.25)); rg.addColorStop(1,'transparent');
       ctx.globalAlpha=0.28+0.5*reveal; ctx.fillStyle=rg; ctx.fillRect(X-T,Y-T,T*3,T*3); ctx.restore(); }
   }
@@ -302,7 +304,11 @@
         pen1(cx,y*T,1,1,rgbHex(C.rimA)); }
       if(grid[y+1] && grid[y+1][x] && hashXY(x,y,24)%4===0){ const cx=x*T+(T>>1)+(hashXY(x,y,25)%5-2), len=2+hashXY(x,y,26)%3;
         for(let i=0;i<len;i++){ const w=Math.max(0,Math.round((len-i)/2.2)); pen1(cx-w,(y+1)*T-1-i,2*w+1,1, rgbHex(i<1?C.center:C.deep)); } } }
-    if(o.ore) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]&&oreGrid[y][x]>=0) drawOre(lb, oreGrid[y][x], x*T, y*T, x, y, dmgGrid[y][x], o);
+    const sol=(xx,yy)=> xx<0||xx>=COLS||yy<0||yy>=ROWS ? true : grid[yy][xx];
+    if(o.ore) for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++) if(grid[y][x]&&oreGrid[y][x]>=0){
+      const OFF=3.5;   // push the vein away from exposed edges, into the solid part of the tile
+      const offX=((!sol(x-1,y))?1:0)-((!sol(x+1,y))?1:0), offY=((!sol(x,y-1))?1:0)-((!sol(x,y+1))?1:0);
+      drawOre(lb, oreGrid[y][x], x*T, y*T, x, y, dmgGrid[y][x], o, offX*OFF, offY*OFF); }
     drawMiner(miner.px*T, miner.py*T, 'right');
     if(o.lamp){ lb.save(); lb.globalCompositeOperation='lighter';
       const gx=miner.px*T+8, gy=miner.py*T+7, rg=lb.createRadialGradient(gx,gy,0,gx,gy,T*3.4);
