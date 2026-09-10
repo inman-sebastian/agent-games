@@ -16,18 +16,18 @@ economy (coins, upgrades, tech). See [`blocks.js`](#modules) for the query and
 There is **no gravity and no fuel** — both are classic soft-lock generators (dig
 down, can't get back). Traversal comes from your own persistent tunnels: you can
 always climb back the way you came, so the economy is provably progress-only and
-[`verify.js`](#verification) can prove it.
+[`tools/verify.js`](#verification) can prove it.
 
 ## Modules
 
 All under `scripts/`. Each is an IIFE that attaches to `self` (so it works in the
 window **and** the Web Worker); `blocks.js` and `engine.js` also `module.exports`
-for Node (tools + `verify.js`). No build step.
+for Node (the `tools/`, including `verify.js`). No build step.
 
 | Module | Global | Responsibility |
 | --- | --- | --- |
 | `blocks.js` | `Blocks` | **World definition** — the single source of truth for "what is at a cell". Bounds, block types (depth `STRATA` + the ore table), procedural generation, and the canonical queries `blockAt(seed,c,r)` (full static descriptor) and cheap `solidAt(seed,c,r)`. Pure `f(seed,c,r)`; depends on nothing. *Static only* — dug/damage state lives in the save. |
-| `engine.js` | `Delve` | The pure **sim** — player state, dig/move resolution, economy, upgrades — layered over `Blocks`. Re-exports the world query for convenience. Required by `verify.js` and the tools. No DOM, no presentation. |
+| `engine.js` | `Delve` | The pure **sim** — player state, dig/move resolution, economy, upgrades — layered over `Blocks`. Re-exports the world query for convenience. Required by the `tools/` (`verify.js`, `sim.js`). No DOM, no presentation. |
 | `cave-render.js` | `CaveRender` | The **rock renderer** (`composeBand`) plus colour/rng/noise helpers. Reads the depth `STRATA` ramps from `Blocks`. Used by the main thread, the Worker, and the lab. |
 | `ore-art.js` | `DelveOre` | Ore/gem **crystal art**: `ORE_ART` (per-id triad + shape), the `SHAPES`, and `drawOreBlock` (cluster-aware full-cell ore rendering). |
 | `sprites.js` | `DelveSprites` | The **miner** sprite (`drawMiner`) and future entities. |
@@ -65,9 +65,9 @@ on top of the cached rock.
 
 ## Verification
 
-`verify.js` is the balance gate. Digging is free and ore sells in place, so a hard
-soft-lock is impossible by construction; the real risk is **pacing**. It drives a
-greedy bot through the **same engine** the player uses and asserts it reaches every
+`tools/verify.js` is the balance gate. Digging is free and ore sells in place, so a
+hard soft-lock is impossible by construction; the real risk is **pacing**. It drives
+a greedy bot through the **same engine** the player uses and asserts it reaches every
 ore tier — down into Mythril — within a sane action budget, plus static invariants
 on the ore table, cost curves, and world gen. Run `pnpm verify` (or `node
-verify.js`). The `tools/` give cheaper, more targeted checks.
+tools/verify.js`). The other `tools/` give cheaper, more targeted checks.

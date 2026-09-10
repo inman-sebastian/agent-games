@@ -77,7 +77,7 @@ truth for balance.
 - **No gravity, no fuel, no cargo.** All three are classic soft-lock generators
   (dig down, can't get back / strand yourself). Traversal is your own persistent
   tunnels — you can always climb back the way you came — so the economy is provably
-  **progress-only**, and `verify.js` proves a greedy bot reaches Mythril within a
+  **progress-only**, and `tools/verify.js` proves a greedy bot reaches Mythril within a
   sane budget.
 - **Deterministic, infinite world.** Every cell's static contents are a pure
   `f(seed, c, r)` (see [ARCHITECTURE.md](ARCHITECTURE.md)); the same seed always

@@ -4,8 +4,8 @@
 // So we drive a greedy bot through the SAME engine the player uses and assert it
 // reaches every ore tier — down into Mythril — within a sane action budget, plus
 // static invariants on the ore table, cost curves, and world generation.
-// Run: `node verify.js`.
-const D = require('./scripts/engine');
+// Run: `node tools/verify.js` (or `pnpm verify`).
+const D = require('../scripts/engine');
 
 let bad = 0;
 const chk = (cond, msg) => { if (!cond) { bad++; console.log('BAD  ' + msg); } };

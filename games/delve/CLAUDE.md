@@ -8,7 +8,7 @@ just the DELVE-specific working rules.
 
 - **One shared ruleset.** All world + render logic lives in `scripts/` and is imported
   by the game (`index.html`), the style lab (`style-lab.html`), and the tools
-  (`tools/`, `verify.js`) alike. Never duplicate a rule in the presentation layer — if
+  (`tools/`) alike. Never duplicate a rule in the presentation layer — if
   the game and the lab draw the same thing, they call the same module.
 - **`blocks.js` is the single source of truth for the world** (`f(seed,c,r)`), and it's
   static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.js`
@@ -23,7 +23,7 @@ just the DELVE-specific working rules.
 ## Workflow
 
 - After any logic / economy / world-gen change, run **`pnpm verify`** (or `node
-  verify.js`) — the greedy-bot balance gate.
+  tools/verify.js`) — the greedy-bot balance gate.
 - Prefer the cheap headless tools over Playwright/MCP: `tools/sim.js` (state / world
   map / scripted play, no browser) and `tools/render.html` + `tools/shot.sh` (a tight
   cropped PNG of exactly one region). See [tools/README.md](tools/README.md).

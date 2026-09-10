@@ -1,5 +1,5 @@
 // engine.js — the mining SIM: player state, dig/move resolution, economy, upgrades.
-// Runs identically in Node (verify.js, tools) and the browser (index.html).
+// Runs identically in Node (the tools/ — verify.js, sim.js) and the browser (index.html).
 //
 // The WORLD (bounds, block types, generation, the pure `blockAt(seed,c,r)` query) lives
 // in blocks.js — this file layers the DYNAMIC state on top: which cells are dug, damage

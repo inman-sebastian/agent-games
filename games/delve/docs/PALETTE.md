@@ -15,7 +15,7 @@ muted rock.
 Regenerate the swatch image by drawing the list below to a canvas — see the palette
 panel in `style-lab.html`.
 
-![Resurrect 64 palette](../resurrect-64.png)
+![Resurrect 64 palette](images/resurrect-64.png)
 
 Hex list, in palette order (copy-paste friendly):
 

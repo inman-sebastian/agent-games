@@ -1,7 +1,19 @@
 # DELVE dev tools
 
 Cheap headless verification so we don't lean on browser automation (Playwright) for
-everything — big token savings. Two tools, both driven from the shell.
+everything — big token savings. All driven from the shell.
+
+## `verify.js` — the balance gate
+
+Drives a greedy bot through the SAME engine the player uses and asserts it reaches
+every ore tier down into Mythril within a sane action budget, plus static invariants
+on the ore table, cost curves, and world gen. Run it after any logic / economy /
+world-gen change:
+
+```sh
+pnpm verify          # from games/delve/ (or the workspace: pnpm --filter delve verify)
+node tools/verify.js # equivalent, from games/delve/
+```
 
 ## `sim.js` — headless sim & world inspection (no browser, no images)
 

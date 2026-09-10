@@ -8,4 +8,6 @@ importers:
 
   .: {}
 
+  games/delve: {}
+
   games/drift: {}
