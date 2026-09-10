@@ -121,7 +121,7 @@
     // stalactites / stalagmites where open tiles meet rock
     const pen = (x, y, w, h, c) => { g.fillStyle = c; g.fillRect(x, y, w || 1, h || 1); };
     for (let ty = Math.max(SURFACE + 1, bandTop); ty < bandTop + rowsH; ty++) for (let tx = bandLeft; tx < bandLeft + colsW; tx++) {
-      if (tx < 0 || tx >= W || solidTile(tx, ty)) continue; const X = (tx - bandLeft) * T, Y = (ty - bandTop) * T;
+      if (solidTile(tx, ty)) continue; const X = (tx - bandLeft) * T, Y = (ty - bandTop) * T;   // W param is now legacy (world is unbounded); solidTile handles any column
       if (solidTile(tx, ty - 1) && hashXY(tx, ty, 21) % 3 === 0) { const cx = X + (T >> 1) + (hashXY(tx, ty, 22) % 5 - 2), len = 3 + hashXY(tx, ty, 23) % 4;
         for (let i = 0; i < len; i++) { const w = Math.max(0, Math.round((len - i) / 2.2)); pen(cx - w, Y + i, 2 * w + 1, 1, rgbHex(i < 2 ? C.center : C.deep)); }
         pen(cx, Y, 1, 1, rgbHex(C.rimA)); }

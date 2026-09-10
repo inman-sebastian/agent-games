@@ -11,8 +11,11 @@
 (function (root) {
   'use strict';
 
-  const WIDTH = 82;         // columns (0..WIDTH-1); a bounded shaft, infinite downward
-  const SURFACE = 0;        // row 0 is the open surface yard
+  // The world is UNBOUNDED horizontally (see blockAt/solidAt) — there are no side walls.
+  // WIDTH is retained only as a convenient default view span for the dev tools; it does
+  // NOT bound the world.
+  const WIDTH = 82;
+  const SURFACE = 0;        // row 0 is the open surface yard; r>SURFACE is solid rock
 
   // --- deterministic noise/hash (world-gen owns these; pure) ---
   // per-cell white noise (0..1) — independent per cell
@@ -83,14 +86,13 @@
   // Base rock hp from depth. Grows so deep rock needs upgraded picks.
   function rockHp(r) { return 2 + Math.floor(r * 0.31); }
 
-  // Interned descriptors for non-generated cells (no per-call allocation).
-  const WALL = Object.freeze({ solid: true, kind: 'wall', ore: 0, strata: -1, hp: Infinity, value: 0, dim: false });
+  // Interned descriptor for open sky (no per-call allocation).
   const OPEN = Object.freeze({ solid: false, kind: 'open', ore: 0, strata: -1, hp: 0, value: 0, dim: false });
 
   // THE canonical world query — the full STATIC descriptor of a cell, pure f(seed,c,r).
+  // The world is unbounded: any column below the surface is solid rock (no side walls).
   // (Dynamic dug/damage state is layered on by the sim; it can't come from seed+coords.)
   function blockAt(seed, c, r) {
-    if (c < 0 || c >= WIDTH) return WALL;
     if (r <= SURFACE) return OPEN;
     const ore = oreAt(seed, c, r), od = ore ? ORE_BY_ID[ore] : null;
     return { solid: true, kind: ore ? 'ore' : 'rock', ore, strata: strataIndexAt(r),
@@ -98,7 +100,7 @@
   }
   // Cheap boolean solidity for the per-pixel rock field (no allocation). Static only —
   // callers AND the dug overlay: `solidAt(...) && !isDug(...)`.
-  function solidAt(seed, c, r) { return (c < 0 || c >= WIDTH) ? true : r > SURFACE; }
+  function solidAt(seed, c, r) { return r > SURFACE; }
 
   const Blocks = {
     WIDTH, SURFACE, STRATA, ORES, ORE_BY_ID, rarityOf, CLUSTER_FREQ, REGION,

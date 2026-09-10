@@ -14,7 +14,9 @@
 // additive colour glow (warm lamp, coloured ore) + a DITHERED darkness scrim (pixel-art
 // fog) derived from the same field, plus a shared dithered vignette.
 //
-// Emitters: addLight(x, y, r, colour, intensity), positions in SCREEN pixels.
+// Emitters: addLight(x, y, r, colour, intensity), positions in WORLD pixels (the render
+// cfg's camX/camY window the field around the view, so the grid stays small in an
+// unbounded world).
 //   r === 0  → lamp field (warm, drives the darkness scrim / visibility).
 //   r  >  0  → ore-glow field (its own colour, kept separate so the lamp can't swamp it,
 //              added on top capped). Seed at the vein's EXPOSED face so it floods the
@@ -58,25 +60,25 @@
       vigX.putImageData(vigImg, 0, 0);
     }
 
-    // cfg: { g, LW, LH, T, camY, SURFACE, W, solidTile }. Consumes and clears the emitters.
+    // cfg: { g, LW, LH, T, camX, camY, SURFACE, solidTile }. Consumes and clears the emitters.
     function render(cfg) {
-      const g = cfg.g, LW = cfg.LW, LH = cfg.LH, T = cfg.T, camY = cfg.camY || 0;
-      const SURFACE = (cfg.SURFACE == null ? -1 : cfg.SURFACE), W = cfg.W, solidTile = cfg.solidTile;
+      const g = cfg.g, LW = cfg.LW, LH = cfg.LH, T = cfg.T, camX = cfg.camX || 0, camY = cfg.camY || 0;
+      const SURFACE = (cfg.SURFACE == null ? -1 : cfg.SURFACE), solidTile = cfg.solidTile;
       ensureVignette(LW, LH);
       if (accW !== LW || accH !== LH) { accW = LW; accH = LH;
         addCv.width = LW; addCv.height = LH; addX.imageSmoothingEnabled = false; addImg = addX.createImageData(LW, LH);
         scrimCv.width = LW; scrimCv.height = LH; scrimX.imageSmoothingEnabled = false; scrimImg = scrimX.createImageData(LW, LH); }
 
-      // ---- world-space per-tile light fields ----
-      const tileTop = Math.floor(camY / T) - LMARGIN;
-      const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = W;
+      // ---- world-space per-tile light fields (windowed around the view) ----
+      const tileTop = Math.floor(camY / T) - LMARGIN, tileLeft = Math.floor(camX / T) - LMARGIN;
+      const rows = Math.ceil(LH / T) + 2 * LMARGIN, cols = Math.ceil(LW / T) + 2 * LMARGIN;
       if (cols !== gw || rows !== gh) { gw = cols; gh = rows;
         tR = new Float32Array(gw * gh); tG = new Float32Array(gw * gh); tB = new Float32Array(gw * gh);
         ogR = new Float32Array(gw * gh); ogG = new Float32Array(gw * gh); ogB = new Float32Array(gw * gh); }
       tR.fill(0); tG.fill(0); tB.fill(0); ogR.fill(0); ogG.fill(0); ogB.fill(0);
       // seed: lamp (r=0) → lamp field; ore veins (r>0) → ore-glow field, at their own tile
       for (const L of LIGHTS) {
-        const tc = Math.floor(L.x / T), tr = Math.floor((L.y + camY) / T) - tileTop;
+        const tc = Math.floor(L.x / T) - tileLeft, tr = Math.floor(L.y / T) - tileTop;
         if (tc < 0 || tc >= gw || tr < 0 || tr >= gh) continue;
         const idx = tr * gw + tc;
         if (L.r > 0) { ogR[idx] += L.cr * L.i * ORE_GLOW; ogG[idx] += L.cg * L.i * ORE_GLOW; ogB[idx] += L.cb * L.i * ORE_GLOW; }
@@ -85,7 +87,7 @@
       // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION
       // tile's opacity, so light dims hard the moment it enters rock). One round converges
       // because each sweep chains through already-updated neighbours in its direction.
-      const attenAt = (x, gy) => (x < 0 || x >= W || solidTile(x, gy + tileTop)) ? ROCK_ATTEN : OPEN_ATTEN;
+      const attenAt = (x, gy) => solidTile(x + tileLeft, gy + tileTop) ? ROCK_ATTEN : OPEN_ATTEN;
       const relax = (i, from, a) => {
         let v = tR[from] * a; if (v > tR[i]) tR[i] = v; v = tG[from] * a; if (v > tG[i]) tG[i] = v; v = tB[from] * a; if (v > tB[i]) tB[i] = v;
         v = ogR[from] * a; if (v > ogR[i]) ogR[i] = v; v = ogG[from] * a; if (v > ogG[i]) ogG[i] = v; v = ogB[from] * a; if (v > ogB[i]) ogB[i] = v;
@@ -108,7 +110,7 @@
         const aboveSky = (y + camY) <= skyY;
         for (let x = 0; x < LW; x++) {
           const j = (y * LW + x) * 4;
-          const fx = x / T - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
+          const fx = (x + camX) / T - tileLeft - 0.5; let gx = fx | 0; if (gx < 0) gx = 0; else if (gx > gw - 2) gx = gw - 2;
           const tx = fx - gx < 0 ? 0 : (fx - gx > 1 ? 1 : fx - gx), tx1 = 1 - tx;
           const a00 = gy * gw + gx, a10 = a00 + 1, a01 = a00 + gw, a11 = a01 + 1;
           const w00 = tx1 * ty1, w10 = tx * ty1, w01 = tx1 * ty, w11 = tx * ty;

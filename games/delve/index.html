@@ -118,17 +118,19 @@
   // stays 16px. TILE_PX/16 is the display scale — 32px is a clean 2× integer scale (crisp
   // on any DPR; on a 2× display that's a 4× device scale). (Not stretched to fill the
   // viewport yet — fit is a later pass.)
-  const T = 16, TILE = T, W = D.WIDTH, u = 2;
+  const T = 16, TILE = T, u = 2;
   const TILE_PX = 32;                     // on-screen size of a tile (CSS px) — clean 2× of the 16px art
-  const LW = W * T;                                     // logical width = full field width (fixed)
-  let VIEW_ROWS = 15, LH = VIEW_ROWS * T;
-  const CHUNK = 4, MARGIN = 1;                          // rows per cached chunk; tiles of shading context around it
+  // The world is unbounded in every direction, so the canvas is a VIEWPORT onto it: a
+  // 2-axis camera keeps the miner centred and we render only the visible tile window.
+  let VIEW_COLS = 21, VIEW_ROWS = 15, LW = VIEW_COLS * T, LH = VIEW_ROWS * T;   // set by fit()
+  const CW = 12, CH = 6, MARGIN = 1;      // cached rock CHUNK size (tiles, cols×rows) + shading-context margin
 
   const cv = document.getElementById('c');
   const ctx = cv.getContext('2d');
 
-  // scratch buffer: fieldBuf renders one chunk (+margin) at a time when baking rock.
-  const fieldBuf = document.createElement('canvas'); fieldBuf.width = LW; fieldBuf.height = (CHUNK + 2 * MARGIN) * T;
+  // scratch buffer: renders one chunk (+margin) at a time when baking rock; also reused
+  // for the small per-dig patch window (always ≤ a chunk, so it fits).
+  const fieldBuf = document.createElement('canvas'); fieldBuf.width = (CW + 2 * MARGIN) * T; fieldBuf.height = (CH + 2 * MARGIN) * T;
   const lb = fieldBuf.getContext('2d'); lb.imageSmoothingEnabled = false;
 
   // ---------- state / persistence ----------
@@ -147,8 +149,9 @@
   setInterval(save, 2500);
   document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
-  // display position (lerped) & camera
-  let dispC = s.c, dispR = s.r, camY = 0;
+  // display position (lerped) & 2-axis camera (keeps the miner centred on screen)
+  let dispC = s.c, dispR = s.r, camX = 0, camY = 0;
+  function snapCam() { camX = dispC * T - LW / 2 + T / 2; camY = dispR * T - LH / 2 + T / 2; }
 
   // ---------- audio (synth) ----------
   let AC = null, muted = false, master = null;
@@ -200,15 +203,17 @@
   function floaty(x, y, text, col, big) { floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big }); }
 
   // ---------- layered pixel-art cave renderer ----------
-  // The rock (a per-pixel top-lit field, see cave-render.js) is cached as fixed-position
-  // vertical CHUNKS (full field width, CHUNK rows tall). A chunk is generated once the
-  // first time it scrolls into view — OFF THE MAIN THREAD via a Worker so descent never
-  // stalls — and kept, so scrolling back is a cheap blit. Digging re-renders only a small
-  // window around the changed tile (synchronously; cheap, no dig latency) and patches it
-  // into the affected chunk(s). Chunks render with a MARGIN of context so seams are
-  // invisible; fieldBuf is the main-thread scratch buffer for patches / sync fallback.
-  const chunks = new Map();                 // chunkIndex -> {cv, ctx}
-  const chunkOf = (r) => Math.floor(r / CHUNK);
+  // The rock (a per-pixel top-lit field, see cave-render.js) is cached as world-anchored
+  // CW×CH tile CHUNKS on a 2D grid (the world is unbounded in both axes). A chunk is
+  // generated once the first time it scrolls into view — OFF THE MAIN THREAD via a Worker
+  // so moving into fresh world never stalls — and kept, so scrolling back is a cheap blit.
+  // Digging re-renders only a small window around the changed tile (synchronously; cheap,
+  // no dig latency) and patches it into the affected chunk(s). Chunks render with a MARGIN
+  // of context so seams are invisible; fieldBuf is the main-thread scratch for patches /
+  // sync fallback.
+  const chunks = new Map();                 // "cx,cy" -> {cv, ctx}
+  const chunkX = (c) => Math.floor(c / CW), chunkY = (r) => Math.floor(r / CH);
+  const ckey = (cx, cy) => cx + ',' + cy;
   // debug overlay state (toggle with F3 / backtick, or start with ?debug in the URL)
   let DEBUG = /(\?|&)debug\b/.test(location.search);
   let fpsEMA = 0, frameMsEMA = 0, rebuildCount = 0, lastRebuildMs = 0;
@@ -222,28 +227,25 @@
   const { mix, hashXY, hexRgb } = CR;
   const { ORE_ART } = DelveOre;
 
-  // A tile is solid rock when it's below the surface, in-bounds, and not yet dug.
-  // Out-of-bounds columns read as bedrock (solid) so the shaft has clean side walls.
+  // A tile is solid rock when it's below the surface and not yet dug. The world is
+  // unbounded — every column below the surface is rock until you dig it (no side walls).
   const solidTile = (c, r) => D.solidAt(s.seed, c, r) && !D.isDug(s, c, r);   // static block ∧ not dug
 
-  // ore veins (DelveOre.drawOreVein), the miner sprite (DelveSprites.drawMiner) and the
-  // rock field (cave-render.js) are all drawn from shared modules now — see the render loop.
-
-  const newChunkCanvas = () => { const cvc = document.createElement('canvas'); cvc.width = LW; cvc.height = CHUNK * T; return { cv: cvc, ctx: cvc.getContext('2d') }; };
+  const newChunkCanvas = () => { const cvc = document.createElement('canvas'); cvc.width = CW * T; cvc.height = CH * T; return { cv: cvc, ctx: cvc.getContext('2d') }; };
 
   // ---- off-thread chunk generation (Worker) with a synchronous fallback ----
   let worker = null;
-  const pending = new Map();         // chunkIndex -> [queued dig patches that arrived while pending]
+  const pending = new Map();         // "cx,cy" -> [queued dig patches that arrived while pending]
   if (typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && OffscreenCanvas.prototype.transferToImageBitmap) {
     try {
       worker = new Worker('scripts/chunk-worker.js');
-      worker.postMessage({ type: 'init', cfg: { T, W, SURFACE: D.SURFACE, CHUNK, MARGIN } });
+      worker.postMessage({ type: 'init', cfg: { T, CW, CH, SURFACE: D.SURFACE, MARGIN } });
       worker.onmessage = (e) => {
-        const { ci, bmp } = e.data;
-        const queued = pending.get(ci); pending.delete(ci);
-        const en = chunks.get(ci) || newChunkCanvas();
-        en.ctx.clearRect(0, 0, LW, CHUNK * T); en.ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
-        chunks.set(ci, en);
+        const { cx, cy, bmp } = e.data, key = ckey(cx, cy);
+        const queued = pending.get(key); pending.delete(key);
+        const en = chunks.get(key) || newChunkCanvas();
+        en.ctx.clearRect(0, 0, CW * T, CH * T); en.ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+        chunks.set(key, en);
         if (queued) for (const [c, r] of queued) patchDig(c, r);   // re-apply digs that landed mid-flight
       };
       worker.onerror = () => { worker = null; };                    // fall back to sync on failure
@@ -251,33 +253,36 @@
   }
   // dug tiles overlapping a chunk's render region — extended 12 rows up so the Worker
   // has the openings that feed top-light seeding (usually empty for fresh depth).
-  function dugInRegion(ci) {
-    const top = ci * CHUNK - MARGIN - 12, bot = ci * CHUNK + CHUNK - 1 + MARGIN, out = [];
-    for (const k in s.dug) { const r = +k.slice(k.indexOf(',') + 1); if (r >= top && r <= bot) out.push(k); }
+  function dugInRegion(cx, cy) {
+    const left = cx * CW - MARGIN, right = cx * CW + CW - 1 + MARGIN;
+    const top = cy * CH - MARGIN - 12, bot = cy * CH + CH - 1 + MARGIN, out = [];
+    for (const k in s.dug) { const i = k.indexOf(','), c = +k.slice(0, i), r = +k.slice(i + 1);
+      if (c >= left && c <= right && r >= top && r <= bot) out.push(k); }
     return out;
   }
-  function requestChunk(ci) {
-    if (chunks.has(ci) || pending.has(ci)) return;
-    pending.set(ci, null);
-    worker.postMessage({ type: 'chunk', ci, dug: new Set(dugInRegion(ci)) });
+  function requestChunk(cx, cy) {
+    const key = ckey(cx, cy);
+    if (chunks.has(key) || pending.has(key)) return;
+    pending.set(key, null);
+    worker.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
   }
 
-  // Synchronous full-chunk render (fallback when no Worker) — uses the shared renderer.
-  function renderChunkSync(ci) {
+  // Synchronous chunk render (fallback when no Worker) — uses the shared renderer.
+  function renderChunkSync(cx, cy) {
     const _t0 = performance.now();
-    CR.composeBand(lb, solidTile, 0, ci * CHUNK - MARGIN, W, CHUNK + 2 * MARGIN, W, D.SURFACE);
-    const e = chunks.get(ci) || newChunkCanvas();
-    e.ctx.clearRect(0, 0, LW, CHUNK * T);
-    e.ctx.drawImage(fieldBuf, 0, MARGIN * T, LW, CHUNK * T, 0, 0, LW, CHUNK * T);
-    chunks.set(ci, e);
+    CR.composeBand(lb, solidTile, cx * CW - MARGIN, cy * CH - MARGIN, CW + 2 * MARGIN, CH + 2 * MARGIN, Infinity, D.SURFACE);
+    const key = ckey(cx, cy), e = chunks.get(key) || newChunkCanvas();
+    e.ctx.clearRect(0, 0, CW * T, CH * T);
+    e.ctx.drawImage(fieldBuf, MARGIN * T, MARGIN * T, CW * T, CH * T, 0, 0, CW * T, CH * T);
+    chunks.set(key, e);
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
     return e;
   }
   // Get a chunk for blitting, or null while it's being generated off-thread.
-  function getChunk(ci) {
-    const e = chunks.get(ci); if (e) return e;
-    if (worker) { requestChunk(ci); return null; }
-    return renderChunkSync(ci);
+  function getChunk(cx, cy) {
+    const key = ckey(cx, cy), e = chunks.get(key); if (e) return e;
+    if (worker) { requestChunk(cx, cy); return null; }
+    return renderChunkSync(cx, cy);
   }
 
   // A dig changes one tile → re-render only a small window around it (a few ms, on the
@@ -285,15 +290,17 @@
   // If a chunk is still being generated, queue the patch to re-apply when it arrives.
   function patchDig(c, r) {
     const _t0 = performance.now();
-    const coreColL = Math.max(0, c - 1), coreColR = Math.min(W - 1, c + 1);
-    const coreRowT = r - 1, coreRowB = r + 1;
-    const bandLeft = coreColL - MARGIN, bandTop = coreRowT - MARGIN;
-    CR.composeBand(lb, solidTile, bandLeft, bandTop, (coreColR - coreColL + 1) + 2 * MARGIN, (coreRowB - coreRowT + 1) + 2 * MARGIN, W, D.SURFACE);
-    const w = (coreColR - coreColL + 1) * T, srcX = (coreColL - bandLeft) * T, dstX = coreColL * T;
-    for (let ry = coreRowT; ry <= coreRowB; ry++) {
-      const ci = chunkOf(ry), e = chunks.get(ci);
-      if (e) { e.ctx.drawImage(fieldBuf, srcX, (ry - bandTop) * T, w, T, dstX, (ry - ci * CHUNK) * T, w, T); }
-      else if (pending.has(ci)) { const q = pending.get(ci) || []; q.push([c, r]); pending.set(ci, q); }
+    const coreL = c - 1, coreR = c + 1, coreT = r - 1, coreB = r + 1;
+    const bandLeft = coreL - MARGIN, bandTop = coreT - MARGIN;
+    CR.composeBand(lb, solidTile, bandLeft, bandTop, (coreR - coreL + 1) + 2 * MARGIN, (coreB - coreT + 1) + 2 * MARGIN, Infinity, D.SURFACE);
+    // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
+    for (let cy = chunkY(coreT); cy <= chunkY(coreB); cy++) for (let cx = chunkX(coreL); cx <= chunkX(coreR); cx++) {
+      const key = ckey(cx, cy), e = chunks.get(key);
+      if (!e) { if (pending.has(key)) { const q = pending.get(key) || []; q.push([c, r]); pending.set(key, q); } continue; }
+      const wl = Math.max(coreL, cx * CW), wr = Math.min(coreR, cx * CW + CW - 1);   // world-tile intersection
+      const wt = Math.max(coreT, cy * CH), wb = Math.min(coreB, cy * CH + CH - 1);
+      e.ctx.drawImage(fieldBuf, (wl - bandLeft) * T, (wt - bandTop) * T, (wr - wl + 1) * T, (wb - wt + 1) * T,
+        (wl - cx * CW) * T, (wt - cy * CH) * T, (wr - wl + 1) * T, (wb - wt + 1) * T);
     }
     lastRebuildMs = performance.now() - _t0; rebuildCount++;
   }
@@ -308,33 +315,35 @@
 
   function render(t) {
     ctx.clearRect(0, 0, LW, LH);
-    const targetCam = dispR * T - LH / 2 + T / 2;
-    camY += (targetCam - camY) * 0.16;
-    if (camY < -LH * 0.45) camY = -LH * 0.45;
+    // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
+    const targetCamX = dispC * T - LW / 2 + T / 2, targetCamY = dispR * T - LH / 2 + T / 2;
+    camX += (targetCamX - camX) * 0.16; camY += (targetCamY - camY) * 0.16;
     const shx = SHAKE ? (Math.random() * 2 - 1) * shake : 0, shy = SHAKE ? (Math.random() * 2 - 1) * shake : 0;
-    const camRowTop = Math.floor(camY / T);
     const st = D.stats(s);
 
     ctx.save();
-    ctx.translate(Math.round(shx), Math.round(shy - camY));
+    ctx.translate(Math.round(shx - camX), Math.round(shy - camY));
 
-    const rTop = camRowTop - 2, rBot = camRowTop + VIEW_ROWS + 2;
+    // visible tile window (with a little overscan for shading context)
+    const colL = Math.floor(camX / T) - 2, colR = Math.floor(camX / T) + VIEW_COLS + 2;
+    const rowT = Math.floor(camY / T) - 2, rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
     // blit the cached rock chunks spanning the view; a not-yet-generated chunk (Worker in
     // flight) shows a flat bg placeholder for the frame or two until it arrives.
-    const c0 = chunkOf(rTop), c1 = chunkOf(rBot);
-    for (let ci = c0; ci <= c1; ci++) { const e = getChunk(ci);
-      if (e) ctx.drawImage(e.cv, 0, ci * CHUNK * T);
-      else { ctx.fillStyle = '#0b0e13'; ctx.fillRect(0, ci * CHUNK * T, LW, CHUNK * T); } }
-    // prefetch a few chunks beyond the view so they're ready before they scroll in
-    if (worker) for (let ci = c0 - 2; ci <= c1 + 2; ci++) requestChunk(ci);
-    else for (let ci = c0 - 1; ci <= c1 + 1; ci++) { if (!chunks.has(ci)) { renderChunkSync(ci); break; } }
-    // bound memory: drop chunks well outside the view
-    if (chunks.size > 160) for (const ci of [...chunks.keys()]) if (ci < c0 - 48 || ci > c1 + 48) chunks.delete(ci);
+    const cx0 = chunkX(colL), cx1 = chunkX(colR), cy0 = chunkY(rowT), cy1 = chunkY(rowB);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) { const e = getChunk(cx, cy);
+      if (e) ctx.drawImage(e.cv, cx * CW * T, cy * CH * T);
+      else { ctx.fillStyle = '#0b0e13'; ctx.fillRect(cx * CW * T, cy * CH * T, CW * T, CH * T); } }
+    // prefetch a ring of chunks around the view so they're ready before they scroll in
+    if (worker) { for (let cy = cy0 - 1; cy <= cy1 + 1; cy++) for (let cx = cx0 - 1; cx <= cx1 + 1; cx++) requestChunk(cx, cy); }
+    else { for (let cy = cy0; cy <= cy1; cy++) { let did = false; for (let cx = cx0; cx <= cx1; cx++) if (!chunks.has(ckey(cx, cy))) { renderChunkSync(cx, cy); did = true; break; } if (did) break; } }
+    // bound memory: drop chunks well outside the view (both axes)
+    if (chunks.size > 400) for (const key of [...chunks.keys()]) { const j = key.indexOf(','), kx = +key.slice(0, j), ky = +key.slice(j + 1);
+      if (kx < cx0 - 12 || kx > cx1 + 12 || ky < cy0 - 12 || ky > cy1 + 12) chunks.delete(key); }
     const lightAt = (c, r) => { const dist = Math.hypot(c - dispC, r - dispR); return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5)); };
     // ore blocks + glow, drawn per-frame ONLY where visible: within lamp range, or
     // anywhere once the Ore Scanner is owned. Unlit, unscanned rock hides its ore.
     // (fog-of-war + lamp bloom + vignette are one pixelated pass at frame end — lighting.render.)
-    for (let r = rTop; r <= rBot; r++) { if (r <= D.SURFACE) continue; for (let c = 0; c < W; c++) {
+    for (let r = rowT; r <= rowB; r++) { if (r <= D.SURFACE) continue; for (let c = colL; c <= colR; c++) {
         if (!solidTile(c, r)) continue; const b = D.blockAt(s.seed, c, r); if (!b.ore) continue;
         const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0); if (vis <= 0.06) continue;
         const art = ORE_ART[b.ore]; if (!art || art.dim) continue;       // dirt: no block, shows as plain rock
@@ -358,7 +367,7 @@
         const exposed = nc !== c || nr !== r;
         if (exposed && (li > 0.16 || frac > 0.05)) {
           const orgb = hexRgb(art.c[2]), pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + ph);
-          lighting.addLight(nc * T + (T >> 1), nr * T + (T >> 1) - camY, 1,
+          lighting.addLight(nc * T + (T >> 1), nr * T + (T >> 1), 1,
             [orgb[0] / 255, orgb[1] / 255, orgb[2] / 255], 0.9 * li * (0.5 + 0.85 * frac) * pulse);
         }
         const tw = Math.sin(t * 2.2 + ph * 1.7);                              // periodic per-ore shimmer glint
@@ -388,8 +397,8 @@
     // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the
     // Deep Lantern reaches further), then composite the shared geometry-aware system over
     // the frame. Ore-vein emitters were already pushed in the ore loop above.
-    lighting.addLight(dispC * T + 8, dispR * T - camY + 7, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * st.vision);
-    lighting.render({ g: ctx, LW, LH, T, camY, SURFACE: D.SURFACE, W, solidTile });
+    lighting.addLight(dispC * T + 8, dispR * T + 7, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * st.vision);
+    lighting.render({ g: ctx, LW, LH, T, camX, camY, SURFACE: D.SURFACE, solidTile });
   }
 
   // ---------- input ----------
@@ -409,7 +418,7 @@
     const rect = cv.getBoundingClientRect();
     const lx = (clientX - rect.left) / rect.width * LW;
     const ly = (clientY - rect.top) / rect.height * LH;
-    const mx = dispC * TILE + TILE / 2, my = dispR * TILE - camY + TILE / 2;
+    const mx = dispC * TILE - camX + TILE / 2, my = dispR * TILE - camY + TILE / 2;
     const dx = lx - mx, dy = ly - my;
     if (Math.abs(dx) < u && Math.abs(dy) < u) return null;
     return Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
@@ -500,8 +509,8 @@
       `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
       `pos   ${s.c},${s.r}  disp ${dispC.toFixed(1)},${dispR.toFixed(1)}  facing ${s.facing}\n` +
       `depth ${s.depth}m  best ${ore ? ore.name : '—'}\n` +
-      `cam   y ${camY.toFixed(1)}  viewRows ${VIEW_ROWS}\n` +
-      `canvas ${cv.width}×${cv.height} @${up}×  tile ${(cv.clientWidth / W).toFixed(1)}px  cols ${W}\n` +
+      `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
+      `canvas ${cv.width}×${cv.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
       `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
       `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
       `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
@@ -568,7 +577,7 @@
     this.textContent = muted ? '♪̸' : '♪'; this.style.opacity = muted ? .5 : 1; };
   el('newBtn').onclick = function () {
     if (!confirm('Start a new mine? Your current progress is lost.')) return;
-    s = fresh(); dispC = s.c; dispR = s.r; camY = 0; chunks.clear(); pending.clear(); save(); refreshShop();
+    s = fresh(); dispC = s.c; dispR = s.r; snapCam(); chunks.clear(); pending.clear(); save(); refreshShop();
   };
 
   // block scroll/zoom gestures on the game
@@ -583,20 +592,22 @@
   // fitting/centering + a horizontal camera are a deliberate later pass.
   // ponytail: fixed 1:1 for now; revisit fit + h-camera when we tackle viewport framing.
   function fit() {
-    VIEW_ROWS = Math.max(9, Math.min(56, Math.ceil(innerHeight / TILE_PX) + 1));  // rows to cover the viewport at TILE_PX
-    LH = VIEW_ROWS * T;
+    // enough logical tiles to cover the viewport at TILE_PX (+1 slack), rendered at 16px
+    // and upscaled crisply by image-rendering:pixelated. The camera centres the miner.
+    VIEW_COLS = Math.max(9, Math.min(160, Math.ceil(innerWidth / TILE_PX) + 1));
+    VIEW_ROWS = Math.max(9, Math.min(160, Math.ceil(innerHeight / TILE_PX) + 1));
+    LW = VIEW_COLS * T; LH = VIEW_ROWS * T;
     cv.width = LW; cv.height = LH; ctx.imageSmoothingEnabled = false;             // (resetting width clears ctx state)
-    const cssW = W * TILE_PX;
-    cv.style.width = cssW + 'px'; cv.style.height = (VIEW_ROWS * TILE_PX) + 'px'; // display 16px art at TILE_PX
-    cv.style.left = Math.round((innerWidth - cssW) / 2) + 'px'; cv.style.top = '0';  // centre the (overflowing) world horizontally
-    // The world is wider than the viewport; centring keeps the down-digging miner near
-    // mid-screen. A true horizontal camera (for lateral movement) is a later fit pass.
-    // chunk cache is world-space and LW is fixed, so it survives resize — no invalidation needed.
+    const cssW = VIEW_COLS * TILE_PX, cssH = VIEW_ROWS * TILE_PX;
+    cv.style.width = cssW + 'px'; cv.style.height = cssH + 'px';
+    cv.style.left = Math.round((innerWidth - cssW) / 2) + 'px';                   // centre the viewport canvas
+    cv.style.top = Math.round((innerHeight - cssH) / 2) + 'px';
+    // chunk cache is world-space, so it survives resize — no invalidation needed.
   }
   addEventListener('resize', fit);
 
   // ---------- boot ----------
-  buildShop(); fit(); updateHUD();
+  buildShop(); fit(); snapCam(); updateHUD();
   requestAnimationFrame(frame);
 })();
 </script>

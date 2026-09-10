@@ -73,8 +73,8 @@
 
   // lighting: local canvas pixels are "screen" space; camY = bandTop*T maps them to world
   if (lamp) {
-    const L = DelveLighting.create(), camY = bandTop * T;
-    L.addLight((cx - bandLeft) * T + 8, (cy - bandTop) * T + 8, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * vision);
+    const L = DelveLighting.create(), camX = bandLeft * T, camY = bandTop * T;   // world→screen offset for this crop
+    L.addLight(cx * T + 8, cy * T + 8, 0, DelveLighting.LAMP_COLOR, 0.9 + 0.16 * vision);
     for (let r = bandTop; r < bandTop + rows; r++) for (let c = bandLeft; c < bandLeft + cols; c++) {
       if (!solidTile(c, r)) continue;
       const oid = D.blockAt(seed, c, r).ore, art = oid && DelveOre.ORE_ART[oid];
@@ -84,9 +84,9 @@
       else if (!solidTile(c - 1, r)) nx = c - 1; else if (!solidTile(c + 1, r)) nx = c + 1;
       if (nx === c && ny === r) continue;
       const rgb = CR.hexRgb(art.c[2]);
-      L.addLight((nx - bandLeft) * T + (T >> 1), (ny - bandTop) * T + (T >> 1), 1, [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255], 0.9);
+      L.addLight(nx * T + (T >> 1), ny * T + (T >> 1), 1, [rgb[0] / 255, rgb[1] / 255, rgb[2] / 255], 0.9);
     }
-    L.render({ g, LW, LH, T, camY, SURFACE: -1, W, solidTile });
+    L.render({ g, LW, LH, T, camX, camY, SURFACE: -1, solidTile });
   }
 
   document.title = 'ready';   // signal for headless capture
