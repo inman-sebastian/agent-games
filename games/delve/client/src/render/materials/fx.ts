@@ -4,7 +4,7 @@
 import { hashXY } from '@delve/shared';
 import { clamp01, T } from '../palette';
 import type { Rgb } from '../palette';
-import type { Material, ShadeCtx } from './types';
+import type { DamageCtx, Material, ShadeCtx } from './types';
 
 const rnd01 = (a: number, b: number): number => (hashXY(a, b, 91) & 4095) / 4095;
 
@@ -137,6 +137,93 @@ export function sparkle(ctx: ShadeCtx, opts: SparkleOpts): Rgb | null {
   const arm = dx + dy;
   const intensity = (arm === 0 ? 1 : arm === 1 ? 0.82 : 0.6) * (0.55 + 0.45 * t);
   return [opts.color[0] * intensity, opts.color[1] * intensity, opts.color[2] * intensity];
+}
+
+// ---- tiered damage (centre-out cracks) --------------------------------------------------------
+// As a tile is mined, cracks spread OUTWARD from its centre and the middle chips into a growing
+// cavity — so the damage lives on the (now fully-lit) block face, not along its edges. Deterministic
+// per tile (no flicker between hits), keyed on dig progress. Shared across ALL mineable tiles — plain
+// rock included — so it can't live on a Material; a material may still override via Material.damage.
+const TAU = Math.PI * 2;
+
+const DAMAGE_STAGES = 4; // discrete destruction stages, so the block's progress reads at a glance
+const GOLDEN_ANGLE = 2.3999632; // radians — spaces cracks evenly AND independently of how many exist
+const crackAccum = new Int8Array(T * T); // per-pixel crack-hit count (reused; deepens where arms cross)
+
+/**
+ * Draw a mineable tile's damage state as a STABLE, ADDITIVE crack web quantised into a few discrete
+ * stages, so a block's destruction is legible while mining. Each crack has a fixed angle (golden-angle
+ * spacing seeded per tile, so it never moves when others appear) and a fixed jagged path; advancing a
+ * stage only ADDS a crack and LENGTHENS the existing ones along the same paths — nothing reshuffles.
+ * Kept subtle: low-alpha overlays let the rock texture bleed through so cracks read as shadow WITHIN
+ * the stone. Deterministic per `seed`.
+ */
+export function drawDamage(ctx: DamageCtx): void {
+  const { g, frac, seed, lit } = ctx;
+  if (frac <= 0 || lit < 0.12) return; // pristine, or hidden in the dark → nothing to draw
+  const u = Math.max(1, Math.round(ctx.scale)); // one art pixel in display px
+  const half = T / 2;
+
+  // plot one art-pixel (floored to the tile grid), clamped inside the tile
+  const plot = (axf: number, ayf: number, color: string, alpha: number): void => {
+    const ax = Math.floor(axf);
+    const ay = Math.floor(ayf);
+    if (ax < 0 || ay < 0 || ax >= T || ay >= T) return;
+    g.globalAlpha = alpha;
+    g.fillStyle = color;
+    g.fillRect(ctx.x + ax * u, ctx.y + ay * u, u, u);
+  };
+
+  const stage = Math.min(DAMAGE_STAGES, Math.ceil(frac * DAMAGE_STAGES)); // 1..4
+  const arms = 1 + stage; // stage 1 → 2 cracks, … stage 4 → 5 cracks (only ever added)
+  const steps = Math.round((0.34 + 0.16 * stage) * (half - 0.5)); // existing cracks lengthen per stage
+  const baseAngle = ((hashXY(seed, 0, 5) & 255) / 255) * TAU; // per-tile rotation (variety between tiles)
+  crackAccum.fill(0);
+  for (let a = 0; a < arms; a++) {
+    let angle = baseAngle + a * GOLDEN_ANGLE; // arm a's angle is fixed regardless of how many arms show
+    // start a couple of pixels out from dead-centre so the arms don't stack into a solid focal dot
+    let ax = half - 0.5 + Math.cos(angle) * 1.5;
+    let ay = half - 0.5 + Math.sin(angle) * 1.5;
+    for (let s = 0; s <= steps; s++) {
+      angle += ((hashXY(seed * 7 + a, s, 11) & 255) / 255 - 0.5) * 0.6; // organic wander (deterministic)
+      ax += Math.cos(angle);
+      ay += Math.sin(angle);
+      const v = 150 + (hashXY(a, s, seed) % 34); // faint, warm break-edge (not a white highlight)
+      plot(ax + 1, ay, `rgb(${v},${v - 8},${v - 20})`, 0.14);
+      // tally the crack core; drawn afterwards so crossings can deepen (a single accumulated pass)
+      const cx = Math.floor(ax);
+      const cy = Math.floor(ay);
+      if (cx >= 0 && cy >= 0 && cx < T && cy < T && crackAccum[cy * T + cx] < 9) crackAccum[cy * T + cx]++;
+    }
+  }
+  // draw crack cores in one pass, deepening where arms overlap — crossings read as deeper fractures
+  g.fillStyle = 'rgb(20,17,26)';
+  for (let idx = 0; idx < crackAccum.length; idx++) {
+    const hits = crackAccum[idx];
+    if (hits === 0) continue;
+    g.globalAlpha = Math.min(0.85, 0.44 + 0.17 * (hits - 1)); // 1 crack → soft; each overlap → deeper
+    g.fillRect(ctx.x + (idx % T) * u, ctx.y + ((idx / T) | 0) * u, u, u);
+  }
+
+  // silhouette deformation: bite small chunks out of the edge the tile is being mined FROM, one more
+  // per stage (stable + additive per seed). The bitten pixels go dark so the adjacent open tunnel
+  // reads as eating into the block's outline. Only on a known mining side.
+  if (ctx.dirX || ctx.dirY) {
+    const horiz = ctx.dirY !== 0; // top/bottom edge (chunks vary along X) vs left/right (along Y)
+    const atFar = ctx.dirX > 0 || ctx.dirY > 0; // notch the bottom/right edge vs the top/left
+    for (let n = 0; n < stage; n++) {
+      const along = 1 + Math.floor(((hashXY(seed, n, 23) & 255) / 255) * (T - 3)); // pos along the edge
+      const w = 1 + (hashXY(seed, n, 27) % 2); // chunk width (1..2 px)
+      const d = 1 + (hashXY(seed, n, 29) % 2); // chunk depth into the block (1..2 px)
+      for (let i = 0; i < w; i++)
+        for (let j = 0; j < d; j++) {
+          const inset = atFar ? T - 1 - j : j; // from the far or near edge, inward
+          plot(horiz ? along + i : inset, horiz ? inset : along + i, 'rgb(8,8,12)', 0.94);
+        }
+    }
+  }
+
+  g.globalAlpha = 1;
 }
 
 // ---- cluster-aware twinkle edges --------------------------------------------------------------

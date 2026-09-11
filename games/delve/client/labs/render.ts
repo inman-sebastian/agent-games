@@ -4,7 +4,7 @@
 import { T, setStrata, composeBand, hexRgb } from '../src/render/cave-render';
 import { WIDTH, SURFACE, STRATA, blockAt, oreAt } from '@delve/shared';
 import { ORE_ART, drawOreBlock } from '../src/render/ore-art';
-import { oreMaterial } from '../src/render/materials';
+import { oreMaterial, drawDamage } from '../src/render/materials';
 import { drawMiner } from '../src/render/sprites';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
@@ -37,13 +37,26 @@ const vision = num('vision', DEFAULT_VISION);
 // through the shared rock shader in the ore's palette (the art-pass prototype — looks/functions
 // like a stratum tile). Only ore in solid, still-buried tiles gets the strata treatment.
 const oreStyle = params.get('orestyle') || 'crystal';
+// dmg inspector: >0 shows the tiered damage (chipping) FX on a row of isolated, fully top-lit tiles,
+// one per stage (dig progress rising left→right) — so one shot shows the whole break progression
+// cleanly, on bright rock, without lighting/ore noise.
+const damage = num('dmg', 0);
+const DMG_STAGES = [0.001, 0.15, 0.4, 0.65, 0.9, 1.0]; // representative fracs (first ≈ pristine)
+const dmgBlockCol = (i: number): number => bandLeft + 2 + i * 3; // isolated tiles, spaced so each is lit
 
 const bandLeft = centerColumn - (cols >> 1);
 const bandTop = centerRow - (rows >> 1);
 
 // carve a cave shape into a dug set
 const dug = new Set<string>();
-if (cave === 'shaft') {
+if (damage > 0) {
+  // dmg inspector: everything open except one isolated solid tile per stage on the centre row, so
+  // each is surrounded by open space → fully top-lit, and the chipping reads on bright rock.
+  const solidCols = new Set(DMG_STAGES.map((_, i) => dmgBlockCol(i)));
+  for (let row = bandTop; row < bandTop + rows; row++)
+    for (let column = bandLeft; column < bandLeft + cols; column++)
+      if (!(row === centerRow && solidCols.has(column))) dug.add(`${column},${row}`);
+} else if (cave === 'shaft') {
   for (let row = bandTop; row <= centerRow; row++) dug.add(`${centerColumn},${row}`); // shaft down the centre
   for (let dy = -1; dy <= 1; dy++)
     for (let dx = -1; dx <= 1; dx++) dug.add(`${centerColumn + dx},${centerRow + dy}`); // chamber
@@ -83,6 +96,25 @@ if (oreStyle !== 'strata') {
         oreAt(seed, column + dColumn, row + dRow) === oreId;
       drawOreBlock(g, art, (column - bandLeft) * T, (row - bandTop) * T, column, row, 0, sameOre);
     }
+  }
+}
+
+// tiered damage overlay (chipping): one isolated tile per stage
+if (damage > 0) {
+  for (let i = 0; i < DMG_STAGES.length; i++) {
+    const column = dmgBlockCol(i);
+    if (column >= bandLeft + cols) break;
+    drawDamage({
+      g,
+      x: (column - bandLeft) * T,
+      y: (centerRow - bandTop) * T,
+      scale: 1,
+      frac: DMG_STAGES[i],
+      seed: 42, // fixed across the row → shows ONE block's additive progression (not per-tile variety)
+      lit: 1,
+      dirX: 1, // mined from the right → chunks bite out of the right edge
+      dirY: 0,
+    });
   }
 }
 
