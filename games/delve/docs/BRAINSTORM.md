@@ -320,6 +320,63 @@ tile."* And it extends naturally into combat ([§5](#5-combat)) — a laser dron
 shoots rock is one target-selection change away from a drone that shoots enemies,
 which is a lot of content for very little new machinery.
 
+### Intelligence as the upgrade axis
+
+**The strongest idea in this section.** Rather than (only) scaling count and laser
+power, the drone's **competence** is what levels up:
+
+- **Early drone: genuinely stupid.** It destroys any node it judges worth
+  destroying, to the player's benefit or detriment. It will absolutely dig into a
+  lava pocket and drop a molten waterfall on your head.
+- **Upgraded drone: progressively smarter.** It learns to avoid load-bearing blocks,
+  to not breach fluid, to keep the player safe from its own actions, and eventually
+  to be ruthlessly efficient at the job.
+
+Why this is better than a bigger number:
+
+1. **It inverts the usual incremental axis.** Almost every incremental upgrade makes
+   a number larger. This one changes *behaviour*, which is far more memorable and
+   fits the "removes a constraint" rule ([§6](#6-the-incremental-loop-rebuilt))
+   better than damage-per-laser ever could.
+2. **It converts a bug-shaped experience into designed content.** A drone dropping
+   lava on you is only funny if the game *told you* the drone is an idiot. Framed as
+   a known starting state you grow out of, the lava incident becomes a story the
+   player earns early. Unframed, the identical event reads as broken.
+3. **It resolves the reaction split honestly.** One player finds the lava waterfall
+   hilarious and endearing; another finds it frustrating and assumes it's a bug.
+   Both reactions are legitimate. Progression turns that coin-flip into an arc: you
+   *start* in the funny version and *earn* your way to the safe one.
+
+### Synthesis: progression unlocks the toggles
+
+The two options floated — player settings vs. a progression axis — are better
+together than either alone:
+
+- **Early game:** no control. The drone is dumb, and that's the joke.
+- **Mid game:** smarter defaults. It stops doing the worst things unprompted.
+- **Late game:** smart *and* **directable** — obedience modes the player picks per
+  situation (cautious / balanced / reckless), because a maximally cautious drone will
+  eventually refuse to mine something you actually want mined.
+
+Framing the settings as **earned** rather than as an options-menu checkbox keeps them
+part of the game instead of a configuration screen, and it dodges the usual ceiling
+problem where the fully-upgraded version is strictly better but boring.
+
+### Legibility is a hard requirement here
+
+This design only works if the player can always tell *"the drone did something dumb
+because drones are dumb"* apart from *"the game is broken."* That's a presentation
+requirement, not a simulation one:
+
+- The drone must read as **a character with intent** — visibly choose a target,
+  telegraph before firing, react to what it did.
+- If it's an invisible effect that silently deletes tiles, the lava incident reads as
+  a bug **every single time**, no matter how it's framed in the design.
+
+Upside: this makes the drone the first genuinely characterful entity in a game that
+currently has none, and a strong candidate for the game's mascot. That's a lot of
+identity for one item.
+
 ### The direction it illustrates
 
 The drones matter less than what they point at: **this genre has a lot of room for
@@ -327,7 +384,7 @@ automation**, and automation composes unusually well with the incremental pillar
 Other natural candidates, unexplored: auto-collection of drops, storage sorting,
 crafting/smelting queues, automatic lighting placement, re-clearing known tunnels.
 
-### The rule that makes automation safe here
+### The rules that make automation safe here
 
 Automation and exploration want opposite things. Automation's reward is that **you
 stop doing the thing**; exploration's reward is that **you do the thing**. Pure
@@ -345,6 +402,17 @@ worth adopting for every future automation idea:
 Drones pass because they mine **what's already around you**, chosen by where **you**
 went. The player still decides everything that matters; the drones just stop them
 clicking every tile.
+
+Stated intent, which this rule is a formalization of: **nothing — no system, feature,
+tool, equipment or weapon — may take away from the core identity of the game, which
+is exploration.** Removing the boring, mundane and repetitive parts of exploring does
+more good than harm; removing the exploring does not.
+
+A second rule falls out of the drone-intelligence idea and generalizes just as well:
+
+> **Upgrade the behaviour, not the number.** Where an upgrade *can* change what a
+> thing does rather than how much it does, prefer that. It's more memorable, it's
+> more legible, and it produces an arc instead of a multiplier.
 
 **Follow-the-player is therefore load-bearing, not flavour.** The moment drones can
 be parked somewhere and left to mine unattended, DELVE becomes an idle game and
@@ -409,9 +477,17 @@ body on the player's behalf, without the player choosing to. Two readings:
 - **Emergent story** — "my drones dug into lava" is a *great* thing to have happen
   once, and exactly the kind of moment simulated fluid exists to produce.
 
-The knob is whether auto-mining is **fluid-aware** (refuses to break a tile holding
-fluid back) or deliberately not. Probably: fluid-aware by default, with the
-unrestricted behaviour as an upgrade or a toggle the player opts into.
+**Resolved in principle:** fluid-awareness is the *upgrade axis* rather than a
+default — see [Intelligence as the upgrade axis](#intelligence-as-the-upgrade-axis).
+The drone starts fluid-blind (funny, dangerous, framed as such) and earns
+fluid-awareness, with late-game toggles letting the player opt back into recklessness
+deliberately.
+
+Residual multiplayer question: **whose drone, and whose lava?** In a shared world, one
+player's dumb drone can flood a tunnel onto someone else's head. That's either the
+best emergent story in the game or the fastest way to end a friendship, and it needs
+an answer alongside the rest of the shared-world griefing question
+([Q2](#open-questions)).
 
 ### T5. Player count and world size interact
 
