@@ -256,6 +256,57 @@ is concrete and known-shaped, not vague:
 | **Interest management** | A large world can't stream everything to everyone. Today the client receives the world's entire dug-tile set; that doesn't scale with world size or player count. |
 | **World-scoped persistence** | Per-player whole-file writes can't hold a shared world, especially with fluid state in it. |
 
+### Status: pinned, planned-around
+
+**Multiplayer is not fully committed.** The appeal is real — wanting to play this
+with friends, and expecting others to want that more than the author does — but so is
+the uncertainty about how emergent, simulation-driven systems behave across a network
+with multiple clients.
+
+**Decision: plan around multiplayer as if it works, and resolve the open questions by
+playtesting rather than by argument.** Questions like "what happens when player A's
+drone drops lava on player B" are genuinely not answerable in the abstract; they need
+two humans in one world and a real reaction.
+
+#### Why this is a low-risk place to sit
+
+**Nothing in this document requires multiplayer.** Exploration, bounded/wrapping
+worlds, biomes, buried structures, combat, fluids, drones, crafting, base building
+and the whole progression rebuild are all complete, satisfying systems for one
+player. Multiplayer is **purely additive** here, not load-bearing.
+
+That means the decision can stay open for a long time at almost no cost — provided
+the distinction below is respected.
+
+#### Pin the feel questions, not the shape questions
+
+Two different kinds of question are hiding under "multiplayer," and only one of them
+is safe to defer:
+
+- **Feel questions** — does shared-world drone chaos read as funny or as griefing?
+  Are shared bases fun? How much do players get in each other's way? These *cannot*
+  be answered without playtesting, they get no cheaper by being decided early, and
+  they should be pinned. ✅
+- **Shape questions** — is world lifetime separate from connection lifetime? Is
+  replication area-of-interest-shaped? Is persistence world-scoped or player-scoped?
+  Playtesting can't answer these either, and they get **monotonically more expensive**
+  the more systems get built on top of the wrong answer. These should not be pinned. ⚠️
+
+The existing port already got this right: a single-player game in multiplayer-shaped
+plumbing. That posture is the thing to maintain — keep building single-player-first,
+keep the plumbing multiplayer-shaped.
+
+#### The cheapest way to unpin the feel questions
+
+The pinned questions all need the same thing, and it's much smaller than "multiplayer":
+**two players in one world, doing anything at all.** A shared world instance, a player
+roster, and other players rendered and interpolated. No entities, no enemies, no fluid,
+no shared progression.
+
+That's a small, well-defined milestone, and it converts every pinned question from an
+argument into an experiment. Worth doing **early** for that reason alone, well before
+the systems whose interactions are in question actually exist.
+
 ### Target scale
 
 **Real target: small parties on bounded worlds.** Two players on a small world, four
