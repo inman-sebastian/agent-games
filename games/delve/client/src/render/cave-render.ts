@@ -111,6 +111,10 @@ type SolidTile = (column: number, row: number) => boolean;
 const EDGE_EROSION_BASE = 0.4;
 const EDGE_EROSION_RANGE = 1.4;
 const EDGE_NOISE_FREQ = 0.28;
+// Corner rounding: bite a quarter-disc out of every CONVEX corner (two adjacent open sides) so blocks
+// never read as perfectly square. Radius in px = base + noise * edge noise (organic, world-anchored).
+const CORNER_ROUND_BASE = 2.6;
+const CORNER_ROUND_NOISE = 1.3;
 
 /** Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. */
 function buildMask(
@@ -134,11 +138,15 @@ function buildMask(
       // distance (px) from this sub-tile pixel to the nearest open neighbour edge/corner
       const localX = px % T;
       const localY = py % T;
+      const openU = !isSolid(column, row - 1);
+      const openD = !isSolid(column, row + 1);
+      const openL = !isSolid(column - 1, row);
+      const openR = !isSolid(column + 1, row);
       let edgeDist = 99;
-      if (!isSolid(column, row - 1)) edgeDist = Math.min(edgeDist, localY + 0.5);
-      if (!isSolid(column, row + 1)) edgeDist = Math.min(edgeDist, T - 1 - localY + 0.5);
-      if (!isSolid(column - 1, row)) edgeDist = Math.min(edgeDist, localX + 0.5);
-      if (!isSolid(column + 1, row)) edgeDist = Math.min(edgeDist, T - 1 - localX + 0.5);
+      if (openU) edgeDist = Math.min(edgeDist, localY + 0.5);
+      if (openD) edgeDist = Math.min(edgeDist, T - 1 - localY + 0.5);
+      if (openL) edgeDist = Math.min(edgeDist, localX + 0.5);
+      if (openR) edgeDist = Math.min(edgeDist, T - 1 - localX + 0.5);
       if (!isSolid(column - 1, row - 1))
         edgeDist = Math.min(edgeDist, Math.hypot(localX + 0.5, localY + 0.5));
       if (!isSolid(column + 1, row - 1))
@@ -147,11 +155,23 @@ function buildMask(
         edgeDist = Math.min(edgeDist, Math.hypot(localX + 0.5, T - localY - 0.5));
       if (!isSolid(column + 1, row + 1))
         edgeDist = Math.min(edgeDist, Math.hypot(T - localX - 0.5, T - localY - 0.5));
-      const threshold =
-        EDGE_EROSION_BASE +
-        EDGE_EROSION_RANGE *
-          vnoise((originX + px) * EDGE_NOISE_FREQ, (originY + py) * EDGE_NOISE_FREQ, TEX + 2);
-      mask[py * width + px] = edgeDist > threshold ? 1 : 0;
+      const noise = vnoise(
+        (originX + px) * EDGE_NOISE_FREQ,
+        (originY + py) * EDGE_NOISE_FREQ,
+        TEX + 2,
+      );
+      const threshold = EDGE_EROSION_BASE + EDGE_EROSION_RANGE * noise;
+      // convex-corner rounding: erode a quarter-disc at any corner where two adjacent sides are open,
+      // so the outline is never perfectly square. Distance is to that corner's tile vertex.
+      let cornerDist = 99;
+      if (openU && openL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, localY + 0.5));
+      if (openU && openR) cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, localY + 0.5));
+      if (openD && openL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, T - localY - 0.5));
+      if (openD && openR)
+        cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, T - localY - 0.5));
+      const roundRadius = CORNER_ROUND_BASE + CORNER_ROUND_NOISE * noise;
+      const solid = edgeDist > threshold && cornerDist >= roundRadius;
+      mask[py * width + px] = solid ? 1 : 0;
     }
   }
   return mask;
@@ -170,6 +190,14 @@ let shadeCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | nul
 // this is the default when it doesn't set one.
 const FEATHER_FREQ = 0.32;
 const DEFAULT_FEATHER = 3.2;
+const BLEND_WIDTH = 1.9; // widens the material cross-fade so boundaries soften instead of a hard seam
+
+/** Linear blend between two RGB colours (mix() is hex-only; the material blend works in RGB). */
+const lerpRgb = (a: Rgb, b: Rgb, t: number): Rgb => [
+  a[0] + (b[0] - a[0]) * t,
+  a[1] + (b[1] - a[1]) * t,
+  a[2] + (b[2] - a[2]) * t,
+];
 
 /** Foreground rock → a canvas (alpha layer): top-lit, dark-bodied, organic edges. Where `materialAt`
  * assigns a tile a material, that material's own shader colours the pixel (through this same top-lit
@@ -228,43 +256,61 @@ function shadeRock(
     return tileMaterials[(r + 1) * paddedW + (c + 1)] ?? null;
   };
 
-  // The material for a PIXEL, or null for plain rock — feathered across the nearest material
-  // boundary by world noise, so a material bleeds organically into rock (no hard tile edge).
-  const materialOfPixel = (
-    px: number,
-    py: number,
-    worldX: number,
-    worldY: number,
-  ): Material | null => {
-    if (!materialAt) return null;
+  // Per-pixel material BLEND (written into the reused `blend` object): `a` = the material colouring
+  // this pixel, `b` = the material across the nearest DIFFERING boundary, `t` = how far to blend from
+  // a→b (0..1). A smooth band around the tile edge, jittered by world noise, so materials fade into
+  // each other AND into rock instead of meeting at a hard line. Covers material↔rock AND
+  // material↔material. `a`/`b` === null means plain rock. t=0 → all `a` (deep, no nearby boundary).
+  const blend: { a: Material | null; b: Material | null; t: number } = { a: null, b: null, t: 0 };
+  const materialBlendAt = (px: number, py: number, worldX: number, worldY: number): void => {
+    blend.b = null;
+    blend.t = 0;
+    if (!materialAt) {
+      blend.a = null;
+      return;
+    }
     const column = bandLeft + ((px / T) | 0);
     const row = bandTop + ((py / T) | 0);
     const here = materialOfTile(column, row);
+    blend.a = here;
     const localX = px % T;
     const localY = py % T;
-    // nearest side across which this pixel's tile borders the OTHER material (material↔rock)
+    // nearest cardinal side whose neighbour is a DIFFERENT material (or rock) — the boundary to blend
     let bestDist = Infinity;
-    let signed = 0; // + if this pixel's tile is the material side, − if the rock side
-    let material: Material | null = null;
-    const sides: [number, number, number][] = [
-      [0, -1, localY + 0.5],
-      [0, 1, T - 1 - localY + 0.5],
-      [-1, 0, localX + 0.5],
-      [1, 0, T - 1 - localX + 0.5],
-    ];
-    for (const [dc, dr, dist] of sides) {
-      const neighbour = materialOfTile(column + dc, row + dr);
-      if (!here === !neighbour) continue; // same material class across this side → not a boundary
-      if (dist < bestDist) {
-        bestDist = dist;
-        signed = here ? dist : -dist;
-        material = here ?? neighbour;
-      }
+    let other: Material | null = null;
+    // Only blend across a boundary between two SOLID tiles. An OPEN (dug) neighbour is the silhouette
+    // edge — handled by erosion + contact shadow — not a material to blend toward; otherwise a mined-
+    // out vein would leave its colour "stained" on the surrounding rock (its ore id is still in the
+    // static world map even though the tile is now air).
+    if (isSolid(column, row - 1)) {
+      const up = materialOfTile(column, row - 1);
+      if (up !== here && localY + 0.5 < bestDist) ((bestDist = localY + 0.5), (other = up));
     }
-    if (!material) return here; // deep inside a material (→ it) or deep in rock (→ null)
-    const feather = material.feather ?? DEFAULT_FEATHER;
-    const noise = (vnoise(worldX * FEATHER_FREQ, worldY * FEATHER_FREQ, TEX + 21) - 0.5) * feather;
-    return signed + noise > 0 ? material : null;
+    if (isSolid(column, row + 1)) {
+      const down = materialOfTile(column, row + 1);
+      if (down !== here && T - 1 - localY + 0.5 < bestDist)
+        ((bestDist = T - 1 - localY + 0.5), (other = down));
+    }
+    if (isSolid(column - 1, row)) {
+      const left = materialOfTile(column - 1, row);
+      if (left !== here && localX + 0.5 < bestDist) ((bestDist = localX + 0.5), (other = left));
+    }
+    if (isSolid(column + 1, row)) {
+      const right = materialOfTile(column + 1, row);
+      if (right !== here && T - 1 - localX + 0.5 < bestDist)
+        ((bestDist = T - 1 - localX + 0.5), (other = right));
+    }
+    if (bestDist === Infinity) return; // no differing neighbour → all `a`
+    const wa = here?.feather ?? DEFAULT_FEATHER;
+    const wb = other?.feather ?? DEFAULT_FEATHER;
+    // half-width (px into EACH tile) of the cross-fade — widened so high-contrast pairs (e.g. a bright
+    // gem against dark rock) fade over a real band instead of a near-hard tile seam.
+    const w = Math.max(2, (wa + wb) * 0.5 * BLEND_WIDTH);
+    const jitter = (vnoise(worldX * FEATHER_FREQ, worldY * FEATHER_FREQ, TEX + 21) - 0.5) * w * 0.6;
+    blend.b = other;
+    // ramp 0 (deep in `a`) → 0.5 at the seam; the neighbour ramps the mirror image, so the two sides
+    // meet at ~50/50 for a continuous cross-fade rather than a 60/40 step.
+    blend.t = 0.5 * clamp01(1 - (bestDist + jitter) / w);
   };
 
   // Reused per-pixel context handed to a material's shader (never retained across pixels).
@@ -321,27 +367,36 @@ function shadeRock(
       const range = topDist[i] <= edgeDist[i] + 0.8 ? 22.0 : 15.0;
       const rawBrightness = 1 - edgeDist[i] / range;
 
-      // which material owns this PIXEL — rock, or a registered one (feathered across the boundary)?
-      const material = materialOfPixel(px, py, worldX, worldY);
-      if (material) {
-        // hand the material the geometry; it owns the colour (its own noise / palette / sheen / …)
-        pixelCtx.worldX = worldX;
-        pixelCtx.worldY = worldY;
-        pixelCtx.px = px;
-        pixelCtx.py = py;
-        pixelCtx.localX = px % T;
-        pixelCtx.localY = py % T;
-        pixelCtx.column = bandLeft + ((px / T) | 0);
-        pixelCtx.row = bandTop + ((py / T) | 0);
-        pixelCtx.brightness = rawBrightness; // raw geometric light; the material adds its own texture
-        pixelCtx.edgeDist = edgeDist[i];
-        pixelCtx.topDist = topDist[i];
-        setPixel(i, material.shade(pixelCtx), 255);
+      // which material(s) colour this PIXEL — blended across the nearest boundary for a soft transition
+      materialBlendAt(px, py, worldX, worldY);
+      if (!blend.a && !blend.b) {
+        // plain rock (deep, or a rock↔rock interior): the shared stone surface in the strata palette
+        setPixel(i, stoneSurface(worldX, worldY, px, py, rawBrightness, rockColors), 255);
         continue;
       }
-
-      // plain rock (the default material): the shared stone surface in the strata palette
-      setPixel(i, stoneSurface(worldX, worldY, px, py, rawBrightness, rockColors), 255);
+      // a material is involved — hand it the geometry; it owns the colour (noise / palette / sheen / …)
+      pixelCtx.worldX = worldX;
+      pixelCtx.worldY = worldY;
+      pixelCtx.px = px;
+      pixelCtx.py = py;
+      pixelCtx.localX = px % T;
+      pixelCtx.localY = py % T;
+      pixelCtx.column = bandLeft + ((px / T) | 0);
+      pixelCtx.row = bandTop + ((py / T) | 0);
+      pixelCtx.brightness = rawBrightness; // raw geometric light; the material adds its own texture
+      pixelCtx.edgeDist = edgeDist[i];
+      pixelCtx.topDist = topDist[i];
+      const colorA = blend.a
+        ? blend.a.shade(pixelCtx)
+        : stoneSurface(worldX, worldY, px, py, rawBrightness, rockColors);
+      if (blend.t <= 0.001) {
+        setPixel(i, colorA, 255); // deep in `a`, no nearby boundary
+        continue;
+      }
+      const colorB = blend.b
+        ? blend.b.shade(pixelCtx)
+        : stoneSurface(worldX, worldY, px, py, rawBrightness, rockColors);
+      setPixel(i, lerpRgb(colorA, colorB, blend.t), 255);
     }
   }
   ctx.putImageData(image, 0, 0);
