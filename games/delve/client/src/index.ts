@@ -4,7 +4,14 @@
 // shake), the HUD/shop/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
-import type { Session, Input, TileCoord, SimEvent } from '@delve/shared';
+import type {
+  Session,
+  Input,
+  TileCoord,
+  SimEvent,
+  StateMessage,
+  ClientCommand,
+} from '@delve/shared';
 import {
   T,
   setStrata as setRenderStrata,
@@ -115,15 +122,15 @@ function load(): Session | null {
     return null;
   }
 }
-// Persist locally (offline fallback) AND push to the server (the store of record). net.sync is
-// debounced and a no-op while offline, so calling this on the normal save cadence is cheap.
+// Persist locally as the OFFLINE fallback. When online the server is authoritative and persists
+// the session itself (the client streams inputs, never state), so this is just a local cache used
+// before the first hello / when the server is unreachable.
 function save(): void {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
   } catch {
     /* storage full or unavailable — the game stays playable, just not persisted */
   }
-  net.sync(s);
 }
 
 let s: Session = load() || fresh();
@@ -507,8 +514,8 @@ const motes = Array.from({ length: 10 }, () => ({
 
 function render(t: number): void {
   ctx.clearRect(0, 0, LW, LH);
-  const px = s.player.x; // continuous player centre (tile units)
-  const py = s.player.y;
+  const px = s.player.x + correctionX; // continuous player centre (tile units) + reconciliation smoothing
+  const py = s.player.y + correctionY;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
   const targetCamX = px * T - LW / 2 + T / 2;
   const targetCamY = py * T - LH / 2 + T / 2;
@@ -797,10 +804,25 @@ function keyboardAimTile(): TileCoord {
   return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) + dy };
 }
 
-// ---- game loop --------------------------------------------------------------------------
+// ---- game loop (fixed-tick sim + client prediction) -------------------------------------
+// The sim advances in FIXED TICK_DT steps (an accumulator drains real frame time into whole
+// ticks), so client prediction and the authoritative server step the SAME dt — a replayed input
+// reproduces the server's result. Each tick we sample input, predict locally, and (when online)
+// stream the input to the server + buffer it for reconciliation. Rendering happens once per
+// animation frame on the latest predicted state.
 let last = 0;
-const MAX_FRAME_DT = 0.1; // clamp long frames (tab switch) so the sim can't tunnel or lurch
+let accumulator = 0; // banked real time waiting to be spent as whole ticks
+const MAX_FRAME_DT = 0.1; // clamp long frames (tab switch) so we don't spiral catching up
+const MAX_CATCHUP_TICKS = 8; // cap sim ticks per frame; drop the rest rather than freeze
 const FPS_EMA_ALPHA = 0.1; // smoothing for the debug fps / frame-time readouts
+const TICK_DT = engine.TICK_DT;
+
+// ---- client prediction / reconciliation state ----
+let inputSeq = 0; // monotonic input counter; the server echoes the last-applied one as ackSeq
+const pendingInputs: { seq: number; input: Input }[] = []; // un-acked inputs, replayed after each snapshot
+let correctionX = 0; // reconciliation error, absorbed into the render offset and decayed to 0
+let correctionY = 0;
+const CORRECTION_RETAIN = 0.0025; // fraction of the correction kept per second (fast; invisible on LAN)
 
 // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and the
 // cached-chunk patch when a tile breaks.
@@ -839,6 +861,66 @@ function onEvent(ev: SimEvent): void {
 let fpsEMA = 0;
 let frameMsEMA = 0;
 
+// Sample this frame's intent into an Input (movement + the aimed mine target); also refresh the
+// reticle target as a side effect.
+function sampleInput(): Input {
+  const hover = pointerTile();
+  const mineNow = aim.down ? hover : held.mine ? keyboardAimTile() : null;
+  curTarget = hover || (held.mine ? keyboardAimTile() : null); // reticle follows the cursor
+  if (aim.down && hover) {
+    s.player.facing =
+      hover.column < Math.floor(s.player.x)
+        ? 'left'
+        : hover.column > Math.floor(s.player.x)
+          ? 'right'
+          : s.player.facing;
+  }
+  return { left: held.left, right: held.right, jump: held.jump, mine: mineNow };
+}
+
+// One fixed sim step: predict locally (turning events into juice), and when online stream the
+// input to the server + buffer it so the next authoritative snapshot can be reconciled.
+function tick(): void {
+  const input = sampleInput();
+  if (net.isOnline()) {
+    inputSeq++;
+    net.sendInput(inputSeq, input);
+    pendingInputs.push({ seq: inputSeq, input });
+    if (pendingInputs.length > 256) pendingInputs.shift(); // safety bound against an unresponsive server
+  }
+  const res = engine.physicsStep(s, input, TICK_DT);
+  for (const ev of res.events) onEvent(ev);
+  moving = Math.abs(s.player.vx) > 0.5;
+}
+
+// Reconcile the local prediction against an authoritative snapshot: adopt the server's player,
+// apply the world deltas, then replay inputs the server hasn't acked yet to re-predict "now".
+// Any residual difference is absorbed into a decaying render offset so corrections never pop.
+function reconcile(msg: StateMessage): void {
+  const shownX = s.player.x + correctionX; // where the avatar currently appears (pre-reconcile)
+  const shownY = s.player.y + correctionY;
+
+  s.player = msg.player; // server is the source of truth for the player
+
+  // world deltas: newly-dug tiles (patch the rock the first time we hear of them) + tile damage
+  for (const cellKey of msg.dugAdded) {
+    if (!s.world.dug[cellKey]) {
+      s.world.dug[cellKey] = true;
+      const comma = cellKey.indexOf(',');
+      patchDig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1));
+    }
+  }
+  s.world.dmg = msg.dmg;
+
+  // drop acked inputs, replay the rest (silently — their juice already played when first predicted)
+  while (pendingInputs.length && pendingInputs[0].seq <= msg.ackSeq) pendingInputs.shift();
+  for (const p of pendingInputs) engine.physicsStep(s, p.input, TICK_DT);
+
+  correctionX = shownX - s.player.x; // absorb the correction; the frame loop decays it to 0
+  correctionY = shownY - s.player.y;
+  if (paused()) updateHUD(); // no tick loop while paused → refresh HUD for command results (buys/sells)
+}
+
 function frame(now: number): void {
   if (!last) last = now;
   let dt = (now - last) / 1000;
@@ -848,27 +930,27 @@ function frame(now: number): void {
   const workStart = performance.now();
   if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * FPS_EMA_ALPHA; // smoothed frames/sec from real timestamps
 
-  // advance the platformer sim once per frame (paused while a menu overlay is open)
-  if (!paused()) {
-    const hover = pointerTile();
-    const mineNow = aim.down ? hover : held.mine ? keyboardAimTile() : null;
-    curTarget = hover || (held.mine ? keyboardAimTile() : null); // reticle follows the cursor
-    const input: Input = { left: held.left, right: held.right, jump: held.jump, mine: mineNow };
-    const res = engine.physicsStep(s, input, dt);
-    for (const ev of res.events) onEvent(ev);
-    moving = Math.abs(s.player.vx) > 0.5;
-    if (aim.down && hover) {
-      s.player.facing =
-        hover.column < Math.floor(s.player.x)
-          ? 'left'
-          : hover.column > Math.floor(s.player.x)
-            ? 'right'
-            : s.player.facing;
-    }
-  } else {
+  // advance the sim in fixed ticks (paused while a menu overlay is open — don't bank ticks)
+  if (paused()) {
     moving = false;
     curTarget = null;
+    accumulator = 0;
+  } else {
+    accumulator += dt;
+    let steps = 0;
+    while (accumulator >= TICK_DT && steps < MAX_CATCHUP_TICKS) {
+      tick();
+      accumulator -= TICK_DT;
+      steps++;
+    }
+    if (steps === MAX_CATCHUP_TICKS) accumulator = 0; // fell far behind → drop the backlog
   }
+
+  // decay the reconciliation correction toward 0 (framerate-independent)
+  correctionX *= Math.pow(CORRECTION_RETAIN, dt);
+  correctionY *= Math.pow(CORRECTION_RETAIN, dt);
+  if (Math.abs(correctionX) < 1e-3) correctionX = 0;
+  if (Math.abs(correctionY) < 1e-3) correctionY = 0;
 
   // update particles / floaties / shake
   for (const p of particles) {
@@ -923,7 +1005,7 @@ function updateDebug(): void {
     `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
     `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · refine ${s.player.up.refine} · fortune ${s.player.up.fortune}   tech ${s.player.tech.scanner ? 'scanner' : '—'}/${s.player.tech.lantern ? 'lantern' : '—'}\n` +
     `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
-    `net   ${netInfo.status}${netInfo.lastSyncedAt ? `  last-sync ${((Date.now() - netInfo.lastSyncedAt) / 1000).toFixed(0)}s ago` : ''}`;
+    `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;
 }
 
 // ---- HUD / shop -------------------------------------------------------------------------
@@ -964,10 +1046,14 @@ function buildShop(): void {
         <button data-tech="${k}"></button>`;
     techEl.appendChild(row);
   }
+  // Economy actions apply LOCALLY for instant UI (optimistic prediction), and send the intent as a
+  // command so the server applies it authoritatively; the next snapshot reconciles. We only send
+  // when the local (same-logic) attempt succeeds, so the server — with identical coins — agrees.
   upgradesEl.addEventListener('click', (e) => {
     const k = (e.target as HTMLElement).dataset.up as keyof typeof engine.UPGRADES | undefined;
     if (!k) return;
     if (engine.buyUpgrade(s.player, k)) {
+      net.sendCommand({ kind: 'buyUpgrade', key: k });
       sfx.buy();
       save();
     }
@@ -977,6 +1063,7 @@ function buildShop(): void {
     const k = (e.target as HTMLElement).dataset.tech as keyof typeof engine.TECH | undefined;
     if (!k) return;
     if (engine.buyTech(s.player, k)) {
+      net.sendCommand({ kind: 'buyTech', key: k });
       sfx.buy();
       save();
     }
@@ -985,6 +1072,7 @@ function buildShop(): void {
   el('sellBtn').addEventListener('click', () => {
     const amount = engine.sellAll(s.player);
     if (amount > 0) {
+      net.sendCommand({ kind: 'sellAll' });
       sfx.sell(amount);
       save();
     }
@@ -1117,6 +1205,9 @@ muteBtn.onclick = () => {
 el('newBtn').onclick = function () {
   if (!confirm('Start a new mine? Your current progress is lost.')) return;
   s = fresh();
+  net.sendCommand({ kind: 'newGame', seed: s.world.seed }); // server resets its world too (→ hello)
+  pendingInputs.length = 0;
+  inputSeq = 0;
   snapCam();
   chunks.clear();
   pending.clear();
@@ -1196,17 +1287,23 @@ snapCam();
 updateHUD();
 requestAnimationFrame(frame);
 
-// Connect to the server: the game already rendered from localStorage (instant, offline-safe);
-// on the first hello the server snapshot (store of record) replaces local state and we reset the
-// view around the hydrated player. Everything keeps working if the server is unreachable.
+// Connect to the server: the game already rendered from localStorage (instant, offline-safe).
+// The server is authoritative — the client streams inputs and reconciles. On every hello (join /
+// reconnect / server new-game) we adopt the authoritative snapshot and reset the view + prediction
+// buffers around it. Everything keeps working (local prediction only) if the server is unreachable.
 net.connect({
-  getState: () => s,
-  onHydrate: (state) => {
-    s = hydrate(state);
-    snapCam();
+  getSeed: () => s.world.seed,
+  onHello: (snapshot) => {
+    s = hydrate(snapshot);
+    pendingInputs.length = 0;
+    inputSeq = 0;
+    correctionX = 0;
+    correctionY = 0;
     chunks.clear();
-    pending.clear();
+    pending.clear(); // chunk-generation queue
+    snapCam();
     refreshShop();
     updateHUD();
   },
+  onState: (msg) => reconcile(msg),
 });

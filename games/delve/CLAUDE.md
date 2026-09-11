@@ -14,8 +14,10 @@ just the DELVE-specific working rules.
   same module. The typed client/server protocol is `shared/src/protocol.ts`. See the boundary in
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
-  static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.ts`
-  is the pure sim on top and has no DOM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+  static-only. Dynamic state is split for multiplayer: a shared **`WorldState`** (dug cells,
+  tile damage) + a per-player **`PlayerState`** (position, economy), bundled as a **`Session`**.
+  `engine.ts` is the pure sim on top (session-based) with no DOM. The **server is authoritative**
+  — clients send inputs only, predict locally, and reconcile. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Keep the economy soft-lock-free** — digging is free and ore can be sold anytime, so
   the player can never get stranded. No fuel, no hauling requirement, no cargo cap yet.
   (Movement is a gravity platformer as of #2; upward-traversal tools are a future pass.)

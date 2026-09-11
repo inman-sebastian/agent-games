@@ -39,13 +39,14 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
-## `server-check.ts` — client/server protocol smoke test (no browser)
+## `server-check.ts` — authoritative-server gate (no browser)
 
-Spawns the **real** server (`server/index.ts`) against a throwaway data dir, then drives the
-WebSocket protocol the way `client/src/net.ts` does and asserts the P2 store-of-record behaviour:
-join → `hello{fresh}` seeded from the proposal, `sync` persisted + acked, reconnect →
-`hello{fresh:false}` hydrating the synced progress, and a protocol-version mismatch rejected.
-Exits non-zero on any failed assertion.
+Spawns the **real** server (`server/src/index.ts`) against a throwaway data dir, then drives the
+WebSocket protocol the way `client/src/net.ts` does and asserts the P3 authority guarantees:
+join → `hello` with a fresh world; **determinism/authority** — a scripted input stream yields the
+SAME state on the server as the client's local prediction (same seed + inputs → same result);
+**anti-cheat** — an out-of-reach mine target is rejected server-side; reconnect hydrates the
+persisted world; and a protocol-version mismatch is rejected. Exits non-zero on any failed check.
 
 ```sh
 pnpm server:check

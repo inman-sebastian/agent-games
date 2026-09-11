@@ -1,10 +1,12 @@
-// server-check.ts — a cheap headless smoke test of the P2 client/server boundary (no browser).
-// It spawns the real server against a throwaway data dir, then drives the WebSocket protocol the
-// way the client does and asserts the store-of-record behaviour:
-//   join (new)     → hello{fresh:true} seeded from our proposal
-//   sync(mutated)  → persisted, acked
-//   reconnect      → hello{fresh:false} hydrates the synced progress
-//   bad protocol   → rejected with an error
+// server-check.ts — headless gate for the P3 authoritative boundary (no browser). Spawns the real
+// server against a throwaway data dir, then drives the WebSocket protocol the way client/src/net.ts
+// does and asserts the authority guarantees:
+//   • join → hello with a fresh world seeded from our proposal
+//   • DETERMINISM/AUTHORITY: a scripted input stream produces the SAME state on the server as the
+//     client's local prediction of those inputs (same seed + inputs → same result) — AC3
+//   • ANTI-CHEAT: an out-of-reach mine target is rejected server-side (never dug, no spoils) — AC2
+//   • reconnect hydrates the persisted progress
+//   • a protocol-version mismatch is rejected
 // Run with `pnpm server:check`. Exits non-zero on any failed assertion.
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -12,9 +14,15 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { newSession } from '@delve/shared';
+import { newSession, physicsStep, TICK_DT } from '@delve/shared';
 import { PROTOCOL_VERSION, WS_PATH } from '@delve/shared';
-import type { ClientMessage, ServerMessage } from '@delve/shared';
+import type {
+  ClientMessage,
+  ServerMessage,
+  StateMessage,
+  HelloMessage,
+  Input,
+} from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = 8799; // isolated from the dev server's 8787
@@ -34,65 +42,68 @@ function check(condition: boolean, label: string): void {
   }
 }
 
-/** Resolve once the server answers /healthz, or reject after ~5s. */
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 async function waitForServer(): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
     try {
-      const res = await fetch(`http://localhost:${PORT}/healthz`);
-      if (res.ok) return;
+      if ((await fetch(`http://localhost:${PORT}/healthz`)).ok) return;
     } catch {
       /* not up yet */
     }
-    await new Promise((r) => setTimeout(r, 100));
+    await delay(100);
   }
   throw new Error('server did not start within 5s');
 }
 
-/** Open a socket, send `join`, resolve with the socket + the `hello` reply. */
-function joinAs(
-  playerId: string,
-  seed?: number,
-): Promise<{ ws: WebSocket; hello: Extract<ServerMessage, { t: 'hello' }> }> {
+/** An event-driven test connection that accumulates the authoritative state it receives. */
+interface Conn {
+  ws: WebSocket;
+  hello: HelloMessage | null;
+  states: StateMessage[];
+  serverDug: Set<string>; // union of every dugAdded delta the server has sent
+}
+
+function connect(): Promise<Conn> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(WS_URL);
-    const timer = setTimeout(() => reject(new Error('join timed out')), 4000);
-    ws.on('open', () =>
-      ws.send(
-        JSON.stringify({
-          t: 'join',
-          protocol: PROTOCOL_VERSION,
-          playerId,
-          seed,
-        } satisfies ClientMessage),
-      ),
-    );
+    const conn: Conn = { ws, hello: null, states: [], serverDug: new Set() };
+    const timer = setTimeout(() => reject(new Error('connect timed out')), 4000);
+    ws.on('open', () => {
+      clearTimeout(timer);
+      resolve(conn);
+    });
     ws.on('message', (raw) => {
       const msg = JSON.parse(raw.toString()) as ServerMessage;
-      if (msg.t === 'hello') {
-        clearTimeout(timer);
-        resolve({ ws, hello: msg });
+      if (msg.t === 'hello') conn.hello = msg;
+      else if (msg.t === 'state') {
+        conn.states.push(msg);
+        for (const cellKey of msg.dugAdded) conn.serverDug.add(cellKey);
       }
     });
     ws.on('error', reject);
   });
 }
 
-/** Resolve with the next server message matching tag `t`. */
-function nextMessage<T extends ServerMessage['t']>(
-  ws: WebSocket,
-  t: T,
-): Promise<Extract<ServerMessage, { t: T }>> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for '${t}'`)), 4000);
-    ws.on('message', (raw) => {
-      const msg = JSON.parse(raw.toString()) as ServerMessage;
-      if (msg.t === t) {
-        clearTimeout(timer);
-        resolve(msg as Extract<ServerMessage, { t: T }>);
-      }
-    });
-  });
+const sendMsg = (conn: Conn, msg: ClientMessage): void => conn.ws.send(JSON.stringify(msg));
+const lastState = (conn: Conn): StateMessage | undefined => conn.states[conn.states.length - 1];
+
+/** Poll until `pred()` holds, or throw after `ms`. */
+async function waitUntil(pred: () => boolean, ms: number, label: string): Promise<void> {
+  for (let waited = 0; waited < ms; waited += 20) {
+    if (pred()) return;
+    await delay(20);
+  }
+  throw new Error(`timed out waiting for ${label}`);
 }
+
+/** Wait for the server to have applied and broadcast at least input `seq`. */
+async function waitForAck(conn: Conn, seq: number): Promise<void> {
+  await waitUntil(() => (lastState(conn)?.ackSeq ?? -1) >= seq, 5000, `ackSeq>=${seq}`);
+}
+
+const setsEqual = (a: Set<string>, b: Set<string>): boolean =>
+  a.size === b.size && [...a].every((x) => b.has(x));
 
 async function main(): Promise<void> {
   const child = spawn('tsx', [SERVER], {
@@ -104,53 +115,83 @@ async function main(): Promise<void> {
     const playerId = 'smoke-tester';
     const seed = 4242;
 
-    // 1) first join → a fresh save seeded from our proposal
-    const first = await joinAs(playerId, seed);
-    check(first.hello.fresh === true, 'first join creates a fresh save');
-    check(first.hello.state.world.seed === seed, 'fresh save uses the proposed seed');
+    // 1) join → fresh world seeded from our proposal
+    const c1 = await connect();
+    sendMsg(c1, { t: 'join', protocol: PROTOCOL_VERSION, playerId, seed });
+    await waitUntil(() => c1.hello !== null, 4000, 'hello');
+    check(c1.hello!.fresh === true, 'first join creates a fresh world');
+    check(c1.hello!.snapshot.world.seed === seed, 'fresh world uses the proposed seed');
 
-    // 2) sync a mutated state → persisted + acked
-    const mutated = newSession(seed);
-    mutated.player.coins = 999;
-    mutated.player.depth = 50;
-    mutated.player.earned = 999;
-    const ack = nextMessage(first.ws, 'synced');
-    first.ws.send(JSON.stringify({ t: 'sync', state: mutated } satisfies ClientMessage));
-    await ack;
-    check(true, 'sync is acknowledged');
-    first.ws.close();
-
-    // 3) reconnect → the persisted progress is hydrated (server is the store of record)
-    const second = await joinAs(playerId, seed);
-    check(second.hello.fresh === false, 'reconnect finds the existing save');
+    // 2) DETERMINISM / AUTHORITY: drive a scripted descent both over the wire and locally; the
+    //    server's authoritative state must equal the client's local prediction of the same inputs.
+    const local = newSession(seed); // matches the server's fresh session (same seed)
+    const STEPS = 400;
+    for (let seq = 1; seq <= STEPS; seq++) {
+      const input: Input = {
+        mine: { column: Math.floor(local.player.x), row: Math.floor(local.player.y) + 1 },
+      };
+      sendMsg(c1, { t: 'input', seq, input });
+      physicsStep(local, input, TICK_DT); // local prediction: identical logic + dt
+    }
+    await waitForAck(c1, STEPS);
+    const snap = lastState(c1)!;
+    check(snap.ackSeq === STEPS, `server applied all ${STEPS} inputs (ackSeq ${snap.ackSeq})`);
     check(
-      second.hello.state.player.coins === 999 && second.hello.state.player.depth === 50,
-      'reconnect hydrates the synced progress',
+      snap.player.x === local.player.x && snap.player.y === local.player.y,
+      'server position == client prediction (deterministic)',
     );
-    second.ws.close();
+    check(snap.player.depth === local.player.depth, 'server depth == client prediction');
+    check(snap.player.best === local.player.best, 'server best-ore == client prediction');
+    check(
+      setsEqual(c1.serverDug, new Set(Object.keys(local.world.dug))),
+      'server dug tiles == client prediction',
+    );
 
-    // 4) a protocol-version mismatch is rejected
-    const stale = new WebSocket(WS_URL);
+    // 3) ANTI-CHEAT: an out-of-reach mine target is rejected server-side (never dug).
+    const farColumn = Math.floor(local.player.x) + 50;
+    const farRow = Math.floor(local.player.y);
+    const farKey = `${farColumn},${farRow}`;
+    sendMsg(c1, {
+      t: 'input',
+      seq: STEPS + 1,
+      input: { mine: { column: farColumn, row: farRow } },
+    });
+    await waitForAck(c1, STEPS + 1);
+    check(!c1.serverDug.has(farKey), 'out-of-reach mine is rejected (tile never dug)');
+
+    const minedTiles = c1.serverDug.size;
+    c1.ws.close();
+    await delay(400); // let the server process the close + persist
+
+    // 4) reconnect → the persisted progress is hydrated
+    const c2 = await connect();
+    sendMsg(c2, { t: 'join', protocol: PROTOCOL_VERSION, playerId });
+    await waitUntil(() => c2.hello !== null, 4000, 'hello (reconnect)');
+    check(c2.hello!.fresh === false, 'reconnect finds the existing save');
+    check(
+      c2.hello!.snapshot.player.depth === local.player.depth,
+      'reconnect hydrates the descent progress',
+    );
+    check(
+      Object.keys(c2.hello!.snapshot.world.dug).length === minedTiles,
+      'reconnect hydrates the dug world',
+    );
+    c2.ws.close();
+
+    // 5) a protocol-version mismatch is rejected
+    const c3 = await connect();
     const errored = new Promise<boolean>((resolve) => {
       const timer = setTimeout(() => resolve(false), 4000);
-      stale.on('open', () =>
-        stale.send(
-          JSON.stringify({
-            t: 'join',
-            protocol: PROTOCOL_VERSION + 999,
-            playerId,
-          } satisfies ClientMessage),
-        ),
-      );
-      stale.on('message', (raw) => {
+      c3.ws.on('message', (raw) => {
         if ((JSON.parse(raw.toString()) as ServerMessage).t === 'error') {
           clearTimeout(timer);
           resolve(true);
         }
       });
     });
+    sendMsg(c3, { t: 'join', protocol: PROTOCOL_VERSION + 999, playerId });
     check(await errored, 'protocol mismatch is rejected');
-    stale.close();
+    c3.ws.close();
   } finally {
     child.kill();
     rmSync(DATA_DIR, { recursive: true, force: true });

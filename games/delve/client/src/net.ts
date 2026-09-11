@@ -1,24 +1,25 @@
-// net.ts — the client side of the P2 boundary. Owns the WebSocket to the DELVE server: it
-// hydrates the game from the server snapshot on join, pushes local state up (debounced) so the
-// server stays the store of record, and reconnects with backoff. The game keeps running entirely
-// on its local sim + localStorage if the server is unreachable — the network is additive, never a
-// hard dependency (offline/dev must still play).
-import type { Session } from '@delve/shared';
+// net.ts — the client side of the P3 authoritative boundary. Owns the WebSocket to the DELVE
+// server: it hydrates from the server snapshot on join, streams the local player's INPUTS (and
+// discrete commands), and hands authoritative `state` deltas back for the game to reconcile its
+// prediction against. It never sends game state — the server is the source of truth. The game
+// still runs its local sim for prediction, so it plays offline too; the network is additive.
+import type { Input, Session, ClientCommand } from '@delve/shared';
 import { WS_PATH, PROTOCOL_VERSION } from '@delve/shared';
-import type { ClientMessage, ServerMessage } from '@delve/shared';
+import type { ClientMessage, ServerMessage, StateMessage } from '@delve/shared';
 
 const PLAYER_ID_KEY = 'delve.playerId';
-const SYNC_DEBOUNCE_MS = 1200; // coalesce rapid saves into one push
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 15000;
 
 export type NetStatus = 'offline' | 'connecting' | 'online';
 
 export interface NetHandlers {
-  /** Current authoritative client state (for the join seed + adopt-on-fresh + reconnect re-sync). */
-  getState: () => Session;
-  /** Called with the server snapshot to hydrate from on the FIRST hello of a page load. */
-  onHydrate: (state: Session) => void;
+  /** Proposed seed for the join (used only if the server has no world for this player yet). */
+  getSeed: () => number;
+  /** Hydrate the game to the authoritative snapshot (join, reconnect, or server new-game). */
+  onHello: (snapshot: Session, fresh: boolean) => void;
+  /** Reconcile the local prediction against an authoritative delta. */
+  onState: (msg: StateMessage) => void;
 }
 
 /** Stable per-player id, generated once and kept in localStorage. */
@@ -47,12 +48,10 @@ function wsUrl(): string {
 
 let socket: WebSocket | null = null;
 let handlers: NetHandlers | null = null;
-let hydratedOnce = false; // first hello hydrates; later reconnects keep the live local state
 let reconnectDelay = RECONNECT_MIN_MS;
 let reconnectTimer: number | null = null;
-let syncTimer: number | null = null;
 let status: NetStatus = 'offline';
-let lastSyncedAt = 0;
+let lastAckSeq = 0;
 
 const isOpen = (): boolean => socket !== null && socket.readyState === WebSocket.OPEN;
 
@@ -85,8 +84,12 @@ function open(): void {
   ws.onopen = () => {
     status = 'online';
     reconnectDelay = RECONNECT_MIN_MS; // reset backoff on a good connection
-    const state = handlers!.getState();
-    post({ t: 'join', protocol: PROTOCOL_VERSION, playerId: playerId(), seed: state.world.seed });
+    post({
+      t: 'join',
+      protocol: PROTOCOL_VERSION,
+      playerId: playerId(),
+      seed: handlers!.getSeed(),
+    });
   };
 
   ws.onmessage = (event) => {
@@ -97,22 +100,12 @@ function open(): void {
       return;
     }
     if (msg.t === 'hello') {
-      if (msg.fresh) {
-        // server had no save — it adopted our proposed seed; push our local state so any local
-        // progress becomes the server's record instead of being overwritten by a blank game.
-        post({ t: 'sync', state: handlers!.getState() });
-      } else if (!hydratedOnce) {
-        // first hello of this page load: the server's save is the store of record — hydrate to it.
-        handlers!.onHydrate(msg.state);
-      } else {
-        // a mid-session reconnect: keep the live local sim and re-assert it as the record.
-        post({ t: 'sync', state: handlers!.getState() });
-      }
-      hydratedOnce = true;
-    } else if (msg.t === 'synced') {
-      lastSyncedAt = msg.at;
+      handlers!.onHello(msg.snapshot, msg.fresh);
+    } else if (msg.t === 'state') {
+      lastAckSeq = msg.ackSeq;
+      handlers!.onState(msg);
     }
-    // 'error' messages are non-fatal here; the client keeps running on its local state.
+    // 'error' messages are non-fatal here; the client keeps running on its local prediction.
   };
 
   ws.onclose = () => {
@@ -131,17 +124,20 @@ export function connect(h: NetHandlers): void {
   open();
 }
 
-/** Debounced push of the latest state to the server. No-op while offline (localStorage covers it). */
-export function sync(state: Session): void {
-  if (!isOpen()) return;
-  if (syncTimer !== null) clearTimeout(syncTimer);
-  syncTimer = window.setTimeout(() => {
-    syncTimer = null;
-    post({ t: 'sync', state });
-  }, SYNC_DEBOUNCE_MS);
+/** Stream one tick of input to the server. No-op while offline (the client predicts locally). */
+export function sendInput(seq: number, input: Input): void {
+  post({ t: 'input', seq, input });
 }
 
-/** Current connection status + last-persisted timestamp, for the debug overlay. */
-export function netStatus(): { status: NetStatus; lastSyncedAt: number } {
-  return { status, lastSyncedAt };
+/** Send a discrete command (buy / sell / new game) for the server to apply authoritatively. */
+export function sendCommand(command: ClientCommand): void {
+  post({ t: 'command', command });
+}
+
+/** True once the connection is established (so the game knows whether to predict-and-reconcile). */
+export const isOnline = (): boolean => status === 'online';
+
+/** Current connection status + last acknowledged input seq, for the debug overlay. */
+export function netStatus(): { status: NetStatus; ackSeq: number } {
+  return { status, ackSeq: lastAckSeq };
 }

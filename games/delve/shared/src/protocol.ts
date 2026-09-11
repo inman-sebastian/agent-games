@@ -1,22 +1,24 @@
-// protocol.ts — the typed client/server wire protocol (P2). Both the browser client (src/net.ts)
-// and the Node server (server/) import this, so the boundary speaks one vocabulary and the message
-// shapes can never drift. Messages are JSON objects discriminated by a `t` tag.
+// protocol.ts — the typed client/server wire protocol (P3, authoritative server). Both the browser
+// client (client/src/net.ts) and the Node server (server/) import this, so the boundary speaks one
+// vocabulary and the message shapes can never drift. Messages are JSON objects discriminated by `t`.
 //
-// P2 model: the client still runs the sim locally for rendering; the SERVER is the store of
-// record — it persists whatever the client syncs and replays it on reconnect. Authoritative
-// simulation / anti-cheat (the server applying intents itself) is P3 — the `intent` message and
-// `ClientIntent` type below define that vocabulary now so both sides already share it.
-import type { Session, TileCoord } from './types';
+// P3 model — the SERVER is authoritative:
+//   • Clients send INPUTS ONLY (per-tick movement/mining) + discrete COMMANDS (buy/sell/newGame).
+//     They never send state, so forged coins / out-of-reach mining are impossible by construction.
+//   • The server owns the shared world + each player, steps the sim, and streams authoritative
+//     snapshots. The client predicts its OWN avatar and reconciles against the server (it does not
+//     depend on cross-machine determinism — a misprediction is a small self-correcting nudge).
+import type { Input, PlayerState, Session, UpgradeLevels, TechOwned } from './types';
 
 /** Bumped on any breaking wire change; a join with a mismatched version is rejected. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 3;
 
 /** The WebSocket endpoint path (Vite proxies this to the Node server in dev). */
 export const WS_PATH = '/ws';
 
 // ---- client → server --------------------------------------------------------------------
 
-/** First message on every connection: announce who we are and propose a seed for a new save. */
+/** First message on every connection: announce who we are and propose a seed for a new world. */
 export interface JoinMessage {
   t: 'join';
   protocol: number;
@@ -26,44 +28,48 @@ export interface JoinMessage {
   seed?: number;
 }
 
-/** Push the client's current authoritative state; the server persists it (store of record). */
-export interface SyncMessage {
-  t: 'sync';
-  state: Session;
+/** One tick of player intent. `seq` is a monotonic per-connection counter; the server applies
+ * inputs in order and echoes the last-applied `seq` as `ackSeq` so the client can reconcile. */
+export interface InputMessage {
+  t: 'input';
+  seq: number;
+  input: Input;
 }
 
-/** A single player action. Reserved for P3 (the server will validate + apply these itself);
- * P2 defines the type so the boundary vocabulary is shared, but does not route them. */
-export type ClientIntent =
-  | { kind: 'mine'; target: TileCoord }
-  | { kind: 'move'; left: boolean; right: boolean; jump: boolean }
-  | { kind: 'buy'; what: 'upgrade' | 'tech'; key: string }
-  | { kind: 'sell' };
+/** A discrete, non-realtime action the server applies authoritatively (validated server-side). */
+export type ClientCommand =
+  | { kind: 'buyUpgrade'; key: keyof UpgradeLevels }
+  | { kind: 'buyTech'; key: keyof TechOwned }
+  | { kind: 'sellAll' }
+  | { kind: 'newGame'; seed: number };
 
-/** Wrapper for a `ClientIntent` (reserved for P3). */
-export interface IntentMessage {
-  t: 'intent';
-  intent: ClientIntent;
+export interface CommandMessage {
+  t: 'command';
+  command: ClientCommand;
 }
 
-export type ClientMessage = JoinMessage | SyncMessage | IntentMessage;
+export type ClientMessage = JoinMessage | InputMessage | CommandMessage;
 
 // ---- server → client --------------------------------------------------------------------
 
-/** Response to `join`: the snapshot to hydrate from (loaded, or freshly created server-side). */
+/** Response to `join`: the full authoritative snapshot to hydrate from. */
 export interface HelloMessage {
   t: 'hello';
   protocol: number;
-  state: Session;
-  /** true when the server had no save and just created one — the client keeps its local state
-   * and syncs it up (so existing local progress is adopted rather than overwritten). */
+  /** true when the server had no save and just created one from the proposed seed. */
   fresh: boolean;
+  snapshot: Session;
 }
 
-/** Acknowledges that a `sync` was persisted (epoch ms); handy for a debug/last-saved readout. */
-export interface SyncedMessage {
-  t: 'synced';
-  at: number;
+/** An authoritative delta the client reconciles against. `player` is the full authoritative
+ * PlayerState (small); `dugAdded` are world tiles excavated since the last state message; `dmg`
+ * is the current shared tile-break progress. `ackSeq` is the last input the server applied. */
+export interface StateMessage {
+  t: 'state';
+  ackSeq: number;
+  player: PlayerState;
+  dugAdded: string[];
+  dmg: Record<string, number>;
 }
 
 /** A protocol/handshake error the client should surface or recover from. */
@@ -72,4 +78,4 @@ export interface ErrorMessage {
   message: string;
 }
 
-export type ServerMessage = HelloMessage | SyncedMessage | ErrorMessage;
+export type ServerMessage = HelloMessage | StateMessage | ErrorMessage;
