@@ -1,7 +1,7 @@
 // palette.ts — low-level colour + texture primitives shared by the compositor (cave-render.ts) AND
 // by every material's shader (client/src/render/materials/*). Deliberately compositor-free + DOM-free
 // so a material can import it without a cycle.
-import { vnoise } from '@delve/shared';
+import { vnoise, hashXY } from '@delve/shared';
 
 export const T = 16; // tile size in logical (art) pixels
 export const TEX = 90210; // fixed seed for all texture noise (keeps texture stable per world coord)
@@ -114,4 +114,76 @@ export function stoneSurface(
     color = colors.center;
   if (b > 0.88 && vnoise(worldX * 0.7, worldY * 0.5, TEX) > 0.6) color = colors.rimB;
   return color;
+}
+
+// The 6 shading bands (dark→light) for a palette, cached — shared by the surface primitives below.
+const bandsCache = new Map<RockColors, Rgb[]>();
+function bandsFor(colors: RockColors): Rgb[] {
+  let bands = bandsCache.get(colors);
+  if (!bands) {
+    bands = [colors.center, colors.deep, colors.body, colors.body2, colors.lit, colors.rimA];
+    bandsCache.set(colors, bands);
+  }
+  return bands;
+}
+
+/**
+ * A polished-METAL surface — smoother than the craggy stone: broad low-frequency tonal blotches plus
+ * a faint anisotropic "brushed" streak, quantised into the palette bands with NO speckle accents. So
+ * a metal reads as a buffed sheet, not rock. `blotch` = how uneven (low → mirror, high → matte/rough);
+ * `streak` = strength of the brushed grain. Same signature shape as stoneSurface.
+ */
+export function metalSurface(
+  worldX: number,
+  worldY: number,
+  px: number,
+  py: number,
+  brightness: number,
+  colors: RockColors,
+  blotch: number,
+  streak: number,
+): Rgb {
+  let b = brightness;
+  b += (vnoise(worldX * 0.09, worldY * 0.09, TEX) - 0.5) * blotch; // broad, soft tonal variation
+  b += (vnoise(worldX * 0.6, worldY * 0.13, TEX + 11) - 0.5) * streak; // faint horizontal brushed grain
+  return quantize(bandsFor(colors), clamp01(b), px, py);
+}
+
+/**
+ * A crystalline FACET surface — partitions world space into small skewed cells, each a flat brightness
+ * offset (cut-crystal planes) with a faint sub-facet gradient so they're not dead flat. Reads as a
+ * faceted gem/crystal rather than organic rock. `facet` = facet size in px.
+ */
+export function facetSurface(
+  worldX: number,
+  worldY: number,
+  px: number,
+  py: number,
+  brightness: number,
+  colors: RockColors,
+  facet: number,
+): Rgb {
+  // skewed cell coords so facets aren't axis-aligned squares
+  const u = Math.floor((worldX * 0.92 + worldY * 0.38) / facet);
+  const v = Math.floor((worldY * 0.92 - worldX * 0.3) / facet);
+  const tone = ((hashXY(u, v, 17) & 255) / 255 - 0.5) * 0.6; // per-facet flat brightness step
+  const grain = (vnoise(worldX * 0.6, worldY * 0.6, TEX + 3) - 0.5) * 0.1; // subtle sub-facet variation
+  return quantize(bandsFor(colors), clamp01(brightness + tone + grain), px, py);
+}
+
+/**
+ * A glossy GLASS surface — even smoother than metal and slightly deepened (glass reads dark + wet),
+ * with almost no texture of its own. The sharp specular highlights that sell "glass" come from the
+ * material layering a tight `sparkle` on top; this is just the smooth, dark body.
+ */
+export function glassSurface(
+  worldX: number,
+  worldY: number,
+  px: number,
+  py: number,
+  brightness: number,
+  colors: RockColors,
+): Rgb {
+  const b = clamp01(brightness * 0.88 + (vnoise(worldX * 0.1, worldY * 0.1, TEX + 7) - 0.5) * 0.14);
+  return quantize(bandsFor(colors), b, px, py);
 }

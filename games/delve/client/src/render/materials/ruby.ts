@@ -1,6 +1,6 @@
 // ruby.ts — Ruby (ore id 7). The shared stone surface in a crimson palette + a baked sparkle and a
 // warm, lively twinkle — a cluster of red fire from the deep stone.
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, facetSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -14,7 +14,7 @@ registerOreMaterial(7, {
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.2, minLit: 0.6 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 5)
     );
   },
   twinkle(ctx: TwinkleCtx): void {
