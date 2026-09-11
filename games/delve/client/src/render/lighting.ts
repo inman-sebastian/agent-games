@@ -20,7 +20,7 @@ import type { LightColor } from '@delve/shared';
 const DITHER_STEPS = 10; // brightness quantisation levels for the darkness scrim + vignette
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4×4 ordered dither, matches the rock
 const BAYER_LEVELS = 16; // 4×4 matrix range, to normalise a Bayer value to [0, 1)
-const AMBIENT: LightColor = [0.05, 0.05, 0.08]; // floor — unlit rock stays dim, faintly cool
+const AMBIENT: LightColor = [0, 0, 0]; // no floor — lamp-only vision: unlit space is the void
 const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades toward (deep, cool)
 const ADD = 0.26; // how strongly the light field shows as additive glow
 const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
@@ -30,7 +30,7 @@ const DIAGONAL_ATTEN = 0.9; // extra factor on diagonal propagation steps
 const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
 const ORE_GLOW = 1.6; // ore-glow seed strength (r>0 emitters flood their colour into open space)
 const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
-const MAX_DARKNESS = 0.85; // strongest the scrim darkens a fully-unlit pixel (never pure black)
+const MAX_DARKNESS = 1; // lamp-only vision: a fully-unlit pixel fades all the way to the void
 const VIGNETTE_INNER = 0.34; // vignette starts this fraction of the half-height from center
 const VIGNETTE_SPAN = 0.48; // and reaches full over this fraction of the half-height
 const VIGNETTE_MAX = 0.5; // max vignette darkness at the corners

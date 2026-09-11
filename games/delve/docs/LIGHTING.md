@@ -49,6 +49,17 @@ surroundings out of the dark** by the identical rule, and the **first rock layer
 around a lit tunnel catches a warm rim for free** (one attenuated step of warm light)
 — the SteamWorld dug-edge signature, emergent rather than special-cased.
 
+### Lamp-only vision (the void)
+
+Underground, **you see only what your lamp currently reaches** — exploration and
+discovery are core, so unexplored space is a true **void**, not a dimly-previewed map.
+This falls out of the same field: the ambient floor is **zero** (`AMB = [0,0,0]`) and the
+scrim reaches **full** on a wholly-unlit pixel (`MAX_DARKNESS = 1`), so a tile no light
+touches fades all the way to the near-black `SCRIM` colour — ore included. Above the
+surface the scrim is forced off (`aboveSky`), so daylight is unaffected. There is **no
+persistent explored/“seen” memory** — walk away from a tunnel and it returns to the void
+(a remembered-map fog would be a separate feature layered on top).
+
 ## Gem glow
 
 Ore light obeys the same occlusion rules as the lamp, in its **own colour field**
@@ -76,8 +87,9 @@ All constants live at the top of `client/src/render/lighting.ts`:
 | `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                |
 | `ADD`                       | How strongly the light field shows as additive glow.                              |
 | `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                  |
-| `AMB`                       | Ambient floor — unlit rock stays dim, never pure black.                           |
-| `SCRIM`                     | The deep cool colour the darkness fades toward.                                   |
+| `AMB`                       | Ambient floor — `[0,0,0]` for lamp-only vision (unlit → the void). Raise to preview the map. |
+| `MAX_DARKNESS`              | How fully the scrim hides a wholly-unlit pixel — `1` = true void; lower reveals more.        |
+| `SCRIM`                     | The deep cool colour the darkness fades toward (the void's tint).                 |
 | `ORE_GLOW` / `GLOW_CAP`     | Gem halo seed strength and its per-channel anti-bloom ceiling.                    |
 | `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
 
