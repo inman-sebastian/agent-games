@@ -693,3 +693,95 @@ traversal problem rather than ending it.
   headless load harness (N scripted clients against one world) would turn the
   blue-sky question from a guess into a measurement, and would say early whether
   "dozens" is a stretch or a fantasy.
+
+---
+
+## Recommendation
+
+_Opinionated synthesis of everything above — mine, not the author's. Recorded here so
+the reasoning survives even if the conclusion gets overruled._
+
+### The one thing to decide before building anything
+
+**Pick the progression spine.** It's a decision, not code, it's free to make now, and
+four separate systems currently claim it ([T1](#t1-three-progression-channels-now-exist),
+[T3](#t3-automation-is-a-third-claimant-on-the-progression-spine)): the coin-bought
+upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
+
+**My recommendation: equipment and crafting own progression.** Specifically:
+
+- **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune). Refinery
+  and Fortune in particular are idle-game multipliers on a coin economy, and they pull
+  against exploration — they make *ore* the point, when the point is supposed to be
+  what you find and where you go.
+- **Ore becomes a crafting input, not a currency.** This is the change that makes
+  mining serve exploration instead of being a slot machine: you mine because you need
+  that material for the thing that gets you deeper, not because it converts to a
+  number.
+- **Equipment satisfies the rules the design already committed to** — it removes
+  constraints ([§6](#6-the-incremental-loop-rebuilt)) and upgrades behaviour rather
+  than numbers ([§8](#the-rules-that-make-automation-safe-here)). The upgrade panel
+  can do neither.
+- **Skills stay deferred.** "Light RPG" is satisfied by equipment alone for a long
+  time. Add skills only if equipment turns out to be insufficient — a third channel
+  added later is easy; a third channel removed later is not.
+
+This also answers [Q3](#open-questions): coins become vestigial and should go, rather
+than surviving as a parallel currency that needs its own justification.
+
+### Build order
+
+1. **Bound the world and guarantee content density.** *(Small preset only.)*
+   Wrapping horizontal bounds, a max depth, and generation that places a known number
+   of structures and biomes per world. **No netcode work at all.**
+
+   This is the recommendation I'd defend hardest. DELVE has no game loop yet — it has
+   excellent tech and no game. This is the single change that converts it, and it's
+   the only way to find out whether the discovery pillar is actually fun before
+   spending months on systems that assume it is.
+
+2. **The entity + replication layer, area-of-interest-shaped.**
+   Everything downstream waits on it — enemies, loot drops, drones and fluid are all
+   replicated entities or replicated world state, and the protocol has no entity
+   concept today. Build it naive (a radius check is fine at four players) but build the
+   *protocol shape* right, per
+   [Keeping the blue-sky door open cheaply](#keeping-the-blue-sky-door-open-cheaply).
+
+3. **Two players in one world, doing nothing in particular.**
+   Shared world instance, player roster, remote players rendered and interpolated.
+   Small, and it converts every pinned feel question into an experiment
+   ([The cheapest way to unpin the feel questions](#the-cheapest-way-to-unpin-the-feel-questions)).
+   Do it *before* the systems whose interactions are in doubt exist, not after.
+
+4. **Fluid.** The highest-risk system ([T2](#t2-fluid-simulation-is-the-biggest-technical-risk-on-the-board))
+   and the highest-value one. Cellular automata, active regions only, server-owned.
+   Prototype it early enough that it can still reshape the netcode rather than having
+   to fit around it.
+
+5. **Combat, then drones.** Drones are nearly free once enemies exist — same entity,
+   different target selection.
+
+6. **Medium and Large presets.** Only once interest management is real and fluid has a
+   measured budget.
+
+### Defer deliberately
+
+Not cuts — parked, with the reason:
+
+| Deferred | Why |
+| --- | --- |
+| **Base building** | [Q2](#open-questions) is unanswered: there's no NPC, no danger cycle, no travel cost that would give a base a job. Without one it's decorated storage. Answer the question before building the system. |
+| **Skills** | Third progression channel. Equipment covers "light RPG" alone for now. |
+| **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
+| **Infinite mode** | Reintroduces the empty-digging problem in full and is the mode that most needs a signalling layer. It's an option, not a launch feature. |
+| **Medium/Large worlds, 8–16 players** | Where every naive implementation stops being acceptable. Earn them. |
+| **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T7](#t7-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
+
+### What to measure, not argue about
+
+- **Concurrency ceiling** of the current stack ([Q5](#open-questions)) — a headless
+  harness of N scripted clients against one world. Turns the whole scaling
+  conversation from a guess into a number.
+- **Content-per-player density** — the invariant that makes the size presets
+  interchangeable ([§7](#player-cap-scales-with-world-size)). Assert it in the existing
+  `tools/verify.ts` gate so no generated world can ship sparse.
