@@ -25,12 +25,17 @@ const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades towar
 const ADD = 0.26; // how strongly the light field shows as additive glow
 const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
 const OPEN_ATTEN = 0.7; // per-step light conduction down an open tunnel
-const ROCK_ATTEN = 0.62; // per-step conduction into solid rock — reaches ~3 tiles in for a broad lit band
+const ROCK_ATTEN = 0.68; // per-step conduction into solid rock — light bleeds a couple tiles into the
+// undug walls around a tunnel (a subtle Terraria-style lit-wall look), not just a thin rim
 const DIAGONAL_ATTEN = 0.9; // extra factor on diagonal propagation steps
 const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
 const ORE_GLOW = 1.6; // ore-glow seed strength (r>0 emitters flood their colour into open space)
 const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
 const MAX_DARKNESS = 1; // lamp-only vision: a fully-unlit pixel fades all the way to the void
+// Faint-light floor: lamp brightness below this reads as full dark; above it, remaps 0→1. So distant,
+// barely-lit tiles stay uniformly dark (no muddy ore-colour blobs leaking through the fog) while tiles
+// the lamp reaches meaningfully still read — the "hint of neighbouring tiles" near dug/lit areas.
+const LIGHT_FLOOR = 0.08;
 const VIGNETTE_INNER = 0.34; // vignette starts this fraction of the half-height from center
 const VIGNETTE_SPAN = 0.48; // and reaches full over this fraction of the half-height
 const VIGNETTE_MAX = 0.5; // max vignette darkness at the corners
@@ -347,6 +352,9 @@ export function create(): LightingInstance {
           (bright[rowTop + gx] * tx1 + bright[rowTop + gx + 1] * tx) * ty1 +
           (bright[rowBottom + gx] * tx1 + bright[rowBottom + gx + 1] * tx) * ty;
         if (b > 1) b = 1;
+        // crush faint light to black (so distant barely-lit tiles read as uniform void), remapping
+        // the rest 0→1 so meaningfully-lit tiles still read — see LIGHT_FLOOR.
+        b = b <= LIGHT_FLOOR ? 0 : (b - LIGHT_FLOOR) / (1 - LIGHT_FLOOR);
         const dither = (BAYER[(x & 3) | ((y & 3) << 2)] + 0.5) / BAYER_LEVELS;
         let darkness = aboveSky ? 0 : (1 - b) * MAX_DARKNESS;
         const scaled = darkness * DITHER_STEPS;
