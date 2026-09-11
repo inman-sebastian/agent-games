@@ -39,6 +39,18 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
+## `server-check.ts` — client/server protocol smoke test (no browser)
+
+Spawns the **real** server (`server/index.ts`) against a throwaway data dir, then drives the
+WebSocket protocol the way `src/net.ts` does and asserts the P2 store-of-record behaviour:
+join → `hello{fresh}` seeded from the proposal, `sync` persisted + acked, reconnect →
+`hello{fresh:false}` hydrating the synced progress, and a protocol-version mismatch rejected.
+Exits non-zero on any failed assertion.
+
+```sh
+pnpm server:check
+```
+
 ## `src/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
 `src/labs/render.html` draws EXACTLY one world region through the shared render modules

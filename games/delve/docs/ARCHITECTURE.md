@@ -11,10 +11,11 @@ under **`src/`** (Vite's root): the game (`src/index.html`) and the browser dev 
 (`src/labs/style-lab.html`, `src/labs/render.html`, `src/labs/light-lab.html`) are the Vite
 entries — each loads one `<script type="module">` that imports the shared `src/scripts/`
 modules. `vite dev` serves `src/` at `/` with HMR; `vite build` emits every entry to
-`dist/` (a sibling of `src/`). The CLI tools (`tools/verify.ts`, `tools/sim.ts`) and the
-future server aren't built — they import the exact same `src/scripts/` modules directly and
-run under `tsx`. There are no runtime globals and no hand-written bundle — the module graph
-is the source of truth. Coding standards live in [CODE-STYLE.md](CODE-STYLE.md).
+`dist/` (a sibling of `src/`). The Node processes — the server (`server/`) and the CLI tools
+(`tools/verify.ts`, `tools/sim.ts`, `tools/server-check.ts`) — aren't Vite-built; they import
+the exact same `src/scripts/` modules directly and run under `tsx`. There are no runtime
+globals and no hand-written bundle — the module graph is the source of truth. Coding
+standards live in [CODE-STYLE.md](CODE-STYLE.md).
 
 ## The world model
 
@@ -98,6 +99,35 @@ Because the renderer lives in `cave-render.ts`, imported by *both* the main thre
 Worker, the look can never drift between them, and all world-space noise is anchored to
 world coordinates, so a chunk or a patch looks identical wherever it's rendered. The lamp,
 ore, fog-of-war, miner, particles and vignette draw per-frame on top of the cached rock.
+
+## Client / server boundary (P2)
+
+DELVE runs a **Node + TypeScript server** (`server/`, plain `http` + `ws`) that imports the
+**same** engine / blocks / resources the client does — one ruleset, both sides. The wire
+protocol is a shared, typed vocabulary in [`src/scripts/protocol.ts`](../src/scripts/protocol.ts)
+(`join` / `hello` / `sync`, plus the forward-looking `intent` reserved for P3), imported by
+both `server/index.ts` and the client's [`src/net.ts`](../src/net.ts).
+
+The model is **client-authoritative with the server as the store of record** (authoritative
+simulation / anti-cheat is P3):
+
+- The client still runs the sim locally and renders from it (unchanged). On boot it hydrates
+  instantly from `localStorage` so it plays offline; then it connects.
+- On `join`, the server loads the player's save (one JSON file per player under `server/data/`,
+  keyed by a sanitized client id) or creates one from the client's proposed seed, and replies
+  `hello` with the snapshot. On the **first** hello the client hydrates to the server's state;
+  if the server had none (`fresh`), the client instead pushes its local state up so existing
+  progress is adopted, not overwritten.
+- The client's normal save cadence writes `localStorage` **and** debounce-`sync`s the state to
+  the server, which persists it. Reconnects mid-session keep the live local sim and re-assert
+  it. The network is additive — if the server is unreachable, the game plays on unchanged.
+
+**Dev:** `pnpm dev` runs Vite (client, HMR) and the server (`tsx watch`, WS-only) together via
+`concurrently`; Vite proxies `/ws` to the server so the browser talks to one origin.
+**Prod:** `pnpm build` → `dist/`, then `pnpm start` runs the server with `--serve-static` so
+one process serves the built client (via `sirv`) and the WebSocket. `tools/server-check.ts`
+(`pnpm server:check`) is the headless gate for the boundary — it drives the real protocol and
+asserts the join / sync / reconnect-hydrate behaviour.
 
 ## Verification
 

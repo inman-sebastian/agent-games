@@ -5,19 +5,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n vite,server -c cyan,green \"vite\" \"tsx watch server/index.ts\"",
+    "dev:client": "vite",
+    "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
+    "start": "tsx server/index.ts --serve-static",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"**/*.{ts,html,css,md,json}\"",
     "verify": "tsx tools/verify.ts",
-    "sim": "tsx tools/sim.ts"
+    "sim": "tsx tools/sim.ts",
+    "server:check": "tsx tools/server-check.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.5",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
+  },
+  "dependencies": {
+    "sirv": "^3.0.2",
+    "ws": "^8.21.3"
   }
 }

@@ -7,9 +7,11 @@ just the DELVE-specific working rules.
 ## Non-negotiables
 
 - **One shared ruleset.** All world + render logic lives in `src/scripts/` and is imported
-  by the game (`src/index.html`), the browser sandboxes (`src/labs/`), and the CLI tools
-  (`tools/`) alike. Never duplicate a rule in the presentation layer — if
-  the game and the lab draw the same thing, they call the same module.
+  by the game (`src/index.html`), the browser sandboxes (`src/labs/`), the **server**
+  (`server/`), and the CLI tools (`tools/`) alike. Never duplicate a rule — the client and
+  server run the *same* engine; if the game and the lab draw the same thing, they call the
+  same module. The typed client/server protocol lives in `src/scripts/protocol.ts` (shared
+  by both sides). See the boundary in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
   static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.ts`
   is the pure sim on top and has no DOM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -35,6 +37,8 @@ not images:
 
 1. **Logic / economy / world-gen** → `pnpm verify` (the greedy-bot balance gate) and
    `tools/sim.ts` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
+   **Client/server protocol** → `pnpm server:check` (spawns the real server, drives the WS
+   join/sync/reconnect roundtrip) — also headless, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
    via headless Chrome (no MCP), against a running `pnpm dev` server (set `SHOT_BASE`). The
    `page` is a path under the Vite root (`src/`): `labs/render.html` (world crops, the

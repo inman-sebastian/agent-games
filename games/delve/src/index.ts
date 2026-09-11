@@ -17,6 +17,7 @@ import { ORE_ART, SHAPES, drawOreBlock } from './scripts/ore-art';
 import type { Pen } from './scripts/resources';
 import { drawMiner } from './scripts/sprites';
 import { create as createLighting, LAMP_COLOR } from './scripts/lighting';
+import * as net from './net';
 
 // ---- display + world-view geometry ------------------------------------------------------
 // Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
@@ -55,39 +56,49 @@ const SAVE_INTERVAL_MS = 2500;
 function fresh(): SaveState {
   return engine.newGame((Math.random() * 2 ** 31) >>> 0);
 }
+// Merge a saved object over a fresh game (fills fields added since it was written), migrate old
+// pre-physics grid saves, and reset transient physics. Used by both the localStorage load and the
+// server hydrate (src/net.ts), so both paths reconstruct state identically. `saved` is
+// deserialized external data, so it's genuinely untyped here.
+function hydrate(saved: any): SaveState {
+  const base = engine.newGame(saved.seed);
+  const state: SaveState = {
+    ...base,
+    ...saved,
+    up: { ...base.up, ...saved.up },
+    tech: { ...base.tech, ...saved.tech },
+  };
+  if (saved.x === undefined && saved.c !== undefined) {
+    state.x = saved.c + 0.5; // migrate pre-physics grid saves
+    state.y = saved.r + 0.5;
+  }
+  state.vx = 0; // reset transient physics fields
+  state.vy = 0;
+  state.grounded = false;
+  state.digKey = null;
+  state.digTime = 0;
+  return state;
+}
 function load(): SaveState | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
     if (!saved || !saved.seed) return null;
-    const base = engine.newGame(saved.seed); // fill any fields added since the save was written
-    const state: SaveState = {
-      ...base,
-      ...saved,
-      up: { ...base.up, ...saved.up },
-      tech: { ...base.tech, ...saved.tech },
-    };
-    if (saved.x === undefined && saved.c !== undefined) {
-      state.x = saved.c + 0.5; // migrate pre-physics grid saves
-      state.y = saved.r + 0.5;
-    }
-    state.vx = 0; // reset transient physics fields
-    state.vy = 0;
-    state.grounded = false;
-    state.digKey = null;
-    state.digTime = 0;
-    return state;
+    return hydrate(saved);
   } catch {
     return null;
   }
 }
+// Persist locally (offline fallback) AND push to the server (the store of record). net.sync is
+// debounced and a no-op while offline, so calling this on the normal save cadence is cheap.
 function save(): void {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(s));
   } catch {
     /* storage full or unavailable — the game stays playable, just not persisted */
   }
+  net.sync(s);
 }
 
 let s: SaveState = load() || fresh();
@@ -872,6 +883,7 @@ function updateDebug(): void {
   const st = engine.stats(s);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const ore = engine.ORES[s.best];
+  const netInfo = net.netStatus();
   dbg.textContent =
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
@@ -885,7 +897,8 @@ function updateDebug(): void {
     `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}  cargo ${engine.invCount(s)} (${engine.invValue(s)} ◈)\n` +
     `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
     `up    pick ${s.up.pick} · speed ${s.up.speed} · refine ${s.up.refine} · fortune ${s.up.fortune}   tech ${s.tech.scanner ? 'scanner' : '—'}/${s.tech.lantern ? 'lantern' : '—'}\n` +
-    `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}`;
+    `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
+    `net   ${netInfo.status}${netInfo.lastSyncedAt ? `  last-sync ${((Date.now() - netInfo.lastSyncedAt) / 1000).toFixed(0)}s ago` : ''}`;
 }
 
 // ---- HUD / shop -------------------------------------------------------------------------
@@ -1157,3 +1170,18 @@ fit();
 snapCam();
 updateHUD();
 requestAnimationFrame(frame);
+
+// Connect to the server: the game already rendered from localStorage (instant, offline-safe);
+// on the first hello the server snapshot (store of record) replaces local state and we reset the
+// view around the hydrated player. Everything keeps working if the server is unreachable.
+net.connect({
+  getState: () => s,
+  onHydrate: (state) => {
+    s = hydrate(state);
+    snapCam();
+    chunks.clear();
+    pending.clear();
+    refreshShop();
+    updateHUD();
+  },
+});
