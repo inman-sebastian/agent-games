@@ -307,10 +307,77 @@ That's a small, well-defined milestone, and it converts every pinned question fr
 argument into an experiment. Worth doing **early** for that reason alone, well before
 the systems whose interactions are in question actually exist.
 
+### Proposed shape: host-based, hard cap of 4
+
+**One player hosts, up to three others join. Maximum four players, full stop.**
+
+The hard cap is the best part of this proposal and worth keeping regardless of how
+hosting is implemented. A concrete number turns a pile of open-ended scaling
+questions into a fixed budget:
+
+- **Interest management can be deferred entirely** for now (keep the protocol's
+  *shape* area-of-interest-ready per
+  [Keeping the blue-sky door open cheaply](#keeping-the-blue-sky-door-open-cheaply),
+  but the implementation can stay naive).
+- Entity counts, fluid active-region counts and bandwidth all get a known ceiling.
+- Four is enough for the social experience being aimed at, and small enough that
+  nothing in the design needs to be built defensively.
+
+Host-authority also **changes nothing conceptually** about what already exists: the
+authoritative server, inputs-only clients, and prediction/reconciliation all stay
+exactly as they are. The server simply runs somewhere else.
+
+#### What it genuinely buys
+
+- No dedicated hosting infrastructure, no running costs, no ops.
+- The "does the world keep running when nobody's there?" question **does** go away —
+  the world lives while the host plays and is dormant otherwise.
+- Self-hosting was already the intended model ([Hosted worlds](#hosted-worlds)), so
+  this is a refinement of the plan rather than a departure from it.
+
+#### The correction: persistence doesn't go away, it relocates
+
+The world still has to be saved — it just gets saved on the host's machine, and the
+host's save becomes **the one canonical copy**. Guests hold nothing. That introduces a
+failure mode that a dedicated server doesn't have, and it's a *social* one rather than
+a technical one:
+
+- The world is playable **only when the host is available**. This is the well-known
+  listen-server tax (Valheim, Minecraft LAN, Stardew): "we can only play when Dave is
+  online."
+- If the host loses their save, everyone loses the world.
+- **Host migration** is the classic hard problem. At four players, "the session ends
+  when the host leaves" is a completely acceptable answer — but it should be a chosen
+  answer, not a discovered one.
+- The host plays at zero latency while guests pay full round-trip. Prediction already
+  handles this; it's worth knowing it exists.
+
+#### The real cost: browsers can't accept inbound connections
+
+This is the part that needs pricing, and it's specific to DELVE being a **browser
+game**. "One client hosts" is cheap in a native game and genuinely expensive in a
+browser, because a browser tab cannot listen for incoming connections. The current
+stack is Node + `ws`, and a browser cannot run a `ws` server.
+
+Two ways to get host-based play, with very different costs:
+
+| Approach | What it means | Cost |
+| --- | --- | --- |
+| **Host runs a local server** _(recommended)_ | The existing `@delve/server` becomes something a player launches on their own machine; friends point their browser at it. | **Near zero.** The server already exists and already serves the built client. The client currently derives its WebSocket URL from `location.host` (`client/src/net.ts`), so the change is making that address configurable — a join-by-address field. |
+| **Host inside the browser tab** | True peer-hosting with no separate process. Requires **WebRTC data channels**, which means a signalling server, NAT traversal, and a **TURN relay fallback that costs money** for players behind symmetric NATs. | **High**, and it reintroduces hosted infrastructure — the exact thing this proposal was meant to avoid. |
+
+The recommendation is the first row. It delivers the identical social model (a friend
+hosts, the world lives on their machine, the session ends when they stop) for
+essentially no new architecture, and it keeps every property of the authoritative
+server that's already working. "Host" becomes a role a player takes, not a change to
+how the game is built.
+
 ### Target scale
 
 **Real target: small parties on bounded worlds.** Two players on a small world, four
-friends on a medium world. That's the shape to build and tune for.
+friends on a medium world — now with a **hard cap of four**, see
+[Proposed shape](#proposed-shape-host-based-hard-cap-of-4). That's the shape to build
+and tune for.
 
 **Blue sky, explicitly not a goal:** dozens of players on an infinite world. Noted as
 something to revisit if it turns out to be reachable, not something to design toward.
