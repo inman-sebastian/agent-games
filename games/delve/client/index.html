@@ -243,6 +243,33 @@
       #dbg.on {
         display: block;
       }
+      #dbgtext {
+        white-space: pre;
+      }
+      /* render-system toggle buttons live inside #dbg but must be clickable (the panel isn't) */
+      #dbgtoggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+        pointer-events: auto;
+      }
+      .dbgbtn {
+        font: inherit;
+        color: #9fead0;
+        background: #0b1018;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 2px 8px;
+        cursor: pointer;
+        opacity: 0.4;
+        text-transform: capitalize;
+      }
+      .dbgbtn.on {
+        opacity: 1;
+        border-color: #3a8a63;
+        color: #bfffe0;
+      }
 
       /* on-screen movement controls (touch only; mining is aim+tap on the canvas) */
       #touch {
@@ -324,7 +351,7 @@
       </div>
     </div>
 
-    <div id="dbg"></div>
+    <div id="dbg"><div id="dbgtext"></div><div id="dbgtoggles"></div></div>
 
     <div id="touch">
       <div class="tpad">

@@ -18,7 +18,6 @@ import {
   composeBand,
   mix,
   hashXY,
-  hexRgb,
 } from './render/cave-render';
 import { ORE_ART, SHAPES } from './render/ore-art';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
@@ -516,7 +515,6 @@ function patchDig(c: number, r: number): void {
 const lighting = createLighting();
 
 // ---- render -----------------------------------------------------------------------------
-const ORE_GLOW_SEED = 0.9; // base intensity an exposed ore vein emits (scaled by distance/damage)
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at vision 0
 const LAMP_VISION_GAIN = 0.16; // added lamp brightness per unit of vision (Deep Lantern reaches further)
 
@@ -606,49 +604,14 @@ function render(t: number): void {
     return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5));
   };
 
-  // ore glow — the ore SURFACE is now baked into the chunks (feathered into the rock via each ore's
-  // material shader), and lamp-only vision hides it where the light doesn't reach. Here we only seed
-  // each exposed, lit vein's COLOURED glow into the lighting field. (ponytail: the Ore Scanner's
-  // old xray-through-the-dark reveal is dropped — it contradicts lamp-only vision; redesign as a HUD
-  // ping later. Baked ore also no longer shows a per-hit damage crack; re-add as an FX layer if missed.)
-  for (let r = rowT; r <= rowB; r++) {
-    if (r <= engine.SURFACE) continue;
-    for (let c = colL; c <= colR; c++) {
-      if (!solidTile(c, r)) continue;
-      const block = engine.blockAt(s.world.seed, c, r);
-      if (!block.ore) continue;
-      const art = ORE_ART[block.ore];
-      if (!art || art.dim) continue; // dirt: plain rock, no glow
-      const li = lightAt(c, r);
-      const frac = block.hp ? (s.world.dmg[engine.key(c, r)] || 0) / block.hp : 0;
-      // an ore vein only emits when EXPOSED (bordering an open tile), so its colour has somewhere to
-      // flood: seeded at the exposed OPEN face, the glow spills into the shaft and dies in rock
-      // (occlusion-aware). Brightness fades with lamp distance; brighter as mined.
-      let nc = c;
-      let nr = r;
-      if (!solidTile(c, r - 1)) nr = r - 1;
-      else if (!solidTile(c, r + 1)) nr = r + 1;
-      else if (!solidTile(c - 1, r)) nc = c - 1;
-      else if (!solidTile(c + 1, r)) nc = c + 1;
-      const exposed = nc !== c || nr !== r;
-      if (exposed && (li > 0.16 || frac > 0.05)) {
-        const [rr, gg, bb] = hexRgb(art.c[2]);
-        const phase = ((hashXY(c, r, 55) & 1023) / 1023) * 6.283; // per-vein pulse offset
-        const pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + phase);
-        lighting.addLight(
-          nc * T + (T >> 1),
-          nr * T + (T >> 1),
-          1,
-          [rr / 255, gg / 255, bb / 255],
-          ORE_GLOW_SEED * li * (0.5 + 0.85 * frac) * pulse,
-        );
-      }
-    }
-  }
+  // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
+  // lit by the lamp like any other rock. The lighting system still supports coloured emitters via
+  // addLight(r>0) for future light sources; ore just doesn't use it.)
 
   // tiered damage: chip away tiles taking dig damage (rock + ore alike). Iterate the sparse dmg map
   // (only in-progress tiles), gated to the view + lamp reach. A material may override the shared look.
-  for (const cellKey in s.world.dmg) {
+  if (debugFlags.damage)
+    for (const cellKey in s.world.dmg) {
     const dmg = s.world.dmg[cellKey];
     if (!dmg) continue;
     const comma = cellKey.indexOf(',');
@@ -683,7 +646,8 @@ function render(t: number): void {
   // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
   // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
   // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
-  const twinkleEdges = collectTwinkleEdges({
+  if (debugFlags.twinkle) {
+    const twinkleEdges = collectTwinkleEdges({
     bandLeft: colL,
     bandTop: rowT,
     cols: colR - colL + 1,
@@ -713,6 +677,7 @@ function render(t: number): void {
       });
     }
     ctx.restore();
+    }
   }
 
   // idle dust motes drifting near the lamp
@@ -768,15 +733,28 @@ function render(t: number): void {
 
   // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the Deep
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
-  // Ore-vein emitters were already pushed in the ore loop above.
-  lighting.addLight(
-    px * T,
-    (py - 0.1) * T,
-    0,
-    LAMP_COLOR,
-    LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * st.vision,
-  );
-  lighting.render({ g: ctx, LW, LH, T, camX, camY, SURFACE: engine.SURFACE, solidTile });
+  // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
+  // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
+  if (debugFlags.lighting) {
+    lighting.addLight(
+      px * T,
+      (py - 0.1) * T,
+      0,
+      LAMP_COLOR,
+      LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * st.vision,
+    );
+    lighting.render({
+      g: ctx,
+      LW,
+      LH,
+      T,
+      camX,
+      camY,
+      SURFACE: engine.SURFACE,
+      solidTile,
+      scrim: debugFlags.fog,
+    });
+  }
 }
 
 // ---- input ------------------------------------------------------------------------------
@@ -1035,6 +1013,8 @@ function frame(now: number): void {
 // ---- debug overlay (F3 / ?debug) --------------------------------------------------------
 let DEBUG = /(\?|&)debug\b/.test(location.search);
 const dbg = document.getElementById('dbg')!;
+const dbgText = document.getElementById('dbgtext')!;
+const dbgToggles = document.getElementById('dbgtoggles')!;
 dbg.classList.toggle('on', DEBUG);
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.code === 'F3' || e.code === 'Backquote') {
@@ -1043,12 +1023,27 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     e.preventDefault();
   }
 });
+
+// render-system toggles — clickable buttons in the debug panel that flip visual passes on/off in
+// render() (see their use there), so you can isolate lighting / fog / twinkle / damage while playing.
+const debugFlags = { lighting: true, fog: true, twinkle: true, damage: true };
+for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
+  const button = document.createElement('button');
+  button.className = 'dbgbtn on';
+  button.textContent = key;
+  button.addEventListener('click', () => {
+    debugFlags[key] = !debugFlags[key];
+    button.classList.toggle('on', debugFlags[key]);
+  });
+  dbgToggles.appendChild(button);
+}
+
 function updateDebug(): void {
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const ore = engine.ORES[s.player.best];
   const netInfo = net.netStatus();
-  dbg.textContent =
+  dbgText.textContent =
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
     `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
