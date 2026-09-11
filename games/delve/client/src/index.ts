@@ -20,7 +20,8 @@ import {
   hashXY,
   hexRgb,
 } from './render/cave-render';
-import { ORE_ART, SHAPES, drawOreBlock } from './render/ore-art';
+import { ORE_ART, SHAPES } from './render/ore-art';
+import { oreMaterial, collectTwinkleEdges } from './render/materials';
 import type { Pen } from '@delve/shared';
 import { drawMiner } from './render/sprites';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
@@ -314,6 +315,11 @@ const ckey = (cx: number, cy: number): string => cx + ',' + cy;
 const solidTile = (column: number, row: number): boolean =>
   engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
+// a tile's ore material (if it sits in an ore pocket), baked into the rock band by composeBand so
+// veins feather into the strata. Same lookup the worker uses; null → the tile renders as plain rock.
+const materialAt = (column: number, row: number) =>
+  oreMaterial(engine.oreAt(s.world.seed, column, row));
+
 function newChunkCanvas(): Chunk {
   const cv = document.createElement('canvas');
   cv.width = CW * T;
@@ -362,6 +368,7 @@ if (canOffloadChunks) {
       type: 'init',
       cfg: { T, CW, CH, SURFACE: engine.SURFACE, MARGIN, strata: engine.STRATA },
     });
+    worker.postMessage({ type: 'world', seed: s.world.seed }); // seed to bake ore into chunks
     worker.onmessage = (e: MessageEvent<ChunkResult>) => {
       const { cx, cy, bmp } = e.data;
       const key = ckey(cx, cy);
@@ -406,6 +413,12 @@ function requestChunk(cx: number, cy: number): void {
   worker!.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
 }
 
+// Re-post the world seed to the Worker so it bakes ore with the current seed. Call whenever the
+// world changes (new game / server hello) — right where the chunk cache is cleared.
+function syncWorkerWorld(): void {
+  worker?.postMessage({ type: 'world', seed: s.world.seed });
+}
+
 // Synchronous chunk render (fallback when no Worker) — uses the shared renderer.
 function renderChunkSync(cx: number, cy: number): Chunk {
   const start = performance.now();
@@ -418,6 +431,7 @@ function renderChunkSync(cx: number, cy: number): Chunk {
     CH + 2 * MARGIN,
     Infinity,
     engine.SURFACE,
+    materialAt,
   );
   const key = ckey(cx, cy);
   const chunk = chunks.get(key) || newChunkCanvas();
@@ -459,6 +473,7 @@ function patchDig(c: number, r: number): void {
     coreB - coreT + 1 + 2 * MARGIN,
     Infinity,
     engine.SURFACE,
+    materialAt,
   );
   // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
   for (let cy = chunkY(coreT); cy <= chunkY(coreB); cy++) {
@@ -591,35 +606,24 @@ function render(t: number): void {
     return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5));
   };
 
-  // ore blocks + glow, drawn per-frame ONLY where visible: within lamp range, or anywhere once the
-  // Ore Scanner is owned. Unlit, unscanned rock hides its ore. (fog-of-war + lamp bloom + vignette
-  // are one pixelated pass at frame end — lighting.render.)
+  // ore glow — the ore SURFACE is now baked into the chunks (feathered into the rock via each ore's
+  // material shader), and lamp-only vision hides it where the light doesn't reach. Here we only seed
+  // each exposed, lit vein's COLOURED glow into the lighting field. (ponytail: the Ore Scanner's
+  // old xray-through-the-dark reveal is dropped — it contradicts lamp-only vision; redesign as a HUD
+  // ping later. Baked ore also no longer shows a per-hit damage crack; re-add as an FX layer if missed.)
   for (let r = rowT; r <= rowB; r++) {
     if (r <= engine.SURFACE) continue;
     for (let c = colL; c <= colR; c++) {
       if (!solidTile(c, r)) continue;
       const block = engine.blockAt(s.world.seed, c, r);
       if (!block.ore) continue;
-      const vis = Math.max(lightAt(c, r) ** 2, s.player.tech.scanner ? 0.4 : 0);
-      if (vis <= 0.06) continue;
       const art = ORE_ART[block.ore];
-      if (!art || art.dim) continue; // dirt: no block, shows as plain rock
-      const frac = block.hp ? (s.world.dmg[engine.key(c, r)] || 0) / block.hp : 0;
-      // cluster-aware: a neighbour is "same ore" if it's still solid and the same node, so a pocket
-      // of ore cells tiles into one mass. (engine.oreAt is a cheap id-only lookup.)
-      const oreId = block.ore;
-      const sameOre = (dc: number, dr: number): boolean =>
-        solidTile(c + dc, r + dr) && engine.oreAt(s.world.seed, c + dc, r + dr) === oreId;
-      ctx.globalAlpha = Math.min(1, vis);
-      drawOreBlock(ctx, art, c * T, r * T, c, r, frac, sameOre);
-      ctx.globalAlpha = 1;
-
-      const phase = ((hashXY(c, r, 55) & 1023) / 1023) * 6.283; // per-ore shimmer offset
-      // an ore vein is a light source too — same system as the lamp. It only emits when EXPOSED
-      // (bordering an open tile), so its colour has somewhere to flood: seeded at the exposed OPEN
-      // face, the ore-glow field spills into the shaft and dies in rock (occlusion-aware), instead
-      // of a geometry-blind halo. Brightness fades with lamp distance; brighter as mined.
+      if (!art || art.dim) continue; // dirt: plain rock, no glow
       const li = lightAt(c, r);
+      const frac = block.hp ? (s.world.dmg[engine.key(c, r)] || 0) / block.hp : 0;
+      // an ore vein only emits when EXPOSED (bordering an open tile), so its colour has somewhere to
+      // flood: seeded at the exposed OPEN face, the glow spills into the shaft and dies in rock
+      // (occlusion-aware). Brightness fades with lamp distance; brighter as mined.
       let nc = c;
       let nr = r;
       if (!solidTile(c, r - 1)) nr = r - 1;
@@ -629,6 +633,7 @@ function render(t: number): void {
       const exposed = nc !== c || nr !== r;
       if (exposed && (li > 0.16 || frac > 0.05)) {
         const [rr, gg, bb] = hexRgb(art.c[2]);
+        const phase = ((hashXY(c, r, 55) & 1023) / 1023) * 6.283; // per-vein pulse offset
         const pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + phase);
         lighting.addLight(
           nc * T + (T >> 1),
@@ -638,24 +643,42 @@ function render(t: number): void {
           ORE_GLOW_SEED * li * (0.5 + 0.85 * frac) * pulse,
         );
       }
-
-      const twinkle = Math.sin(t * 2.2 + phase * 1.7); // periodic per-ore shimmer glint
-      if (twinkle > 0.8) {
-        const a = ((twinkle - 0.8) / 0.2) * vis;
-        const gx = c * T + (T >> 1);
-        const gy = r * T + (T >> 1);
-        ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = a;
-        ctx.fillRect(gx, gy - 1, 1, 3);
-        ctx.fillRect(gx - 1, gy, 3, 1);
-        ctx.globalAlpha = a * 0.45;
-        ctx.fillRect(gx - 2, gy, 1, 1);
-        ctx.fillRect(gx + 2, gy, 1, 1);
-        ctx.fillRect(gx, gy - 2, 1, 1);
-        ctx.fillRect(gx, gy + 2, 1, 1);
-        ctx.globalAlpha = 1;
-      }
     }
+  }
+
+  // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
+  // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
+  // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
+  const twinkleEdges = collectTwinkleEdges({
+    bandLeft: colL,
+    bandTop: rowT,
+    cols: colR - colL + 1,
+    rows: rowB - rowT + 1,
+    solid: solidTile,
+    materialAt,
+    lit: lightAt,
+    seedAt: (c, r) => hashXY(c, r, 55),
+    minLit: 0.2,
+  });
+  if (twinkleEdges.length) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const offX = colL * T;
+    const offY = rowT * T;
+    for (const edge of twinkleEdges) {
+      edge.material.twinkle!({
+        g: ctx,
+        x0: edge.x0 + offX,
+        y0: edge.y0 + offY,
+        x1: edge.x1 + offX,
+        y1: edge.y1 + offY,
+        scale: 1,
+        time: t,
+        seed: edge.seed,
+        litAt: edge.litAt,
+      });
+    }
+    ctx.restore();
   }
 
   // idle dust motes drifting near the lamp
@@ -1211,6 +1234,7 @@ el('newBtn').onclick = function () {
   snapCam();
   chunks.clear();
   pending.clear();
+  syncWorkerWorld();
   save();
   refreshShop();
 };
@@ -1301,6 +1325,7 @@ net.connect({
     correctionY = 0;
     chunks.clear();
     pending.clear(); // chunk-generation queue
+    syncWorkerWorld();
     snapCam();
     refreshShop();
     updateHUD();

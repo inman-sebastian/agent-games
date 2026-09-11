@@ -8,44 +8,19 @@
 // note rather than atomised into dozens of names that would obscure the pipeline.
 import { vnoise, mulberry, hashXY } from '@delve/shared';
 import type { StrataResource } from '@delve/shared';
+import { T, TEX, clamp01, hexRgb, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
+import type { Rgb, RockColors } from './palette';
+import type { Material, ShadeCtx } from './materials/types';
 
-export const T = 16; // tile size in logical (art) pixels
-export const TEX = 90210; // fixed seed for all rock-texture noise (keeps texture stable per world coord)
-
-// 4×4 ordered (Bayer) dither matrix — quantises the smooth brightness into pixel-art bands.
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
-
-type Rgb = [number, number, number];
-
-export const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
+// Low-level colour/texture primitives now live in palette.ts (shared with the material shaders);
+// re-export the ones existing importers pull from cave-render so nothing else has to change.
+export { T, TEX, clamp01, hexRgb, rgbHex, mix, desat } from './palette';
+export type { Rgb } from './palette';
 
 const makeCanvas = (w: number, h: number): OffscreenCanvas | HTMLCanvasElement =>
   typeof OffscreenCanvas !== 'undefined'
     ? new OffscreenCanvas(w, h)
     : Object.assign(document.createElement('canvas'), { width: w, height: h });
-
-// ---- colour helpers ----
-export const hexRgb = (hex: string): Rgb =>
-  [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)) as Rgb;
-export const rgbHex = (rgb: number[]): string =>
-  '#' +
-  rgb
-    .map((v) =>
-      Math.max(0, Math.min(255, Math.round(v)))
-        .toString(16)
-        .padStart(2, '0'),
-    )
-    .join('');
-export const mix = (a: string, b: string, t: number): string => {
-  const from = hexRgb(a);
-  const to = hexRgb(b);
-  return rgbHex(from.map((v, i) => v + (to[i] - v) * t));
-};
-export const desat = (hex: string, t: number): string => {
-  const c = hexRgb(hex);
-  const luma = c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11;
-  return rgbHex(c.map((v) => v + (luma - v) * t));
-};
 
 // ---- depth strata palette ----
 // Strata come from the resource registry; the owning context hands them in via setStrata (the
@@ -68,33 +43,6 @@ export function rampAt(row: number): string[] {
   return near.ramp.map((hex, stop) => mix(hex, far.ramp[stop], t));
 }
 
-interface RockColors {
-  rimB: Rgb;
-  rimA: Rgb;
-  lit: Rgb;
-  body2: Rgb;
-  body: Rgb;
-  deep: Rgb;
-  center: Rgb;
-  rimRock: Rgb;
-}
-
-/** Derive the shading swatches (as rgb) from a ramp: rim highlights → dark centers. */
-function colorsFor(ramp: string[]): RockColors {
-  const swatches: Record<keyof RockColors, string> = {
-    rimB: desat(ramp[5], 0.22),
-    rimA: desat(ramp[4], 0.28),
-    lit: desat(ramp[3], 0.15),
-    body2: ramp[2],
-    body: ramp[1],
-    deep: ramp[0],
-    center: mix(ramp[0], '#000000', 0.4),
-    rimRock: desat(mix(ramp[4], ramp[2], 0.45), 0.35),
-  };
-  const out = {} as RockColors;
-  for (const key of Object.keys(swatches) as (keyof RockColors)[]) out[key] = hexRgb(swatches[key]);
-  return out;
-}
 
 interface BgColors {
   top: string;
@@ -216,12 +164,22 @@ const CONTACT_SHADOW_FAR = 48;
 let shadeCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let shadeCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
 
-/** Foreground rock → a canvas (alpha layer): top-lit, dark-bodied, organic edges. */
+// Material boundary feathering: how far (px) and how noisily one material bleeds into another, so a
+// vein blends organically into the rock instead of a hard tile seam (the same idea as the solid↔open
+// edge erosion, applied to material boundaries). The distance is the material's own `feather` knob;
+// this is the default when it doesn't set one.
+const FEATHER_FREQ = 0.32;
+const DEFAULT_FEATHER = 3.2;
+
+/** Foreground rock → a canvas (alpha layer): top-lit, dark-bodied, organic edges. Where `materialAt`
+ * assigns a tile a material, that material's own shader colours the pixel (through this same top-lit
+ * geometry), and the rock↔material boundary is feathered by world noise so it blends seamlessly. */
 function shadeRock(
   isSolid: SolidTile,
   width: number,
   height: number,
-  colors: RockColors,
+  rockColors: RockColors,
+  materialAt: ((column: number, row: number) => Material | null) | undefined,
   bandLeft: number,
   bandTop: number,
 ): OffscreenCanvas | HTMLCanvasElement {
@@ -251,9 +209,78 @@ function shadeRock(
     }
   }
 
-  // brightness → colour band: center → deep → body → body2 → lit → rimA
-  const BANDS = [colors.center, colors.deep, colors.body, colors.body2, colors.lit, colors.rimA];
-  const LAST_BAND = BANDS.length - 1;
+  // ---- per-tile material grid + the per-pixel feathered material lookup ----
+  // Precompute each band tile's material (padded 1 tile so boundary feathering can read neighbours).
+  // When materialAt is absent (the game/worker today), this is skipped and every pixel is rock.
+  const cols = width / T;
+  const rows = height / T;
+  const paddedW = cols + 2;
+  const tileMaterials: (Material | null)[] = [];
+  if (materialAt) {
+    for (let r = -1; r <= rows; r++)
+      for (let c = -1; c <= cols; c++)
+        tileMaterials[(r + 1) * paddedW + (c + 1)] = materialAt(bandLeft + c, bandTop + r);
+  }
+  const materialOfTile = (column: number, row: number): Material | null => {
+    const c = column - bandLeft;
+    const r = row - bandTop;
+    if (c < -1 || c > cols || r < -1 || r > rows) return materialAt ? materialAt(column, row) : null;
+    return tileMaterials[(r + 1) * paddedW + (c + 1)] ?? null;
+  };
+
+  // The material for a PIXEL, or null for plain rock — feathered across the nearest material
+  // boundary by world noise, so a material bleeds organically into rock (no hard tile edge).
+  const materialOfPixel = (
+    px: number,
+    py: number,
+    worldX: number,
+    worldY: number,
+  ): Material | null => {
+    if (!materialAt) return null;
+    const column = bandLeft + ((px / T) | 0);
+    const row = bandTop + ((py / T) | 0);
+    const here = materialOfTile(column, row);
+    const localX = px % T;
+    const localY = py % T;
+    // nearest side across which this pixel's tile borders the OTHER material (material↔rock)
+    let bestDist = Infinity;
+    let signed = 0; // + if this pixel's tile is the material side, − if the rock side
+    let material: Material | null = null;
+    const sides: [number, number, number][] = [
+      [0, -1, localY + 0.5],
+      [0, 1, T - 1 - localY + 0.5],
+      [-1, 0, localX + 0.5],
+      [1, 0, T - 1 - localX + 0.5],
+    ];
+    for (const [dc, dr, dist] of sides) {
+      const neighbour = materialOfTile(column + dc, row + dr);
+      if (!here === !neighbour) continue; // same material class across this side → not a boundary
+      if (dist < bestDist) {
+        bestDist = dist;
+        signed = here ? dist : -dist;
+        material = here ?? neighbour;
+      }
+    }
+    if (!material) return here; // deep inside a material (→ it) or deep in rock (→ null)
+    const feather = material.feather ?? DEFAULT_FEATHER;
+    const noise = (vnoise(worldX * FEATHER_FREQ, worldY * FEATHER_FREQ, TEX + 21) - 0.5) * feather;
+    return signed + noise > 0 ? material : null;
+  };
+
+  // Reused per-pixel context handed to a material's shader (never retained across pixels).
+  const pixelCtx: ShadeCtx = {
+    worldX: 0,
+    worldY: 0,
+    px: 0,
+    py: 0,
+    localX: 0,
+    localY: 0,
+    column: 0,
+    row: 0,
+    brightness: 0,
+    edgeDist: 0,
+    topDist: 0,
+  };
 
   if (!shadeCanvas || shadeCanvas.width !== width || shadeCanvas.height !== height) {
     shadeCanvas = makeCanvas(width, height);
@@ -286,34 +313,33 @@ function shadeRock(
         continue;
       }
 
-      // brightness falls off from the nearest edge; a wider range where the top light reaches
+      // brightness falls off from the nearest edge; a wider range where the top light reaches. This
+      // is the shared GEOMETRIC light — the same for every material; each material adds its own
+      // texture/palette on top.
       const range = topDist[i] <= edgeDist[i] + 0.8 ? 6.0 : 3.8;
-      let brightness = 1 - edgeDist[i] / range;
-      // multi-octave world-space perturbation (hand-tuned freqs/amplitudes) — lumps into light,
-      // crevices into dark, so the surface→center transition is organic, not a flat band.
-      brightness +=
-        (vnoise(worldX * 0.16, worldY * 0.16, TEX) - 0.5) * 0.55 +
-        (vnoise(worldX * 0.45 + 7, worldY * 0.45, TEX) - 0.5) * 0.3 +
-        (vnoise(worldX * 1.05, worldY * 1.05 + 3, TEX) - 0.5) * 0.14;
-      brightness = clamp01(brightness);
+      const rawBrightness = 1 - edgeDist[i] / range;
 
-      // quantise to a colour band with Bayer dithering
-      const scaled = brightness * LAST_BAND;
-      const band = scaled | 0;
-      const dither = (BAYER[(px & 3) | ((py & 3) << 2)] + 0.5) / 16;
-      let color = BANDS[Math.min(LAST_BAND, band + (scaled - band > dither ? 1 : 0))];
+      // which material owns this PIXEL — rock, or a registered one (feathered across the boundary)?
+      const material = materialOfPixel(px, py, worldX, worldY);
+      if (material) {
+        // hand the material the geometry; it owns the colour (its own noise / palette / sheen / …)
+        pixelCtx.worldX = worldX;
+        pixelCtx.worldY = worldY;
+        pixelCtx.px = px;
+        pixelCtx.py = py;
+        pixelCtx.localX = px % T;
+        pixelCtx.localY = py % T;
+        pixelCtx.column = bandLeft + ((px / T) | 0);
+        pixelCtx.row = bandTop + ((py / T) | 0);
+        pixelCtx.brightness = rawBrightness; // raw geometric light; the material adds its own texture
+        pixelCtx.edgeDist = edgeDist[i];
+        pixelCtx.topDist = topDist[i];
+        setPixel(i, material.shade(pixelCtx), 255);
+        continue;
+      }
 
-      // sparse accent speckles: grayer rim rock, darker center pits, bright rim caps
-      if (brightness > 0.6 && vnoise(worldX * 0.5 + 2, worldY * 0.5, TEX + 8) < 0.4)
-        color = colors.rimRock;
-      if (
-        brightness > 0.25 &&
-        brightness < 0.72 &&
-        vnoise(worldX * 0.75, worldY * 0.75, TEX + 5) > 0.86
-      )
-        color = colors.center;
-      if (brightness > 0.88 && vnoise(worldX * 0.7, worldY * 0.5, TEX) > 0.6) color = colors.rimB;
-      setPixel(i, color, 255);
+      // plain rock (the default material): the shared stone surface in the strata palette
+      setPixel(i, stoneSurface(worldX, worldY, px, py, rawBrightness, rockColors), 255);
     }
   }
   ctx.putImageData(image, 0, 0);
@@ -340,13 +366,14 @@ export function composeBand(
   rowsH: number,
   _legacyWidth: number,
   surface: number,
+  materialAt?: (column: number, row: number) => Material | null,
 ): void {
   const width = colsW * T;
   const height = rowsH * T;
   const originX = bandLeft * T;
   const originY = bandTop * T;
   const ramp = rampAt(Math.max(1, bandTop + (rowsH >> 1)));
-  const colors = colorsFor(ramp);
+  const colors = colorsFor(ramp); // strata rock (also used for the bg + stalactites)
   const bg = bgFor(ramp);
 
   // background: flat midpoint fill (so cached chunks meet seamlessly) + world-anchored silhouettes
@@ -367,9 +394,10 @@ export function composeBand(
     }
   }
 
-  // foreground rock
+  // foreground rock — where materialAt assigns a material, that material's shader colours the pixel
+  // through this SAME top-lit geometry, with the boundary feathered by world noise (see shadeRock).
   g.drawImage(
-    shadeRock(isSolid, width, height, colors, bandLeft, bandTop) as CanvasImageSource,
+    shadeRock(isSolid, width, height, colors, materialAt, bandLeft, bandTop) as CanvasImageSource,
     0,
     0,
   );
