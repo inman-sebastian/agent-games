@@ -136,7 +136,7 @@ A finite world means finite space to fill, which means **content density can be
 guaranteed** rather than hoped for. Generation can place a known number of
 structures, biomes and set-pieces per world and be *sure* the player meets them. In
 an infinite world, density is a probability and long empty stretches are inevitable.
-This is a much stronger answer to [T7](#t7-exploration-still-needs-breadcrumbs) than
+This is a much stronger answer to [T8](#t8-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
 Wrapping additionally means **you can never be permanently lost**. Travelling in one
@@ -148,7 +148,7 @@ direction is always eventually productive, which keeps exploration low-anxiety.
 > Terraria's edges do real work: they're landmarks, they anchor a global sense of
 > direction ("the dungeon is west"), and they're a distinct biome in their own right.
 > A wrapping world gives that up in exchange for seamlessness — see
-> [T6](#t6-wrapping-removes-the-worlds-absolute-reference-frame).
+> [T7](#t7-wrapping-removes-the-worlds-absolute-reference-frame).
 
 ### Hosted worlds
 
@@ -340,7 +340,7 @@ number. Illustrative, not final:
 | Large | 16 |
 
 This is a genuinely good resolution to
-[T5](#t5-player-count-and-world-size-interact), because it makes the two knobs
+[T6](#t6-player-count-and-world-size-interact), because it makes the two knobs
 *literally one knob* instead of two that have to be kept in sync. Two things fall out
 of it that are worth building on:
 
@@ -549,6 +549,102 @@ exploration becomes optional — the player's optimal move is to stop playing. T
 to the player, the same drones are pure upside. This constraint should survive every
 future revision of the idea.
 
+
+---
+
+## 9. NPCs & dialogue
+
+**Resolved: there will be NPCs.** Who they are and what purpose they serve is
+undetermined, but their existence is not. Interacting with them is part of the intent,
+so the game needs **at minimum a minimal dialogue system**.
+
+Two consequences worth recording now, because they unblock things parked elsewhere:
+
+- **NPCs give base building a candidate job.** [Q2](#open-questions) was parked
+  because a base had no function. Terraria's answer is housing, and it works: NPCs
+  need somewhere to live, which makes a base a *requirement* rather than decoration.
+  This doesn't decide the question, but it removes the reason base building was
+  deferred.
+- **NPCs are the cheapest place to put tone.** See
+  [§10](#10-chaos-as-a-deliberate-pillar) — a character who *comments* on what just
+  happened to you is the single most efficient way to make a chaotic event read as
+  intentional rather than broken.
+
+Scope note: a dialogue system is a real system (content authoring, state, triggers,
+UI), but "minimal" is doing honest work here. Barks and one-shot lines cover most of
+the value; branching trees and quest state are a different and much larger thing.
+
+---
+
+## 10. Chaos as a deliberate pillar
+
+The proposal: rather than the drone's stupidity being a one-off quirk, **lean into
+chaos and unpredictability across the whole game** — tools that behave unexpectedly,
+a world that behaves unexpectedly, as a consistent character trait.
+
+The supporting argument is sound and is the important half: **one unpredictable thing
+reads as a bug; many unpredictable things read as a voice.** Volume is what converts
+an anomaly into an authored tone. That's a real effect and it's the strongest reason
+to treat chaos as a pillar rather than a feature.
+
+### The self-correction is the actual insight
+
+The idea initially framed chaos as unexplored territory, then immediately corrected:
+Terraria already leverages chaos — but it's **structured, predictable chaos**. Mining
+out a big block of sand will probably collapse on you. Digging the one block holding
+back a lava lake is a bad idea. Those produce chaos, but the chaos **follows a strict
+set of rules the player can learn**.
+
+That correction is the whole design. It separates chaos that works from chaos that
+doesn't, and it's worth stating as the governing rule:
+
+> **Chaos must be deterministic.** The same situation must always produce the same
+> outcome. Complexity, cascades and surprise are the goal; *randomness* is not.
+
+### Three things get bundled under "chaos" — they behave differently
+
+| Kind | Example | Verdict |
+| --- | --- | --- |
+| **Emergent complexity from deterministic rules** | Sand collapses; fluid finds its level; a cave-in cascades | **The gold standard.** Learnable, fair, weaponizable. Scales infinitely and costs nothing in player trust. |
+| **Delegated agency** | The drone mines something you didn't choose | **Workable, with care.** Not simulation — it's an *agent* acting for you. Needs visible intent and character or it reads as betrayal ([Legibility](#legibility-is-a-hard-requirement-here)). |
+| **True randomness** | A tool that sometimes just misfires | **The dangerous one.** This is what actually reads as broken, and unlike the others it does **not** get better by having more of it. |
+
+The "more of it reads as intentional" argument holds for the first two. It does **not**
+hold for the third: randomness that costs the player something they could not have
+anticipated is unfair at any volume. Volume fixes *tone*; it can't fix *unfairness*.
+
+Supporting evidence: the games celebrated for chaos are almost all deterministic
+simulations, not random ones — Terraria, Noita, Dwarf Fortress, Minecraft. Their
+unpredictability comes from **complexity**, not from dice. That's also why players
+eventually stop being victims of it and start exploiting it, which is where the
+deepest play in all of those games lives.
+
+### The constraint DELVE has that chaos-heavy games usually don't
+
+Most games built on chaos have a **run structure**. Noita and The Binding of Isaac can
+be brutal because a run is short and disposable; losing one is the expected outcome,
+not a setback.
+
+**DELVE has a persistent world and a persistent character.** Chaos that destroys
+persistent progress is far more expensive than chaos that ends a twenty-minute run. So
+committing to chaos as a pillar forces a matching commitment:
+
+> **High chaos requires cheap failure.** If the world is allowed to wreck your plans
+> regularly, losing must cost little — quick recovery, little or nothing dropped, the
+> setback measured in minutes.
+
+This means **[Q1](#open-questions) (what happens when you die) and the chaos pillar are
+the same dial**, not two separate questions. Answer one and the other is largely
+determined. If chaos is a pillar, the death penalty must be light.
+
+### Reference worth looking at
+
+**Deep Rock Galactic** is unusually close to this exact target: co-op mining, a hard
+cap of four players, procedurally generated caves, environmental hazards, structured
+chaos, a strong comedic voice, and an NPC handler who comments on everything. It's the
+clearest existing proof that mining plus small-party co-op plus chaos plus humour
+composes into a coherent game rather than a tonal mess.
+
 ---
 
 ## Tensions
@@ -618,7 +714,20 @@ best emergent story in the game or the fastest way to end a friendship, and it n
 an answer alongside the rest of the shared-world griefing question
 ([Q2](#open-questions)).
 
-### T5. Player count and world size interact
+### T5. Chaos as a pillar fights DELVE's current tone
+
+The shipped design describes DELVE as **moody** — muted rock, one saturated colour,
+deliberate atmosphere. Chaos-as-a-voice, self-referential and a bit meme-shaped,
+pulls toward **funny**. Those are different games, and the art direction currently
+documented in the palette and lighting docs is built for the first one.
+
+This is resolvable — Deep Rock Galactic is atmospheric *and* funny, and the contrast
+is part of its appeal — but it resolves by **deciding**, not by drifting. If chaos
+becomes a pillar, the art docs need to know, because tone leaks into palette,
+animation character, and sound. Per the workspace rule: evolve the style guide
+deliberately, don't let it fork silently.
+
+### T6. Player count and world size interact
 
 **Resolved** — by tying the player cap to the size preset
 ([§7](#player-cap-scales-with-world-size)), the two knobs become one. The residual
@@ -626,7 +735,7 @@ work is the tuning invariant that makes it actually hold: generate content **per
 expected player**, not per unit of area, so a small world isn't stripped bare and a
 large one isn't empty.
 
-### T6. Wrapping removes the world's absolute reference frame
+### T7. Wrapping removes the world's absolute reference frame
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
@@ -640,7 +749,7 @@ Consequences worth deciding on:
 - **Directional content placement** ("the deep dungeon is always far from spawn")
   still works, but distance has a maximum of half the world width.
 
-### T7. Exploration still needs breadcrumbs
+### T8. Exploration still needs breadcrumbs
 
 Largely answered by bounding the world — guaranteed density beats any amount of
 signalling. Two residual cases:
@@ -651,7 +760,7 @@ signalling. Two residual cases:
   a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
   Currently there's only a short-range Ore Scanner and the lamp.
 
-### T8. The jetpack deletes the traversal problem
+### T9. The jetpack deletes the traversal problem
 
 Flight is an excellent reward precisely because vertical traversal is currently a
 real problem. But the moment it's available, that problem is gone permanently — and
@@ -668,9 +777,11 @@ traversal problem rather than ending it.
 
 - **Q1. What happens when you die?** Health and enemies mean death, and death is the
   moment that decides how bravely players explore. Respawn at a base, at the surface,
-  at a checkpoint? Do you drop coins, inventory, or nothing? A harsh answer makes
-  deep exploration feel expensive and players play conservatively; a soft answer
-  keeps the "just see what's down there" impulse alive.
+  at a checkpoint? Do you drop inventory, or nothing? A harsh answer makes deep
+  exploration feel expensive and players play conservatively; a soft answer keeps the
+  "just see what's down there" impulse alive.
+  **Now coupled to [§10](#the-constraint-delve-has-that-chaos-heavy-games-usually-dont):**
+  if chaos is a pillar, this is largely answered — high chaos requires cheap failure.
 
 - **Q2. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
@@ -680,6 +791,8 @@ traversal problem rather than ending it.
   Multiplayer sharpens this: is a base **shared** (one party camp everyone builds and
   benefits from) or **per-player** (everyone keeps their own)? Shared bases need
   griefing/permission answers; per-player bases need the world to hold many of them.
+  **Partially unblocked by [§9](#9-npcs--dialogue):** NPCs exist, and housing them is
+  a proven answer to what a base is for.
 
 - **Q3. Does the coin economy survive?** **Answered: no.** Crafting and equipment
   become the progression spine; coins, selling and the Upgrades panel are deleted
@@ -842,12 +955,13 @@ Not cuts — parked, with the reason:
 
 | Deferred | Why |
 | --- | --- |
-| **Base building** | [Q2](#open-questions) is unanswered: there's no NPC, no danger cycle, no travel cost that would give a base a job. Without one it's decorated storage. Answer the question before building the system. |
+| **Base building** | Still parked, but the reason weakened: NPCs are now confirmed ([§9](#9-npcs--dialogue)) and housing them is a proven job for a base. Decide [Q2](#open-questions) deliberately, then build. |
 | **Skills** | Third progression channel. Equipment covers "light RPG" alone for now. |
+| **Branching dialogue** | NPCs are in scope, but barks and one-shot lines carry most of the value ([§9](#9-npcs--dialogue)). Trees and quest state are a much larger system. |
 | **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
 | **Infinite mode** | Reintroduces the empty-digging problem in full and is the mode that most needs a signalling layer. It's an option, not a launch feature. |
 | **Medium/Large worlds, 8–16 players** | Where every naive implementation stops being acceptable. Earn them. |
-| **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T7](#t7-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
+| **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T8](#t8-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
 
 ### What to measure, not argue about
 
