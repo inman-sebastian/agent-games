@@ -757,6 +757,46 @@ crafting-tree equivalent of "the greedy bot reaches Mythril," and it's what stop
 soft-lock where the thing you need to go deeper can only be made from something that
 only exists deeper.
 
+#### The verify script's actual flaw, and what to keep
+
+**Agreed that it's biased** — and worth separating the two things wrapped up in that,
+because they have opposite fixes.
+
+- **The bias is real.** A *greedy, optimal* bot on a *single* seed proves the best
+  case is survivable. It says nothing about a normal player on an unlucky world. It
+  answers "is this possible?" when the question worth asking is "is this reliably
+  good?" That's a genuine blind spot, and it's why every scenario comes out blue-sky.
+- **Determinism is not the flaw — it's the enabling property.** The world is
+  `f(seed, c, r)`; determinism is precisely what makes content verifiable at all. The
+  fix isn't less determinism, it's **more seeds and worse players**: run hundreds of
+  seeds with deliberately imperfect agents and assert *invariants* rather than
+  replaying one perfect run. That's property-based testing, and it's the standard
+  answer to exactly this bias.
+
+**Moving to [Vitest](https://vitest.dev) is the right call**, with one caveat: Vitest
+is a test *runner*, not a replacement for the gate. The valuable thing in `verify.ts`
+was never the harness, it was the **claim** — that no broken content can ship without
+a human playing every world. Losing that would be a real regression (and is explicitly
+against the workspace rule on automating content verification). So: **the gate should
+become a Vitest test, not disappear into one.**
+
+The two test types are complementary, not alternatives:
+
+| Type | Catches | Shape |
+| --- | --- | --- |
+| **Content verification** (the gate, reborn) | Unsolvable, sparse, or soft-locked worlds | Headless sim, hundreds of seeds, imperfect agents, invariant assertions |
+| **End-to-end** | Presentation, input, netcode and integration bugs the sim can't see | Thin, and **headless-first** — consistent with this project's existing preference for cheap tools over browser automation |
+
+Invariants worth asserting once it's property-based, over N seeds:
+
+- Every tier of the crafting tree is **reachable** from a fresh world.
+- Guaranteed content (structures, biomes, ore tiers) meets the promised
+  **per-player density** at every size preset.
+- No generated cavity or structure can **trap** the player with the traversal
+  available at that depth.
+- No seed produces a world that fails any of the above — reported **as a failing
+  seed**, which is reproducible by construction and therefore debuggable.
+
 ### Build order
 
 1. **Bound the world and guarantee content density.** *(Small preset only.)*
