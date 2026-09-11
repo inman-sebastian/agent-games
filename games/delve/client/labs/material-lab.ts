@@ -1,196 +1,258 @@
-// material-lab.ts — an interactive lab for the material rendering system. Renders every material
-// through the SAME shared compositor the game uses (client/src/render/cave-render.ts), each coloured
-// by its own shader (client/src/render/materials/*). Two views: isolated top-lit swatches, and a
-// real world-gen vein field so you can see materials feathering into the rock in context.
+// material-lab.ts — inspect materials through the SAME compositor the game uses (cave-render.ts +
+// client/src/render/materials/*). Interactive layout: a sidebar grid of every material (click to
+// select) + two fixed-size preview panes — the selected material's SURFACE and a CAVE SYSTEM showing
+// materials feathering into rock and each other. The panes are a fixed size; `scale` zooms the render
+// INSIDE them (never resizes the box). Fully URL-param driven, and `?ui=0` renders a single bare
+// preview at the top-left framed by shot.sh's w/h/scale — so material shots need no Playwright.
 import { T, setStrata, composeBand } from '../src/render/cave-render';
-import { clamp01 } from '../src/render/palette';
-import { STRATA, oreAt, all, hashXY } from '@delve/shared';
+import { STRATA, all, oreAt, hashXY, vnoise } from '@delve/shared';
 import { oreMaterial, collectTwinkleEdges } from '../src/render/materials';
 import type { Material, TwinkleEdge } from '../src/render/materials';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
 setStrata(STRATA);
 
-// one scratch buffer at logical resolution; everything renders into it then upscales pixelated
-const lbuf = document.createElement('canvas');
-const lb = lbuf.getContext('2d')!;
+const BOX_W = 520; // fixed preview-pane size (px); scale zooms the render within it
+const BOX_H = 340;
 
-// ---- swatches: rock + every ore that has a material, each an isolated top-lit block ----
-interface Swatch {
-  name: string;
-  materialAt?: (column: number, row: number) => Material | null; // undefined → plain rock
+// ---- material catalogue ----
+interface Mat {
+  slug: string;
+  label: string;
+  band: [number, number];
+  id?: number; // ore id (to find a vein of this material in the cave); undefined = rock
+  materialAt?: (column: number, row: number) => Material | null;
 }
-const swatches: Swatch[] = [{ name: 'Rock' }];
+const slugify = (s: string): string => s.toLowerCase().replace(/\s+/g, '');
+const MATS: Mat[] = [{ slug: 'rock', label: 'Rock', band: [80, 200] }];
 for (const ore of all('ore')) {
   const material = oreMaterial(ore.id);
-  if (material) swatches.push({ name: ore.name, materialAt: () => material });
-}
-
-const SWATCH_COLS = 5;
-const SWATCH_ROWS = 4;
-const SWATCH_DEPTH = 120; // representative depth (sets the Rock swatch's strata palette)
-const OPEN_TOP = 1; // rows of open space above each block, so it reads top-lit
-const LABEL_H = 20;
-const GAP = 10;
-
-const SWATCH_MAX_WIDTH = 900; // wrap swatches into rows so every material stays visible
-
-function renderSwatches(scale: number): void {
-  const canvas = document.getElementById('swatches') as HTMLCanvasElement;
-  const g = canvas.getContext('2d')!;
-  const cellW = SWATCH_COLS * T * scale;
-  const cellH = SWATCH_ROWS * T * scale;
-  const perRow = Math.max(1, Math.floor((SWATCH_MAX_WIDTH + GAP) / (cellW + GAP)));
-  const rows = Math.ceil(swatches.length / perRow);
-  const rowH = cellH + LABEL_H;
-  canvas.width = Math.min(swatches.length, perRow) * (cellW + GAP) - GAP;
-  canvas.height = rows * (rowH + GAP) - GAP;
-  g.imageSmoothingEnabled = false;
-  g.clearRect(0, 0, canvas.width, canvas.height);
-  g.textAlign = 'center';
-  g.textBaseline = 'middle';
-  swatches.forEach((swatch, i) => {
-    lbuf.width = SWATCH_COLS * T;
-    lbuf.height = SWATCH_ROWS * T;
-    lb.imageSmoothingEnabled = false;
-    const solid = (_c: number, r: number): boolean => r >= SWATCH_DEPTH + OPEN_TOP; // open top → top-lit
-    composeBand(lb, solid, 0, SWATCH_DEPTH, SWATCH_COLS, SWATCH_ROWS, SWATCH_COLS, -1, swatch.materialAt);
-    const x = (i % perRow) * (cellW + GAP);
-    const y = Math.floor(i / perRow) * (rowH + GAP);
-    g.drawImage(lbuf, 0, 0, SWATCH_COLS * T, SWATCH_ROWS * T, x, y, cellW, cellH);
-    g.fillStyle = '#b9c4d2';
-    g.font = '600 11px ui-sans-serif';
-    g.fillText(swatch.name, x + cellW / 2, y + cellH + LABEL_H / 2);
-  });
-}
-
-// ---- field: real world-gen veins around a dug shaft + chamber, feathering into the rock ----
-const FIELD_COLS = 46;
-const FIELD_ROWS = 26;
-let fieldSeed = 1234;
-
-// The field is composited ONCE into an offscreen buffer; a per-frame loop blits it and draws each
-// exposed, lit vein's animated twinkle on top (the baked surface can't animate, so twinkle is an
-// overlay — exactly how the game will drive material.twinkle).
-const fieldBaked = document.createElement('canvas');
-const fbctx = fieldBaked.getContext('2d')!;
-
-interface FieldState {
-  bandLeft: number;
-  bandTop: number;
-  scale: number;
-  shaftColumn: number;
-  chamberRow: number;
-  lw: number;
-  lh: number;
-  solid: (c: number, r: number) => boolean;
-  materialAt: (c: number, r: number) => Material | null;
-  edges: TwinkleEdge[]; // exposed lit cluster faces, one glint each (computed once at bake)
-}
-let field: FieldState | null = null;
-
-const LIT_RADIUS = 13; // tiles from the lamp within which veins are "lit" enough to twinkle
-
-function bakeField(scale: number, lamp: boolean, depth: number): void {
-  const bandLeft = 0;
-  const bandTop = depth;
-  const shaftColumn = FIELD_COLS >> 1;
-  const chamberRow = depth + (FIELD_ROWS >> 1);
-
-  // carve a shaft down the centre + a chamber, so vein faces are exposed (and lit)
-  const dug = new Set<string>();
-  for (let r = bandTop; r <= chamberRow; r++) dug.add(`${shaftColumn},${r}`);
-  for (let dy = -2; dy <= 2; dy++)
-    for (let dx = -3; dx <= 3; dx++) dug.add(`${shaftColumn + dx},${chamberRow + dy}`);
-  const solid = (c: number, r: number): boolean => r > 0 && !dug.has(`${c},${r}`);
-  const materialAt = (c: number, r: number): Material | null => oreMaterial(oreAt(fieldSeed, c, r));
-
-  const lw = FIELD_COLS * T;
-  const lh = FIELD_ROWS * T;
-  fieldBaked.width = lw;
-  fieldBaked.height = lh;
-  fbctx.imageSmoothingEnabled = false;
-  composeBand(fbctx, solid, bandLeft, bandTop, FIELD_COLS, FIELD_ROWS, FIELD_COLS, -1, materialAt);
-  if (lamp) {
-    const lighting = createLighting();
-    lighting.addLight(shaftColumn * T + 8, chamberRow * T + 8, 0, LAMP_COLOR, 1.7);
-    lighting.render({
-      g: fbctx,
-      LW: lw,
-      LH: lh,
-      T,
-      camX: bandLeft * T,
-      camY: bandTop * T,
-      SURFACE: -1,
-      solidTile: solid,
+  if (material)
+    MATS.push({
+      slug: slugify(ore.name),
+      label: ore.name,
+      band: ore.band as [number, number],
+      id: ore.id,
+      materialAt: () => material,
     });
-  }
+}
+const matBySlug = (slug: string): Mat => MATS.find((m) => m.slug === slug) ?? MATS[0];
+const bandMid = (m: Mat): number => Math.floor((m.band[0] + m.band[1]) / 2);
 
-  const canvas = document.getElementById('field') as HTMLCanvasElement;
-  canvas.width = lw * scale;
-  canvas.height = lh * scale;
-  canvas.getContext('2d')!.imageSmoothingEnabled = false;
+// ---- state (URL params) ----
+const params = new URLSearchParams(location.search);
+const num = (k: string, d: number): number => (params.has(k) ? Number(params.get(k)) : d);
+const state = {
+  mat: params.get('mat') ?? 'gold',
+  view: params.get('view') ?? 'both', // 'both' | 'surface' | 'cave'
+  scale: num('scale', 2), // default to the game's on-screen scale (2× the 16px art)
+  lit: num('lit', 1) === 1,
+  depth: num('depth', 0), // 0 → derive from the selected material's band
+  seed: num('seed', 1234),
+  w: num('w', 8), // bare-shot block size (tiles)
+  h: num('h', 6),
+  ui: num('ui', 1) === 1,
+};
+if (!state.depth) state.depth = bandMid(matBySlug(state.mat));
 
-  // group exposed same-material tiles into lit cluster edges — one twinkle each (see fx.ts)
-  const litOf = (c: number, r: number): number =>
-    clamp01(1 - Math.hypot(c - shaftColumn, r - chamberRow) / LIT_RADIUS);
-  const edges = collectTwinkleEdges({
-    bandLeft,
-    bandTop,
-    cols: FIELD_COLS,
-    rows: FIELD_ROWS,
-    solid,
-    materialAt,
-    lit: litOf,
-    seedAt: (c, r) => hashXY(c, r, 55),
-  });
-
-  field = { bandLeft, bandTop, scale, shaftColumn, chamberRow, lw, lh, solid, materialAt, edges };
+// ---- rendering helpers (draw at logical res into a canvas; caller sets CSS display size) ----
+function lamp(g: CanvasRenderingContext2D, lw: number, lh: number, worldX: number, worldY: number, bandLeft: number, bandTop: number, solid: (c: number, r: number) => boolean): void {
+  const lighting = createLighting();
+  lighting.addLight(worldX, worldY, 0, LAMP_COLOR, 1.9);
+  lighting.render({ g, LW: lw, LH: lh, T, camX: bandLeft * T, camY: bandTop * T, SURFACE: -1, solidTile: solid });
 }
 
-function animate(now: number): void {
-  const fs = field;
-  if (fs) {
-    const g = (document.getElementById('field') as HTMLCanvasElement).getContext('2d')!;
-    g.imageSmoothingEnabled = false;
-    g.clearRect(0, 0, fs.lw * fs.scale, fs.lh * fs.scale);
-    g.drawImage(fieldBaked, 0, 0, fs.lw, fs.lh, 0, 0, fs.lw * fs.scale, fs.lh * fs.scale);
-    g.save();
-    g.globalCompositeOperation = 'lighter'; // glints add light
-    const time = now / 1000;
-    for (const edge of fs.edges) {
-      edge.material.twinkle!({
-        g,
-        x0: edge.x0 * fs.scale,
-        y0: edge.y0 * fs.scale,
-        x1: edge.x1 * fs.scale,
-        y1: edge.y1 * fs.scale,
-        scale: fs.scale,
-        time,
-        seed: edge.seed,
-        litAt: edge.litAt,
-      });
-    }
-    g.restore();
+// the selected material as a top-lit block (row 0 open → top light), optional lamp
+function renderSurface(canvas: HTMLCanvasElement, m: Mat, cols: number, rows: number, depth: number): void {
+  canvas.width = cols * T;
+  canvas.height = rows * T;
+  const g = canvas.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  const solid = (_c: number, r: number): boolean => r >= depth + 1;
+  composeBand(g, solid, 0, depth, cols, rows, cols, -1, m.materialAt);
+  if (state.lit) lamp(g, cols * T, rows * T, (cols >> 1) * T, (depth + 1) * T, 0, depth, solid);
+}
+
+// an organic, seed-varied cavern in real world-gen, so several materials feather into the rock + each
+// other. Regen (new seed) changes both the cave shape and the ore, so it's never the same cave twice.
+let caveEdges: TwinkleEdge[] = [];
+let caveBaked: ImageData | null = null;
+
+// centre the cave window on a vein of the selected material, so clicking it reliably shows it in situ
+function caveBandLeft(m: Mat, cols: number, midRow: number): number {
+  if (m.id === undefined) return 0; // rock — nothing to centre on
+  for (let c = 0; c < 800; c++)
+    for (let dr = -3; dr <= 3; dr++)
+      if (oreAt(state.seed, c, midRow + dr) === m.id) return Math.max(0, c - (cols >> 1));
+  return 0;
+}
+
+function renderCave(canvas: HTMLCanvasElement, m: Mat, cols: number, rows: number, depth: number): void {
+  canvas.width = cols * T;
+  canvas.height = rows * T;
+  const g = canvas.getContext('2d')!;
+  g.imageSmoothingEnabled = false;
+  const cy = depth + (rows >> 1);
+  const bandLeft = caveBandLeft(m, cols, cy);
+  const cx = bandLeft + (cols >> 1);
+  const caveSeed = (state.seed * 2654435761) >>> 0;
+  // organic caverns from world-noise (varied per seed) + a guaranteed open pocket for the lamp
+  const open = (c: number, r: number): boolean =>
+    r > 0 && (Math.hypot(c - cx, r - cy) < 3.5 || vnoise(c * 0.15, r * 0.15, caveSeed) > 0.58);
+  const solid = (c: number, r: number): boolean => r > 0 && !open(c, r);
+  const materialAt = (c: number, r: number): Material | null => oreMaterial(oreAt(state.seed, c, r));
+  composeBand(g, solid, bandLeft, depth, cols, rows, cols, -1, materialAt);
+  const litRadius = Math.max(6, Math.min(cols, rows) * 0.6);
+  const litOf = (c: number, r: number): number => Math.max(0, 1 - Math.hypot(c - cx, r - cy) / litRadius);
+  if (state.lit) lamp(g, cols * T, rows * T, cx * T + 8, cy * T + 8, bandLeft, depth, solid);
+  caveEdges = collectTwinkleEdges({
+    bandLeft, bandTop: depth, cols, rows, solid, materialAt, lit: litOf, seedAt: (c, r) => hashXY(c, r, 55),
+  });
+  caveBaked = g.getImageData(0, 0, cols * T, rows * T);
+}
+
+// tile counts that fill a fixed box at the current zoom (ceil so it always covers; box crops overflow)
+const fitCols = (boxPx: number): number => Math.max(2, Math.ceil(boxPx / (T * state.scale)));
+const cssSize = (canvas: HTMLCanvasElement): void => {
+  canvas.style.width = `${canvas.width * state.scale}px`;
+  canvas.style.height = `${canvas.height * state.scale}px`;
+};
+
+let animGen = 0;
+
+function render(): void {
+  animGen++;
+  const m = matBySlug(state.mat);
+  const depth = state.depth;
+
+  if (!state.ui) {
+    // bare mode for shot.sh: one preview at top-left, framed by w/h/scale
+    document.getElementById('ui')!.classList.add('hidden');
+    const app = document.getElementById('app')!;
+    app.style.padding = '0';
+    app.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    if (state.view === 'cave') renderCave(canvas, m, state.w, state.h, depth);
+    else renderSurface(canvas, m, state.w, state.h, depth);
+    cssSize(canvas);
+    app.append(canvas);
+    if (state.view === 'cave') animateCave(canvas);
+    return;
   }
-  requestAnimationFrame(animate);
+
+  renderSidebar();
+  const cols = fitCols(BOX_W);
+  const rows = fitCols(BOX_H);
+  const surfacePane = document.getElementById('surfacePane')!;
+  const cavePane = document.getElementById('cavePane')!;
+  surfacePane.style.display = state.view === 'cave' ? 'none' : '';
+  cavePane.style.display = state.view === 'surface' ? 'none' : '';
+  document.getElementById('surfaceLabel')!.textContent = `Surface — ${m.label}`;
+
+  if (state.view !== 'cave') {
+    const box = document.getElementById('surfaceBox')!;
+    box.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    renderSurface(canvas, m, cols, rows, depth);
+    cssSize(canvas);
+    box.append(canvas);
+  }
+  if (state.view !== 'surface') {
+    const box = document.getElementById('caveBox')!;
+    box.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    renderCave(canvas, m, cols, rows, depth);
+    cssSize(canvas);
+    box.append(canvas);
+    animateCave(canvas);
+  }
+}
+
+// redraw the cave's animated twinkle over its baked surface each frame
+function animateCave(canvas: HTMLCanvasElement): void {
+  const g = canvas.getContext('2d')!;
+  const baked = caveBaked;
+  const edges = caveEdges;
+  const gen = animGen;
+  const frame = (now: number): void => {
+    if (gen !== animGen || !baked) return;
+    g.putImageData(baked, 0, 0);
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    const time = now / 1000;
+    for (const e of edges)
+      e.material.twinkle?.({ g, x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, scale: 1, time, seed: e.seed, litAt: e.litAt });
+    g.restore();
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+}
+
+function renderSidebar(): void {
+  const sidebar = document.getElementById('sidebar')!;
+  sidebar.innerHTML = '';
+  for (const m of MATS) {
+    const cell = document.createElement('div');
+    cell.className = 'swatch' + (m.slug === state.mat ? ' sel' : '');
+    const canvas = document.createElement('canvas');
+    renderSurface(canvas, m, 5, 4, bandMid(m)); // small fixed swatch (its own strata context)
+    canvas.style.width = '92px';
+    canvas.style.height = `${(92 / (5 * T)) * (4 * T)}px`;
+    cell.append(canvas);
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = m.label;
+    cell.append(label);
+    cell.addEventListener('click', () => {
+      state.mat = m.slug;
+      state.depth = bandMid(m); // jump the cave to where this material lives
+      updateDepthInput();
+      sync();
+      render();
+    });
+    sidebar.append(cell);
+  }
 }
 
 // ---- controls ----
-const el = (id: string): HTMLElement => document.getElementById(id)!;
-function renderAll(): void {
-  const scale = parseInt((el('zoom') as HTMLInputElement).value, 10);
-  const depth = parseInt((el('depth') as HTMLInputElement).value, 10);
-  const lamp = (el('lamp') as HTMLInputElement).checked;
-  el('zoomv').textContent = scale + '×';
-  el('depthv').textContent = String(depth);
-  renderSwatches(scale);
-  bakeField(scale, lamp, depth);
+function sync(): void {
+  const q = new URLSearchParams();
+  q.set('mat', state.mat);
+  q.set('view', state.view);
+  q.set('scale', String(state.scale));
+  q.set('lit', state.lit ? '1' : '0');
+  q.set('depth', String(state.depth));
+  history.replaceState(null, '', `?${q}`);
 }
-for (const input of document.querySelectorAll('input')) input.addEventListener('input', renderAll);
-el('regen').addEventListener('click', () => {
-  fieldSeed = (Math.random() * 1e9) | 0;
-  renderAll();
+const el = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+const viewSel = el<HTMLSelectElement>('view');
+const litBox = el<HTMLInputElement>('lit');
+const scaleInput = el<HTMLInputElement>('scale');
+const depthInput = el<HTMLInputElement>('depth');
+function updateDepthInput(): void {
+  depthInput.value = String(state.depth);
+  el('depthv').textContent = String(state.depth);
+}
+viewSel.value = state.view;
+litBox.checked = state.lit;
+scaleInput.value = String(state.scale);
+el('scalev').textContent = `${state.scale}×`;
+updateDepthInput();
+
+viewSel.addEventListener('change', () => ((state.view = viewSel.value), sync(), render()));
+litBox.addEventListener('change', () => ((state.lit = litBox.checked), sync(), render()));
+scaleInput.addEventListener('input', () => {
+  state.scale = +scaleInput.value;
+  el('scalev').textContent = `${state.scale}×`;
+  sync();
+  render();
 });
-renderAll();
-requestAnimationFrame(animate);
+depthInput.addEventListener('input', () => {
+  state.depth = +depthInput.value;
+  el('depthv').textContent = String(state.depth);
+  sync();
+  render();
+});
+el('regen').addEventListener('click', () => ((state.seed = (Math.random() * 1e9) | 0), render()));
+
+render();
