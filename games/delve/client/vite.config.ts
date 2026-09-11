@@ -24,6 +24,7 @@ export default defineConfig({
         styleLab: resolve(__dirname, 'labs/style-lab.html'),
         renderTool: resolve(__dirname, 'labs/render.html'),
         lightLab: resolve(__dirname, 'labs/light-lab.html'),
+        materialLab: resolve(__dirname, 'labs/material-lab.html'),
       },
     },
   },

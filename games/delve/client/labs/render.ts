@@ -4,6 +4,7 @@
 import { T, setStrata, composeBand, hexRgb } from '../src/render/cave-render';
 import { WIDTH, SURFACE, STRATA, blockAt, oreAt } from '@delve/shared';
 import { ORE_ART, drawOreBlock } from '../src/render/ore-art';
+import { oreMaterial } from '../src/render/materials';
 import { drawMiner } from '../src/render/sprites';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
@@ -32,6 +33,10 @@ const cave = params.get('cave') || 'shaft';
 const applyLamp = num('lamp', 1);
 const showMiner = num('miner', 1);
 const vision = num('vision', DEFAULT_VISION);
+// ore rendering style: 'crystal' = the faceted crystal blocks (current); 'strata' = ore rendered
+// through the shared rock shader in the ore's palette (the art-pass prototype — looks/functions
+// like a stratum tile). Only ore in solid, still-buried tiles gets the strata treatment.
+const oreStyle = params.get('orestyle') || 'crystal';
 
 const bandLeft = centerColumn - (cols >> 1);
 const bandTop = centerRow - (rows >> 1);
@@ -56,20 +61,28 @@ g.imageSmoothingEnabled = false;
 canvas.style.width = `${LW * scale}px`;
 canvas.style.height = `${LH * scale}px`;
 
-// rock + background + stalactites, at this depth
-composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, SURFACE);
+// rock + background + stalactites, at this depth. In 'strata' style, ore tiles are baked into the
+// rock band through the shared compositor, each coloured by its OWN material shader (render/
+// materials/*), with the material↔rock boundary feathered so they blend seamlessly.
+const materialAt =
+  oreStyle === 'strata'
+    ? (column: number, row: number) => oreMaterial(oreAt(seed, column, row))
+    : undefined;
+composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, SURFACE, materialAt);
 
-// ore blocks (all of them — the harness always reveals ore; use lamp=0 for raw art)
-for (let row = bandTop; row < bandTop + rows; row++) {
-  for (let column = bandLeft; column < bandLeft + cols; column++) {
-    if (!solidTile(column, row)) continue;
-    const oreId = blockAt(seed, column, row).ore;
-    const art = oreId ? ORE_ART[oreId] : null;
-    if (!art || art.dim) continue;
-    const sameOre = (dColumn: number, dRow: number): boolean =>
-      solidTile(column + dColumn, row + dRow) &&
-      oreAt(seed, column + dColumn, row + dRow) === oreId;
-    drawOreBlock(g, art, (column - bandLeft) * T, (row - bandTop) * T, column, row, 0, sameOre);
+// crystal style only: draw the faceted ore blocks on top (the harness always reveals ore).
+if (oreStyle !== 'strata') {
+  for (let row = bandTop; row < bandTop + rows; row++) {
+    for (let column = bandLeft; column < bandLeft + cols; column++) {
+      if (!solidTile(column, row)) continue;
+      const oreId = blockAt(seed, column, row).ore;
+      const art = oreId ? ORE_ART[oreId] : null;
+      if (!art || art.dim) continue;
+      const sameOre = (dColumn: number, dRow: number): boolean =>
+        solidTile(column + dColumn, row + dRow) &&
+        oreAt(seed, column + dColumn, row + dRow) === oreId;
+      drawOreBlock(g, art, (column - bandLeft) * T, (row - bandTop) * T, column, row, 0, sameOre);
+    }
   }
 }
 
