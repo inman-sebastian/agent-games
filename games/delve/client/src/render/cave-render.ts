@@ -315,8 +315,10 @@ function shadeRock(
 
       // brightness falls off from the nearest edge; a wider range where the top light reaches. This
       // is the shared GEOMETRIC light — the same for every material; each material adds its own
-      // texture/palette on top.
-      const range = topDist[i] <= edgeDist[i] + 0.8 ? 6.0 : 3.8;
+      // texture/palette on top. The range spans ~1–1.5 tiles so exposed rock reads as a broad, softly
+      // fading band (like SteamWorld/Core Keeper) — a bigger lit surface for texture + damage FX —
+      // rather than a thin bright rim snapping to black.
+      const range = topDist[i] <= edgeDist[i] + 0.8 ? 22.0 : 15.0;
       const rawBrightness = 1 - edgeDist[i] / range;
 
       // which material owns this PIXEL — rock, or a registered one (feathered across the boundary)?
