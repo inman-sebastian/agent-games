@@ -25,7 +25,7 @@ together is the fastest honest summary of the target:
 | **Exploration**   | The primary driver. Digging is how you travel; finding is the reward.   |
 | **Open world**    | Infinite in all directions, freely traversable, no bounded shaft.       |
 | **Incremental**   | Continuous, compounding growth in player capability.                    |
-| **Survival**      | _(scope TBD — see [Open questions](#open-questions))_                    |
+| **Survival**      | Enemies + player health + situational breath. **No attrition meters.**  |
 | **Crafting**      | Tools, weapons, equipment are made, not just bought.                    |
 | **Base building** | _(purpose TBD — see [Open questions](#open-questions))_                  |
 | **Light RPG**     | Levelable skills/proficiencies + equipment and weapons. Deliberately light. |
@@ -33,6 +33,18 @@ together is the fastest honest summary of the target:
 "Light RPG" specifically means two things and no more: **skills that can be leveled
 or influenced**, and **equipment/weapons that change what you can do**. Not classes,
 quests, dialogue trees, or a stat sheet.
+
+### Survival, scoped
+
+**Resolved.** Survival here means *danger*, not *attrition*:
+
+- **Enemies exist** and are a real threat.
+- **The player has health** and can die.
+- **Breath** applies situationally — underwater sections, exactly as in Terraria.
+
+Explicitly **out**: hunger, thirst, stamina, temperature, fatigue, torch fuel, and
+every other meter that ticks down while you play normally. Nothing punishes the
+player for simply existing in the world; threat comes from what's *in* the world.
 
 ### Mining's role is changing
 
@@ -140,15 +152,26 @@ interesting thing findable without making it un-surprising.
 
 ---
 
+### T4. Water is a whole system
+
+Situational breath implies **water bodies in the world**, which is one of the larger
+systems on the table: fluid generation, flow/settling behaviour when you mine into a
+pocket, swimming physics, buoyancy, a breath meter and drowning, plus water
+rendering and lighting through it.
+
+Terraria's water is a genuinely deep system and a lot of its best emergent moments
+(flooding your own tunnel, draining a cavern) come from flow being simulated rather
+than static. The cheap version is **static water bodies that never flow** — fine to
+swim in, no emergent behaviour. Worth choosing the tier deliberately, because the
+gap in cost between them is large.
+
 ## Open questions
 
-- **Q1. What does "survival" mean here?** It's the one category on the list that
-  isn't purely additive. If it means "enemies exist and can kill you; you prepare
-  before you descend," it composes cleanly with everything else. If it means
-  attrition meters — hunger, thirst, oxygen, temperature, torch fuel — it introduces
-  exactly the soft-lock and busywork pressure the rest of the design avoids, and it
-  fights the "dig freely, explore forever" feel. Terraria itself is barely a
-  survival game. Which end of that range is intended?
+- **Q1. What happens when you die?** Health and enemies mean death, and death is the
+  moment that decides how bravely players explore. Respawn at a base, at the surface,
+  at a checkpoint? Do you drop coins, inventory, or nothing? A harsh answer makes
+  deep exploration feel expensive and players play conservatively; a soft answer
+  keeps the "just see what's down there" impulse alive.
 
 - **Q2. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
@@ -156,7 +179,13 @@ interesting thing findable without making it un-surprising.
   place. Does DELVE have NPCs? A day/night or danger cycle? Deep forward camps that
   save travel time? The answer decides whether base building is a pillar or a hobby.
 
-- **Q3. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
+- **Q3. Is combat its own discipline, or an extension of mining?** Enemies imply
+  weapons, and weapons imply a combat system with its own depth, feel and
+  progression. The cheap, cohesive version is that your pickaxe *is* your weapon and
+  combat is mining-flavoured. The expensive version is a parallel weapon/combat track
+  with its own crafting tree. Both are valid; they're very different amounts of work.
+
+- **Q4. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
   If crafting and loot become the progression spine, coins, selling, and the
   Upgrades panel may be vestigial — or may become a parallel currency track that
   needs its own justification.
