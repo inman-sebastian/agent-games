@@ -46,8 +46,8 @@ SHOT_BASE=http://localhost:5173 tools/shot.sh 'QUERY' /tmp/out.png [page]
 ```
 
 - `page` (under the Vite client root) defaults to `labs/render.html`; also
-  `labs/material-lab.html` (material swatches + vein field), `labs/style-lab.html`,
-  `labs/light-lab.html`, or `index.html` (the game).
+  `labs/material-lab.html` (per-material surface + cave preview; `mat`/`view`/`depth`/`seed`,
+  `ui=0` for a bare shot), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game).
 - `QUERY` sets `w`/`h`/`scale` (**keep small** so the PNG is tiny) plus page params, e.g. render lab:
   `seed`, `c`,`r` (centre col/row), `cave=shaft`, `lamp=0|1`, `miner=0|1`, `orestyle=strata|crystal`,
   `dmg=1` (damage-stage inspector).
@@ -55,7 +55,7 @@ SHOT_BASE=http://localhost:5173 tools/shot.sh 'QUERY' /tmp/out.png [page]
   doesn't hang.
 - Examples:
   `tools/shot.sh 'orestyle=strata&r=120&cave=shaft&lamp=1&w=70&h=56&scale=5&miner=0' /tmp/w.png labs/render.html`
-  · `tools/shot.sh 'w=64&h=74&scale=1' /tmp/mat.png labs/material-lab.html`
+  · `tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html`
 
 In the running game, the **`?debug`** panel (F3) has live toggle buttons — **Lighting / Fog /
 Twinkle / Damage / Tiles** — to isolate a render pass while diagnosing.

@@ -70,8 +70,10 @@ the authoring spec and the material contract.
   (no grit — it read busy). Rim is desaturated stone, not molten orange.
 - **Materials colour the pixel.** Where a tile carries an ore, that ore's **material shader**
   (`shade(ctx) => Rgb`) colours the pixel through this same geometry — every material builds
-  on the shared `stoneSurface` in its own [Resurrect-64](PALETTE.md) ramp, so all solid tiles
-  share one visual language ("the same rock, made of gold"). The compositor **feathers a
+  on one of the shared **surface-class primitives** (`stoneSurface` / `metalSurface` /
+  `facetSurface` / `glassSurface`, see [MATERIALS.md](MATERIALS.md)) in its own
+  [Resurrect-64](PALETTE.md) ramp, so all solid tiles share one visual language ("the same
+  world, made of gold"). The compositor **feathers a
   colour blend** across material boundaries (material↔rock _and_ material↔material) so
   neighbours cross-fade instead of meeting at a hard seam. The blend only crosses **two solid
   tiles** — an open (dug) neighbour is the silhouette edge, so a mined-out vein leaves **no

@@ -76,8 +76,21 @@ the game headlessly:
 
 ```sh
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html  # a material in a cave
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
 ```
+
+## `client/labs/material-lab.html` — per-material inspector
+
+Every material (rock + all ores) rendered through the **same** compositor the game uses. A sidebar
+grid selects the material; the right shows its **surface** (top-lit block) and a **cave system**
+where several materials feather into rock and each other, lamp-lit with twinkle animating. It's the
+dedicated harness for authoring/tuning a material without driving Playwright. Fully URL-driven:
+`mat=<slug>` (lowercased name, no spaces), `view=surface|cave|both`, `depth=<row>`, `scale`
+(defaults to 2×, the game's scale), `lit=0|1`, `seed` (the **↻ seed** button randomises the cave
+shape *and* ore), `w`/`h`. `ui=0` renders one bare preview at the top-left framed by shot.sh's
+`w`/`h`/`scale`, and the cave view auto-centres on a vein of the selected material — so a single
+`shot.sh` shows any material in situ. See the `delve-new-material` skill for the authoring loop.
 
 ## `client/labs/light-lab.html` — colored-light blending sandbox
 
