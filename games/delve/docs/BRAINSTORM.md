@@ -136,7 +136,7 @@ A finite world means finite space to fill, which means **content density can be
 guaranteed** rather than hoped for. Generation can place a known number of
 structures, biomes and set-pieces per world and be *sure* the player meets them. In
 an infinite world, density is a probability and long empty stretches are inevitable.
-This is a much stronger answer to [T5](#t5-exploration-still-needs-breadcrumbs) than
+This is a much stronger answer to [T7](#t7-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
 Wrapping additionally means **you can never be permanently lost**. Travelling in one
@@ -148,7 +148,7 @@ direction is always eventually productive, which keeps exploration low-anxiety.
 > Terraria's edges do real work: they're landmarks, they anchor a global sense of
 > direction ("the dungeon is west"), and they're a distinct biome in their own right.
 > A wrapping world gives that up in exchange for seamlessness — see
-> [T4](#t4-wrapping-removes-the-worlds-absolute-reference-frame).
+> [T6](#t6-wrapping-removes-the-worlds-absolute-reference-frame).
 
 ### Hosted worlds
 
@@ -298,6 +298,62 @@ like the most exciting piece.
 
 ---
 
+## 8. Automation
+
+Flagged as **an idea, not a plan** — a direction that seems cool rather than a
+scoped feature. Captured as such.
+
+### The illustrative example: mining drones
+
+A rare, high-tier item, found or crafted: **small autonomous drones that follow the
+player and fire lasers to mine and collect resources automatically.**
+
+The incremental hook is clean and is most of the appeal:
+
+- Starts as **one drone with a weak laser**.
+- Levels into **more drones** (two, three, …) and/or **stronger lasers**.
+- Both axes — count and power — scale independently and legibly.
+
+It also satisfies the "removes a constraint" rule from
+[§6](#6-the-incremental-loop-rebuilt): drones remove *"I must personally target every
+tile."* And it extends naturally into combat ([§5](#5-combat)) — a laser drone that
+shoots rock is one target-selection change away from a drone that shoots enemies,
+which is a lot of content for very little new machinery.
+
+### The direction it illustrates
+
+The drones matter less than what they point at: **this genre has a lot of room for
+automation**, and automation composes unusually well with the incremental pillar.
+Other natural candidates, unexplored: auto-collection of drops, storage sorting,
+crafting/smelting queues, automatic lighting placement, re-clearing known tunnels.
+
+### The rule that makes automation safe here
+
+Automation and exploration want opposite things. Automation's reward is that **you
+stop doing the thing**; exploration's reward is that **you do the thing**. Pure
+incremental games treat automating the loop as the win condition; exploration games
+almost never automate their core verb. Terraria has essentially no automation, and
+Factorio has essentially no discovery-as-reward — that's not a coincidence.
+
+The drone design threads this correctly, and *why* it works generalizes into a rule
+worth adopting for every future automation idea:
+
+> **Automate the chore, never the choice.** Automation may remove repetition and
+> execution. It must never remove the decision of *where to go* or *what's worth
+> looking at*.
+
+Drones pass because they mine **what's already around you**, chosen by where **you**
+went. The player still decides everything that matters; the drones just stop them
+clicking every tile.
+
+**Follow-the-player is therefore load-bearing, not flavour.** The moment drones can
+be parked somewhere and left to mine unattended, DELVE becomes an idle game and
+exploration becomes optional — the player's optimal move is to stop playing. Tethered
+to the player, the same drones are pure upside. This constraint should survive every
+future revision of the idea.
+
+---
+
 ## Tensions
 
 Conflicts between ideas in this doc, or between an idea and something it quietly
@@ -336,7 +392,28 @@ None of this makes it a bad idea — it's the single highest-value system discus
 far. It just wants prototyping early rather than being bolted on late, because it
 has the power to reshape the netcode.
 
-### T3. Player count and world size interact
+### T3. Automation is a third claimant on the progression spine
+
+Drone count and laser power are, mechanically, exactly the leveled-upgrade pattern
+that [T1](#t1-three-progression-channels-now-exist) is already about. Drones as a
+*found/crafted item* fit the equipment channel; drones as a *levelable thing* fit the
+skill or coin-upgrade channel. Same unresolved question, now with a third claimant.
+
+### T4. Auto-mining interacts badly (or brilliantly) with fluid
+
+Drones that pick their own targets will eventually breach a lava pocket or a water
+body on the player's behalf, without the player choosing to. Two readings:
+
+- **Hazard generator** — the player is punished for something they didn't decide,
+  which reads as the automation betraying them.
+- **Emergent story** — "my drones dug into lava" is a *great* thing to have happen
+  once, and exactly the kind of moment simulated fluid exists to produce.
+
+The knob is whether auto-mining is **fluid-aware** (refuses to break a tile holding
+fluid back) or deliberately not. Probably: fluid-aware by default, with the
+unrestricted behaviour as an upgrade or a toggle the player opts into.
+
+### T5. Player count and world size interact
 
 World size presets ([§4](#4-world-topology--hosting)) and player count are the same
 knob viewed from two angles. A small world with eight players is crowded, stripped of
@@ -348,7 +425,7 @@ Worth deciding whether size presets are named for *world scale* (small/medium/la
 or for *party size* (solo/co-op/party), and whether content density scales with
 expected player count rather than with area alone.
 
-### T4. Wrapping removes the world's absolute reference frame
+### T6. Wrapping removes the world's absolute reference frame
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
@@ -362,7 +439,7 @@ Consequences worth deciding on:
 - **Directional content placement** ("the deep dungeon is always far from spawn")
   still works, but distance has a maximum of half the world width.
 
-### T5. Exploration still needs breadcrumbs
+### T7. Exploration still needs breadcrumbs
 
 Largely answered by bounding the world — guaranteed density beats any amount of
 signalling. Two residual cases:
@@ -373,7 +450,7 @@ signalling. Two residual cases:
   a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
   Currently there's only a short-range Ore Scanner and the lamp.
 
-### T6. The jetpack deletes the traversal problem
+### T8. The jetpack deletes the traversal problem
 
 Flight is an excellent reward precisely because vertical traversal is currently a
 real problem. But the moment it's available, that problem is gone permanently — and
