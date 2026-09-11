@@ -136,7 +136,7 @@ A finite world means finite space to fill, which means **content density can be
 guaranteed** rather than hoped for. Generation can place a known number of
 structures, biomes and set-pieces per world and be *sure* the player meets them. In
 an infinite world, density is a probability and long empty stretches are inevitable.
-This is a much stronger answer to [T8](#t8-exploration-still-needs-breadcrumbs) than
+This is a much stronger answer to [T9](#t9-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
 Wrapping additionally means **you can never be permanently lost**. Travelling in one
@@ -148,7 +148,7 @@ direction is always eventually productive, which keeps exploration low-anxiety.
 > Terraria's edges do real work: they're landmarks, they anchor a global sense of
 > direction ("the dungeon is west"), and they're a distinct biome in their own right.
 > A wrapping world gives that up in exchange for seamlessness — see
-> [T7](#t7-wrapping-removes-the-worlds-absolute-reference-frame).
+> [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame).
 
 ### Hosted worlds
 
@@ -340,7 +340,7 @@ number. Illustrative, not final:
 | Large | 16 |
 
 This is a genuinely good resolution to
-[T6](#t6-player-count-and-world-size-interact), because it makes the two knobs
+[T7](#t7-player-count-and-world-size-interact), because it makes the two knobs
 *literally one knob* instead of two that have to be kept in sync. Two things fall out
 of it that are worth building on:
 
@@ -576,7 +576,13 @@ the value; branching trees and quest state are a different and much larger thing
 
 ---
 
-## 10. Chaos as a deliberate pillar
+## 10. Chaos (floated, **not** committed)
+
+> **Status: an idea thrown out, not a decision.** Explicitly *not* a pillar yet. The
+> analysis below is kept because it's useful if the idea is ever picked up, and
+> because the determinism rule it produced is worth applying to any individual chaotic
+> system regardless — fluid and cave-ins included. Nothing here should be read as
+> settled direction.
 
 The proposal: rather than the drone's stupidity being a one-off quirk, **lean into
 chaos and unpredictability across the whole game** — tools that behave unexpectedly,
@@ -644,6 +650,62 @@ cap of four players, procedurally generated caves, environmental hazards, struct
 chaos, a strong comedic voice, and an NPC handler who comments on everything. It's the
 clearest existing proof that mining plus small-party co-op plus chaos plus humour
 composes into a coherent game rather than a tonal mess.
+
+
+---
+
+## 11. Equipment: the investment arc & the loadout
+
+The part of the drone idea that's actually being committed to, separated from the
+chaos framing it arrived in.
+
+### The investment arc
+
+**The goal: use incremental progression to transform something from marginal into
+irreplaceable.** An item starts only *sort of* useful and occasionally annoying — the
+early drone that mildly wrecks your run because it isn't smart yet — and ends up so
+good at its job that you never want to unequip it.
+
+**This should apply across the majority of tools and equipment**, not just the drone.
+The drone is the stand-in example, not the special case. Similar idea, not necessarily
+identical execution.
+
+What makes this worth building the whole equipment system around: the payoff isn't a
+bigger number, it's a **changed relationship**. You remember the item that used to
+embarrass you and now carries you. That's a story, and stat ladders don't produce one.
+It's the natural partner of the two rules already adopted — removes a constraint
+([§6](#6-the-incremental-loop-rebuilt)) and upgrades behaviour, not numbers
+([§8](#the-rules-that-make-automation-safe-here)).
+
+**The failure mode to design against:** "bad now, good later" means nobody reaches
+later. An item that's genuinely annoying early is an item players shelve and never
+invest in. The arc only works if early-stage gear is **useful but flawed**, not
+useless and irritating — the drone must save real time from day one while
+occasionally embarrassing you. The annoyance is the *texture* of the arc; the utility
+is what keeps the player on it.
+
+### Limited slots as a core loop
+
+**Equipment slots are scarce, and that scarcity is a gameplay loop in itself.** With
+more good equipment than slots, the player has to genuinely choose a loadout for the
+situation they're heading into and the goal of that trip — weighing benefits against
+costs rather than accumulating strictly-better gear.
+
+This composes exceptionally well with the constraint-removal rule, and the two
+together produce a clean formulation worth keeping:
+
+> **Your loadout is a declaration of which constraints you're accepting for this
+> expedition.** Every item removes a constraint; slots are scarce; so choosing gear
+> *is* choosing which limitations you'll live with down there.
+
+That's a real decision with real stakes, made fresh before every descent, and it costs
+almost nothing to implement beyond the slot limit itself.
+
+### The two ideas pull against each other
+
+Recorded as [T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)
+— "never want to unequip it" and "genuinely choose between equipment" are in direct
+conflict unless *irreplaceable* is scoped to a purpose rather than to the game.
 
 ---
 
@@ -714,9 +776,10 @@ best emergent story in the game or the fastest way to end a friendship, and it n
 an answer alongside the rest of the shared-world griefing question
 ([Q2](#open-questions)).
 
-### T5. Chaos as a pillar fights DELVE's current tone
+### T5. Chaos as a pillar would fight DELVE's current tone
 
-The shipped design describes DELVE as **moody** — muted rock, one saturated colour,
+_Only applies if chaos is adopted; it currently isn't._ The shipped design describes
+DELVE as **moody** — muted rock, one saturated colour,
 deliberate atmosphere. Chaos-as-a-voice, self-referential and a bit meme-shaped,
 pulls toward **funny**. Those are different games, and the art direction currently
 documented in the palette and lighting docs is built for the first one.
@@ -727,7 +790,32 @@ becomes a pillar, the art docs need to know, because tone leaks into palette,
 animation character, and sound. Per the workspace rule: evolve the style guide
 deliberately, don't let it fork silently.
 
-### T6. Player count and world size interact
+### T6. Irreplaceable gear and meaningful loadout choice are in tension
+
+Both goals come from [§11](#11-equipment-the-investment-arc--the-loadout), and taken
+literally they cancel: if fully-upgraded items become things you *never want to
+unequip*, the loadout decision collapses into "equip the best set," and the choice
+loop dies exactly when the player has the most gear to choose from. Terraria has a
+mild version of this — late-game accessory loadouts converge.
+
+**The resolution is specialization, not power.** Upgrades should make an item
+irreplaceable **for a purpose**, never in general:
+
+- A fully-upgraded drone is indispensable for bulk excavation and dead weight in a
+  fight.
+- A fully-upgraded traversal item is indispensable for a deep descent and pointless
+  while clearing a known area.
+
+Done this way the choice gets *more* interesting at max level rather than less,
+because every option is now excellent at its niche and the opportunity cost of
+leaving it behind is high. This is the proven pattern — Monster Hunter, Deep Rock
+Galactic's overclocks, and most loadout-driven games work exactly this way.
+
+Corollary worth stating: **slot count should not be a progression reward**, or at
+most a very rare one. Handing out slots dissolves the tension that makes the system
+work. The scarcity *is* the mechanic.
+
+### T7. Player count and world size interact
 
 **Resolved** — by tying the player cap to the size preset
 ([§7](#player-cap-scales-with-world-size)), the two knobs become one. The residual
@@ -735,7 +823,7 @@ work is the tuning invariant that makes it actually hold: generate content **per
 expected player**, not per unit of area, so a small world isn't stripped bare and a
 large one isn't empty.
 
-### T7. Wrapping removes the world's absolute reference frame
+### T8. Wrapping removes the world's absolute reference frame
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
@@ -749,7 +837,7 @@ Consequences worth deciding on:
 - **Directional content placement** ("the deep dungeon is always far from spawn")
   still works, but distance has a maximum of half the world width.
 
-### T8. Exploration still needs breadcrumbs
+### T9. Exploration still needs breadcrumbs
 
 Largely answered by bounding the world — guaranteed density beats any amount of
 signalling. Two residual cases:
@@ -760,7 +848,7 @@ signalling. Two residual cases:
   a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
   Currently there's only a short-range Ore Scanner and the lamp.
 
-### T9. The jetpack deletes the traversal problem
+### T10. The jetpack deletes the traversal problem
 
 Flight is an excellent reward precisely because vertical traversal is currently a
 real problem. But the moment it's available, that problem is gone permanently — and
@@ -780,8 +868,10 @@ traversal problem rather than ending it.
   at a checkpoint? Do you drop inventory, or nothing? A harsh answer makes deep
   exploration feel expensive and players play conservatively; a soft answer keeps the
   "just see what's down there" impulse alive.
-  **Now coupled to [§10](#the-constraint-delve-has-that-chaos-heavy-games-usually-dont):**
-  if chaos is a pillar, this is largely answered — high chaos requires cheap failure.
+  *If* chaos is ever adopted as a pillar
+  ([§10](#the-constraint-delve-has-that-chaos-heavy-games-usually-dont)), this is
+  largely answered, since high chaos requires cheap failure. Chaos is currently
+  uncommitted, so this stays open.
 
 - **Q2. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
@@ -825,7 +915,9 @@ four separate systems currently claim it ([T1](#t1-three-progression-channels-no
 [T3](#t3-automation-is-a-third-claimant-on-the-progression-spine)): the coin-bought
 upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
 
-**My recommendation: equipment and crafting own progression.** Specifically:
+**My recommendation: equipment and crafting own progression.** This is reinforced by
+[§11](#11-equipment-the-investment-arc--the-loadout) — the investment arc and the
+loadout loop only exist if equipment is the spine. Specifically:
 
 - **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune). Refinery
   and Fortune in particular are idle-game multipliers on a coin economy, and they pull
@@ -961,7 +1053,7 @@ Not cuts — parked, with the reason:
 | **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
 | **Infinite mode** | Reintroduces the empty-digging problem in full and is the mode that most needs a signalling layer. It's an option, not a launch feature. |
 | **Medium/Large worlds, 8–16 players** | Where every naive implementation stops being acceptable. Earn them. |
-| **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T8](#t8-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
+| **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T9](#t9-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
 
 ### What to measure, not argue about
 
