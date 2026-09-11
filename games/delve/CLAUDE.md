@@ -6,12 +6,13 @@ just the DELVE-specific working rules.
 
 ## Non-negotiables
 
-- **One shared ruleset.** All world + render logic lives in `src/scripts/` and is imported
-  by the game (`src/index.html`), the browser sandboxes (`src/labs/`), the **server**
-  (`server/`), and the CLI tools (`tools/`) alike. Never duplicate a rule — the client and
-  server run the *same* engine; if the game and the lab draw the same thing, they call the
-  same module. The typed client/server protocol lives in `src/scripts/protocol.ts` (shared
-  by both sides). See the boundary in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **One shared ruleset.** All world + sim logic lives in `@delve/shared` (`shared/src/`) and is
+  imported — via `@delve/shared` — by the game (`@delve/client`), the **server** (`@delve/server`),
+  and the CLI tools (`tools/`) alike. Render logic lives in `@delve/client` (`client/src/render/`),
+  shared between the game and the browser sandboxes (`client/labs/`). Never duplicate a rule — the
+  client and server run the _same_ engine; if the game and a lab draw the same thing, they call the
+  same module. The typed client/server protocol is `shared/src/protocol.ts`. See the boundary in
+  [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
   static-only; dynamic state (dug cells, damage, economy) lives in the save. `engine.ts`
   is the pure sim on top and has no DOM. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -25,7 +26,7 @@ just the DELVE-specific working rules.
   named intermediates, typed public surfaces; never hand-compact or minify (the build does
   that). Full standard: [docs/CODE-STYLE.md](docs/CODE-STYLE.md). When porting the old dense
   JS to TS, expand it to this standard — don't transliterate the compaction.
-- **Update the docs *first*** when a rule or the art direction changes, then the code —
+- **Update the docs _first_** when a rule or the art direction changes, then the code —
   the docs are the source of truth others read.
 
 ## Verifying your work — cheap tools first; Playwright is a LAST RESORT

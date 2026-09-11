@@ -1,5 +1,6 @@
 packages:
   - games/*
+  - games/delve/*
   - shared/*
 allowBuilds:
   esbuild: true

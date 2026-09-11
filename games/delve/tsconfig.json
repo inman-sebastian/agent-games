@@ -1,18 +1,15 @@
 {
+  "//": "Root config for the delve orchestrator package — covers the CLI tools/ (verify, sim,",
+  "//2": "server-check). The client/server/shared packages each have their own tsconfig.",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
+    "lib": ["ES2022"],
     "types": ["node"],
-    "strict": true,
-    "noImplicitOverride": true,
-    "noFallthroughCasesInSwitch": true,
-    "verbatimModuleSyntax": true,
-    "isolatedModules": true,
-    "skipLibCheck": true,
     "noEmit": true,
-    "forceConsistentCasingInFileNames": true
+    "baseUrl": ".",
+    "paths": {
+      "@delve/shared": ["shared/src/index.ts"]
+    }
   },
-  "include": ["src", "server", "tools", "vite.config.ts"]
+  "include": ["tools"]
 }

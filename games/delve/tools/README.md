@@ -21,7 +21,7 @@ node tools/verify.ts # equivalent, from games/delve/
 
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
-Runs the SAME pure engine the game uses (`src/scripts/engine.ts`), so any logic / world-gen
+Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic / world-gen
 / economy / cluster question is answerable in text.
 
 ```sh
@@ -42,7 +42,7 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 ## `server-check.ts` — client/server protocol smoke test (no browser)
 
 Spawns the **real** server (`server/index.ts`) against a throwaway data dir, then drives the
-WebSocket protocol the way `src/net.ts` does and asserts the P2 store-of-record behaviour:
+WebSocket protocol the way `client/src/net.ts` does and asserts the P2 store-of-record behaviour:
 join → `hello{fresh}` seeded from the proposal, `sync` persisted + acked, reconnect →
 `hello{fresh:false}` hydrating the synced progress, and a protocol-version mismatch rejected.
 Exits non-zero on any failed assertion.
@@ -51,9 +51,9 @@ Exits non-zero on any failed assertion.
 pnpm server:check
 ```
 
-## `src/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
+## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
-`src/labs/render.html` draws EXACTLY one world region through the shared render modules
+`client/labs/render.html` draws EXACTLY one world region through the shared render modules
 into a canvas sized to the crop. `shot.sh` screenshots it with headless Chrome to a tight
 PNG you then `Read` locally — no Playwright, and the image is only as big as the thing you
 want to see. The pages are ES modules, so `shot.sh` needs a running dev server: start
@@ -69,8 +69,8 @@ Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in t
 `miner` (0/1), `vision` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
 
-`shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root
-(`src/`), default `labs/render.html` — so it also captures the style lab, the light lab, or
+`shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root (client/)
+(client/), default `labs/render.html` — so it also captures the style lab, the light lab, or
 the game headlessly:
 
 ```sh
@@ -78,7 +78,7 @@ SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.pn
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
 ```
 
-## `src/labs/light-lab.html` — colored-light blending sandbox
+## `client/labs/light-lab.html` — colored-light blending sandbox
 
 A live scene that drives the real lighting system with several coloured emitters over a
 rock chamber, so you can see how lights blend (additive per-channel, max-propagated

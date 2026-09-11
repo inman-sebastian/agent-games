@@ -5,17 +5,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n vite,server -c cyan,green \"vite\" \"tsx watch server/index.ts\"",
-    "dev:client": "vite",
-    "dev:server": "tsx watch server/index.ts",
-    "build": "vite build",
-    "start": "tsx server/index.ts --serve-static",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "dev": "concurrently -k -n client,server -c cyan,green \"pnpm --filter @delve/client dev\" \"pnpm --filter @delve/server dev\"",
+    "build": "pnpm --filter @delve/shared build && pnpm --filter @delve/client build && pnpm --filter @delve/server build",
+    "start": "pnpm --filter @delve/server start",
+    "preview": "pnpm --filter @delve/client preview",
+    "typecheck": "pnpm --filter @delve/shared typecheck && pnpm --filter @delve/client typecheck && pnpm --filter @delve/server typecheck && tsc --noEmit",
     "format": "prettier --write \"**/*.{ts,html,css,md,json}\"",
     "verify": "tsx tools/verify.ts",
     "sim": "tsx tools/sim.ts",
     "server:check": "tsx tools/server-check.ts"
+  },
+  "dependencies": {
+    "@delve/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -24,10 +25,6 @@
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
-  },
-  "dependencies": {
-    "sirv": "^3.0.2",
     "ws": "^8.21.3"
   }
 }

@@ -10,8 +10,8 @@
 //        → run an action script through the physics (d = mine down / l = run left /
 //          r = run right / u = jump, each followed by a frame count @ 1/60s), then print state
 import { readFileSync } from 'node:fs';
-import * as engine from '../src/scripts/engine';
-import type { SaveState, Input } from '../src/scripts/types';
+import * as engine from '@delve/shared';
+import type { SaveState, Input } from '@delve/shared';
 
 const DT = 1 / 60; // one physics frame at 60fps
 const DEFAULT_SEED = 12345;
@@ -20,7 +20,18 @@ const DEFAULT_MAP_HEIGHT = 30;
 const DEFAULT_MAP_ROW = 140;
 
 // Glyphs for the ASCII map, keyed by ore id (0 = plain rock).
-const ORE_GLYPH: Record<number, string> = { 0: '.', 1: 'd', 2: 'c', 3: 'i', 4: 's', 5: 'g', 6: 'E', 7: 'R', 8: 'D', 9: 'M' };
+const ORE_GLYPH: Record<number, string> = {
+  0: '.',
+  1: 'd',
+  2: 'c',
+  3: 'i',
+  4: 's',
+  5: 'g',
+  6: 'E',
+  7: 'R',
+  8: 'D',
+  9: 'M',
+};
 
 // --- tiny arg parser: `command --key value --flag` ---
 const argv = process.argv.slice(2);
@@ -38,14 +49,20 @@ for (let i = 1; i < argv.length; i++) {
     options[keyName] = true;
   }
 }
-const num = (value: string | true | undefined, fallback: number): number => (value == null || value === true ? fallback : Number(value));
+const num = (value: string | true | undefined, fallback: number): number =>
+  value == null || value === true ? fallback : Number(value);
 const seed = num(options.seed, DEFAULT_SEED);
 
 function loadState(): SaveState {
   if (typeof options.from !== 'string') return engine.newGame(seed);
   const saved = JSON.parse(readFileSync(options.from, 'utf8')) as Partial<SaveState>;
   const base = engine.newGame(saved.seed ?? seed);
-  return { ...base, ...saved, up: { ...base.up, ...saved.up }, tech: { ...base.tech, ...saved.tech } };
+  return {
+    ...base,
+    ...saved,
+    up: { ...base.up, ...saved.up },
+    tech: { ...base.tech, ...saved.tech },
+  };
 }
 
 function cmdState(): void {
@@ -57,7 +74,20 @@ function cmdProbe(): void {
   const row = num(options.r, 1);
   const info = engine.tileInfo(seed, column, row);
   const ore = info.ore ? engine.ORE_BY_ID[info.ore] : null;
-  console.log(JSON.stringify({ column, row, ore: info.ore ?? 0, oreName: ore ? ore.name : null, maxHp: info.maxHp, empty: !!info.empty }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        column,
+        row,
+        ore: info.ore ?? 0,
+        oreName: ore ? ore.name : null,
+        maxHp: info.maxHp,
+        empty: !!info.empty,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 // ASCII map of the static world (ore ids over rock) — great for eyeballing cluster shape/size.
@@ -98,7 +128,10 @@ function cmdPlay(): void {
   const mined: Record<string, { count: number; coin: number }> = {};
   let frames = 0;
 
-  for (const token of String(options.do ?? '').trim().split(/\s+/).filter(Boolean)) {
+  for (const token of String(options.do ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)) {
     const key = token[0];
     const repeats = Number(token.slice(1)) || 1;
     if (key !== 'd' && !moveKeys[key]) {
@@ -139,7 +172,12 @@ function cmdPlay(): void {
   );
 }
 
-const commands: Record<string, () => void> = { state: cmdState, probe: cmdProbe, map: cmdMap, play: cmdPlay };
+const commands: Record<string, () => void> = {
+  state: cmdState,
+  probe: cmdProbe,
+  map: cmdMap,
+  play: cmdPlay,
+};
 const run = commands[command];
 if (run) {
   run();

@@ -14,7 +14,7 @@ step), so the code should read like prose.
 - **One statement per line.** No multiple statements crammed onto a line with `;`. No
   packing a whole algorithm into a single expression.
 - **Descriptive names, full words.** `lampBrightness`, `tileColumn`, `attenuation` — not
-  `lb`, `tc`, `a`. Short conventional names are fine *only* where they're universal and
+  `lb`, `tc`, `a`. Short conventional names are fine _only_ where they're universal and
   local: loop counters `i`/`j`, math coordinates `x`/`y`/`dx`/`dy`, and a lambda's obvious
   single arg. Everything with meaning gets a real name.
 - **Name intermediate results.** Break a complex expression into named steps rather than a
@@ -28,7 +28,11 @@ step), so the code should read like prose.
 
 ```ts
 // avoid — compacted, cryptic (the old style)
-for (let i=0;i<n;i++){const a=at(i),b=a>t?a:t;d[i]=b*.85|0;}
+for (let i = 0; i < n; i++) {
+  const a = at(i),
+    b = a > t ? a : t;
+  d[i] = (b * 0.85) | 0;
+}
 
 // prefer — readable
 for (let index = 0; index < count; index++) {
@@ -48,7 +52,7 @@ a comment saying **what it is and why it's that value**.
   names, one rationale line each. Tuning the game should mean editing a named, documented value.
 - The only literals allowed inline are the trivially self-evident: `0`, `1`, `-1`, small loop
   bounds, and array indices, where the meaning is obvious from the immediate context.
-- A formula that uses a *family* of coefficients (procedural-art harmonics, a PRNG's mixing
+- A formula that uses a _family_ of coefficients (procedural-art harmonics, a PRNG's mixing
   primes) is documented as a set where it's defined, rather than atomised into a dozen names
   when that would hurt readability — but the block still says what it is and why.
 - Prefer an `as const` lookup/table over scattered literal branches.
@@ -107,7 +111,7 @@ Applies to loops too: `if (!solid) continue;` up top beats wrapping the body in 
   why, and comments that explain **why** (decisions, trade-offs, non-obvious math) — not what
   the code already says. Readable code needs fewer "what" comments, not more.
 - **Dense math must be explained.** If a loop or formula is inherently compact for
-  performance, name its variables clearly *and* comment what it computes and why it's shaped
+  performance, name its variables clearly _and_ comment what it computes and why it's shaped
   that way.
 
 ## Performance vs. readability

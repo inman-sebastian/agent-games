@@ -6,10 +6,10 @@ impact, break, reward), not to steady state.
 
 ## Miner
 
-Small sprite (`drawMiner` in `src/scripts/sprites.ts`) with a dark cool outline: orange
+Small sprite (`drawMiner` in `client/src/render/sprites.ts`) with a dark cool outline: orange
 helmet + lamp, visor, blue overalls, boots, and a pickaxe over the shoulder. Sits
-smaller inside the tile so the scene breathes. *A dedicated miner pass (redraw at the
-finer grid, animation) is queued for later.*
+smaller inside the tile so the scene breathes. _A dedicated miner pass (redraw at the
+finer grid, animation) is queued for later._
 
 ## Motion & juice (game layer)
 
@@ -25,7 +25,7 @@ finer grid, animation) is queued for later.*
 - **Ore shimmer:** exposed ore breathes — the per-tile pulse drives its actual emitted
   light (see [LIGHTING.md](LIGHTING.md)), plus an occasional bright twinkle glint, each
   phase-offset per tile.
-- **Screen shake is currently OFF** (`SHAKE_ENABLED = false` in `src/index.ts`) — it read as
+- **Screen shake is currently OFF** (`SHAKE_ENABLED = false` in `client/src/index.ts`) — it read as
   constant jitter once the pick was upgraded and the player was deep. The shake
   magnitude still accumulates internally, so re-enabling is a one-line flip.
 
@@ -45,6 +45,6 @@ One mute switch gates everything; the `AudioContext` unlocks on the first user i
 ## Surface decoration (planned)
 
 Moss/grass/flora belong to a future **procedural surface-decoration pass** layered on
-top of the rock — applied *selectively* (e.g. only on undisturbed surfaces), not baked
+top of the rock — applied _selectively_ (e.g. only on undisturbed surfaces), not baked
 into the rim (freshly-mined rock shouldn't be mossy). Each stratum reserves an `accent`
 colour as an input for this.

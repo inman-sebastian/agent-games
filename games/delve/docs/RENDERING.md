@@ -10,7 +10,7 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 Derived from studying real references the user vetted: **Dome Keeper**, **SteamWorld
 Dig**, **Super Motherload**, Quintino "Deep Cave", BigManJD. Hard-won principles:
 
-- Blocky isn't the enemy; *flat, unlit* rock is. Tactile rock reads great.
+- Blocky isn't the enemy; _flat, unlit_ rock is. Tactile rock reads great.
 - **Dark mass centers + a lighter background** are what separate foreground rock
   from open/dug space. This is the #1 lever.
 - Edges must connect **globally** (a per-pixel field), not per-tile, or they
@@ -19,7 +19,7 @@ Dig**, **Super Motherload**, Quintino "Deep Cave", BigManJD. Hard-won principles
 
 ## Resolution & pixel density
 
-Art is authored at what *looks like* 16×16 tiles. The scene renders to a **logical**
+Art is authored at what _looks like_ 16×16 tiles. The scene renders to a **logical**
 buffer at that art resolution and is displayed at an **integer scale** (currently
 2×, i.e. 32 on-screen px per tile), with `image-rendering: pixelated` handling the
 device's own pixel density. Do **not** render the whole scene at the device scale —
@@ -49,7 +49,7 @@ draw per-frame on top of the cached rock.
 - Rock solidity is a **per-pixel field**: a tile is solid, then its boundary with
   open space is eroded by world-space noise (gentle, ~0.4–1.8px) so edges are organic
   and **connect seamlessly** across tiles/corners.
-- **Top-lit, dark-bodied.** Brightness falls off from *every* exposed edge (walls and
+- **Top-lit, dark-bodied.** Brightness falls off from _every_ exposed edge (walls and
   undersides included) with a **top-light bias** (up-facing surfaces brightest). The
   interior of any large mass falls to near-black — **dark centers** — which reads as
   depth and keeps the body calm. The dark body is left **empty** (no random grit — it
@@ -66,19 +66,19 @@ Ore is not embedded veins-in-rock — each ore cell **is** an ore **block** that
 the cell, and adjacent same-ore cells form a **node**: a contiguous cluster that
 reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
 
-- **Placement** is a pure `f(seed,c,r)` in `src/scripts/blocks.ts` (`oreAt`): a
+- **Placement** is a pure `f(seed,c,r)` in `shared/src/blocks.ts` (`oreAt`): a
   low-frequency value-noise field is thresholded into blobby pockets, and a coarse
   region grid gives each pocket a single ore type (weighted by depth band). Density is
   kept near the old per-cell value for now; a rarer/richer-cluster economy retune is a
   later pass.
 - **Rendering** — `drawOreBlock(g, art, X, Y, col, row, frac, sameOre)` in
-  `src/scripts/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
+  `client/src/render/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
   cell is overlaid with a **world-anchored faceted crystalline fill** (noise keyed to
   world coords, so it flows continuously across cells). Only **cluster-boundary** edges
   (where the neighbour isn't the same ore) get the dark outline + a top rim highlight —
   internal cell seams are invisible, so the pocket reads as one block. `sameOre(dc,dr)`
   supplies the neighbour test.
-- **No reveal.** The block simply *is* ore; taking damage shows spreading **cracks**
+- **No reveal.** The block simply _is_ ore; taking damage shows spreading **cracks**
   (`frac` in 0..1), not a growing crystal. Breaking it sells the ore (juice moves to
   the break — see [JUICE.md](JUICE.md)).
 - **Only rendered where visible** — within lamp range, or anywhere with the **Ore
@@ -87,5 +87,5 @@ reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
   cluster glows its own hue. The per-ore crystal **shapes** (`SHAPES`) live on as the
   extracted-ore icon and (future) break effect. **Dirt** is a `dim` ore: it renders as
   plain rock.
-- *Future refinement (approach B):* fold ore into `cave-render` as a first-class block
+- _Future refinement (approach B):_ fold ore into `cave-render` as a first-class block
   type coloured per-cell, for deeper unification; A gets the look fast.

@@ -1,22 +1,22 @@
 # DELVE — lighting
 
 Lighting is **its own independent, geometry-aware system**, not a set of per-effect
-hacks. It lives in `src/scripts/lighting.ts` (`create` / `LAMP_COLOR`) and is shared by the game
+hacks. It lives in `client/src/render/lighting.ts` (`create` / `LAMP_COLOR`) and is shared by the game
 and the style lab's cave sample so the two light identically. It knows nothing about
 game state.
 
 **Every** light source — the miner's lamp, glowing ore, anything added later — is an
-*emitter* pushed via `addLight()` and obeys the **same** rules.
+_emitter_ pushed via `addLight()` and obeys the **same** rules.
 
 ## API
 
 ```ts
-import { create, LAMP_COLOR } from '../scripts/lighting';
+import { create, LAMP_COLOR } from './render/lighting';
 const L = create(); // one instance, reused every frame
-L.addLight(x, y, r, colour, intensity);         // x,y in SCREEN pixels; colour = [r,g,b] 0..1
+L.addLight(x, y, r, colour, intensity); // x,y in SCREEN pixels; colour = [r,g,b] 0..1
 //   r === 0  → seeds the LAMP field  (warm, drives the darkness scrim / visibility)
 //   r  >  0  → seeds the ORE-GLOW field (its own colour, kept separate so the lamp can't swamp it)
-L.render({ g, LW, LH, T, camY, SURFACE, W, solidTile });   // consumes + clears the emitters
+L.render({ g, LW, LH, T, camY, SURFACE, W, solidTile }); // consumes + clears the emitters
 ```
 
 `LAMP_COLOR` is exported for the caller to pass as the lamp's colour.
@@ -32,7 +32,7 @@ Light is **occluded by rock** — Terraria's technique:
 1. Emitters seed a **world-space per-tile colour field** at their tile (lamp emitters
    → the lamp field; ore emitters → the ore-glow field).
 2. The field is **propagated** across the visible tile window with four corner sweeps
-   (max-with-attenuation). Attenuation is the *destination tile's* opacity:
+   (max-with-attenuation). Attenuation is the _destination tile's_ opacity:
    **open/dug tiles conduct** light (`OPEN_ATTEN`), **solid rock absorbs** it fast
    (`ROCK_ATTEN`). So light pools down the tunnels you've carved and dies a couple
    tiles into rock — the lit region takes the **shape of the dug space, not a circle**,
@@ -40,8 +40,8 @@ Light is **occluded by rock** — Terraria's technique:
    because each sweep chains through already-updated neighbours in its direction.
 3. The tile field is **bilinear-sampled per pixel** (smooth across tiles, no grid) and
    composited in two passes: a **smooth additive colour glow** (warm lamp + coloured
-   ore, drawn with `'lighter'`) + a **dithered darkness scrim** derived from the *same
-   field's* brightness (the pixel-art fog, 4×4 Bayer dither at high `DSTEP` so the
+   ore, drawn with `'lighter'`) + a **dithered darkness scrim** derived from the _same
+   field's_ brightness (the pixel-art fog, 4×4 Bayer dither at high `DSTEP` so the
    grain matches the rock). A shared, cached **dithered vignette** frames the screen.
 
 Because the scrim is derived from the light field, **a source lights its own
@@ -68,18 +68,18 @@ emitter list.
 
 ## Tuning knobs
 
-All constants live at the top of `src/scripts/lighting.ts`:
+All constants live at the top of `client/src/render/lighting.ts`:
 
-| Knob | Meaning |
-| --- | --- |
-| `LAMP_COLOR` | Warm lantern colour — a lantern reads **warm**, not a cool flashlight-from-above. |
-| `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock. |
-| `ADD` | How strongly the light field shows as additive glow. |
-| `ADD_MAX` | Ceiling on total additive per channel (lamp+ore) — anti-sunspot. |
-| `AMB` | Ambient floor — unlit rock stays dim, never pure black. |
-| `SCRIM` | The deep cool colour the darkness fades toward. |
-| `ORE_GLOW` / `GLOW_CAP` | Gem halo seed strength and its per-channel anti-bloom ceiling. |
-| `DSTEP` | Dither steps for the darkness scrim + vignette (high → fine grain). |
+| Knob                        | Meaning                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `LAMP_COLOR`                | Warm lantern colour — a lantern reads **warm**, not a cool flashlight-from-above. |
+| `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                |
+| `ADD`                       | How strongly the light field shows as additive glow.                              |
+| `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                  |
+| `AMB`                       | Ambient floor — unlit rock stays dim, never pure black.                           |
+| `SCRIM`                     | The deep cool colour the darkness fades toward.                                   |
+| `ORE_GLOW` / `GLOW_CAP`     | Gem halo seed strength and its per-channel anti-bloom ceiling.                    |
+| `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
 
 The lamp's seed brightness scales gently with the player's `vision` stat, so the
 **Deep Lantern** reaches further down the tunnel.
@@ -89,6 +89,6 @@ The lamp's seed brightness scales gently with the player's `vision` stat, so the
 Grounded in the reference miners (SteamWorld Dig 2, Terraria, Super Motherload,
 studied from real screenshots): warm colour temperature; many small local sources;
 deep dark beyond reach; light that respects the carved geometry; baked directional
-tile shading carrying much of the depth (see [RENDERING.md](RENDERING.md)). *Possible
-future enhancement:* an explicit (not just emergent) warm edge highlight on exposed
+tile shading carrying much of the depth (see [RENDERING.md](RENDERING.md)). _Possible
+future enhancement:_ an explicit (not just emergent) warm edge highlight on exposed
 rock faces if the rim needs more punch.

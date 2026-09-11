@@ -1,0 +1,18 @@
+{
+  "name": "@delve/shared",
+  "version": "1.0.0",
+  "description": "DELVE's shared ruleset — world, sim, resources, RNG, and the client/server protocol.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --platform=neutral --outfile=dist/index.js && tsc --emitDeclarationOnly",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.7.2"
+  }
+}

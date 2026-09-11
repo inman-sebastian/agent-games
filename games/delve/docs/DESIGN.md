@@ -3,7 +3,7 @@
 The single source of truth for **what DELVE is and how it plays**. Presentation
 lives in the art docs ([PALETTE](PALETTE.md), [RENDERING](RENDERING.md),
 [LIGHTING](LIGHTING.md), [JUICE](JUICE.md)); code structure lives in
-[ARCHITECTURE](ARCHITECTURE.md). Tuning *numbers* (ore values, costs, hp curves)
+[ARCHITECTURE](ARCHITECTURE.md). Tuning _numbers_ (ore values, costs, hp curves)
 are owned by the code they live in — this doc names them and points at the source,
 so the two can't drift.
 
@@ -48,7 +48,7 @@ shallow → deep:
 
 Each tier is a first-class **item**: name, value, depth band, rarity (array order),
 bonus hp and a codex blurb, each defined in its own **resource file** under
-`src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
+`shared/src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
 which also carries the ore's art (shape + colour triad). Deeper tiers are exponentially more valuable and tougher, and appear only
 within their depth band, so descending is what unlocks the next tier. **Dirt** is a
 near-worthless surface filler; **Mythril** is the deep-end payoff.
@@ -72,7 +72,7 @@ One-time **tech** unlocks that change the sim:
 - **Deep Lantern** — widen your vision underground.
 
 Exact base costs, multipliers, caps and their derived effects live in the
-`UPGRADES` / `TECH` tables and `stats()` in `src/scripts/engine.ts` — the source of
+`UPGRADES` / `TECH` tables and `stats()` in `shared/src/engine.ts` — the source of
 truth for balance.
 
 ## Economy & progression
@@ -80,7 +80,7 @@ truth for balance.
 - Ore is **held in the inventory** and sold for coins (base value × Refinery multiplier)
   from the Upgrades panel, anytime. Coins are spent **only** on upgrades/tech. Rich veins
   (Fortune crits) drop **3× the ore** and get the disproportionate reward beat (see
-  [JUICE.md](JUICE.md)). *(No capacity cap yet — a cargo/economy rework is #6.)*
+  [JUICE.md](JUICE.md)). _(No capacity cap yet — a cargo/economy rework is #6.)_
 - Base rock hp **grows with depth** (`rockHp` in `blocks.ts`), so keeping the
   pickaxe upgraded is what lets you keep descending — the soft progression gate.
 - Progress and settings **persist to `localStorage`**, degrading to a sane default
@@ -106,7 +106,7 @@ truth for balance.
 DELVE is evolving from the grid-locked, tunnel-straight-down incremental digger
 described above into a real, playable **Terraria-like game** built around mining,
 traversal, and exploration. This happens **incrementally**: the sections above
-describe the game as *currently implemented*, and each planned change below migrates
+describe the game as _currently implemented_, and each planned change below migrates
 into them as it ships. Tracked as an epic in
 [#7](https://github.com/inman-sebastian/agent-games/issues/7).
 
@@ -117,17 +117,17 @@ into them as it ships. Tracked as an epic in
 - **Open, infinite world in all directions** — no more bounded fixed-column shaft; the
   world generates infinitely horizontally as well as down.
   [#1](https://github.com/inman-sebastian/agent-games/issues/1)
-- **Smooth platformer movement** *(shipped)* — gravity, jumping and falling with
+- **Smooth platformer movement** _(shipped)_ — gravity, jumping and falling with
   continuous sub-tile position + AABB tile collision, replacing grid-locked
   omnidirectional no-gravity movement.
   [#2](https://github.com/inman-sebastian/agent-games/issues/2)
-- **Mining decoupled from movement** *(shipped)* — its own aim/target action (mouse
+- **Mining decoupled from movement** _(shipped)_ — its own aim/target action (mouse
   hold-to-mine or keyboard J), reach-limited, usable while moving; walking into rock no
   longer digs. [#3](https://github.com/inman-sebastian/agent-games/issues/3)
-- **Inventory system** *(shipped)* — mined ore is held as per-type stacks and sold for
+- **Inventory system** _(shipped)_ — mined ore is held as per-type stacks and sold for
   coins from the Upgrades panel, instead of auto-selling on break.
   [#4](https://github.com/inman-sebastian/agent-games/issues/4)
-- **Ores as distinct collectibles** *(shipped)* — first-class item defs, ore icons in
+- **Ores as distinct collectibles** _(shipped)_ — first-class item defs, ore icons in
   the inventory, and a Collection codex (lifetime mined / deepest, locked until found).
   [#5](https://github.com/inman-sebastian/agent-games/issues/5)
 - **Reworked incremental / economy mechanics** — progression rebuilt around the

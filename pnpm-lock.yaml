@@ -10,12 +10,9 @@ importers:
 
   games/delve:
     dependencies:
-      sirv:
-        specifier: ^3.0.2
-        version: 3.0.2
-      ws:
-        specifier: ^8.21.3
-        version: 8.21.3
+      '@delve/shared':
+        specifier: workspace:*
+        version: link:shared
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -35,9 +32,62 @@ importers:
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+
+  games/delve/client:
+    dependencies:
+      '@delve/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.2
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
       vite:
         specifier: ^6.0.5
         version: 6.4.3(@types/node@22.20.2)(tsx@4.23.13)
+
+  games/delve/server:
+    dependencies:
+      '@delve/shared':
+        specifier: workspace:*
+        version: link:../shared
+      sirv:
+        specifier: ^3.0.2
+        version: 3.0.2
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.0
+        version: 22.20.2
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.1
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.13
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+
+  games/delve/shared:
+    devDependencies:
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.12
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
 
   games/drift: {}
 

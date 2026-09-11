@@ -12,13 +12,13 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { newGame } from '../src/scripts/engine';
-import { PROTOCOL_VERSION, WS_PATH } from '../src/scripts/protocol';
-import type { ClientMessage, ServerMessage } from '../src/scripts/protocol';
+import { newGame } from '@delve/shared';
+import { PROTOCOL_VERSION, WS_PATH } from '@delve/shared';
+import type { ClientMessage, ServerMessage } from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = 8799; // isolated from the dev server's 8787
-const SERVER = join(HERE, '..', 'server', 'index.ts');
+const SERVER = join(HERE, '..', 'server', 'src', 'index.ts');
 const DATA_DIR = mkdtempSync(join(tmpdir(), 'delve-srv-'));
 const WS_URL = `ws://localhost:${PORT}${WS_PATH}`;
 

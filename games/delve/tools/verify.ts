@@ -7,9 +7,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import * as engine from '../src/scripts/engine';
-import { all, shapes } from '../src/scripts/resources';
-import type { UpgradeLevels, SaveState } from '../src/scripts/types';
+import * as engine from '@delve/shared';
+import { all, shapes } from '@delve/shared';
+import type { UpgradeLevels, SaveState } from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -23,8 +23,14 @@ function check(condition: boolean, message: string): void {
 // --- static invariants ---
 check(engine.WIDTH >= 5, 'mine should be reasonably wide');
 for (let i = 1; i < engine.ORES.length; i++) {
-  check(engine.ORES[i].value > engine.ORES[i - 1].value, `ore values ascend (${engine.ORES[i].name})`);
-  check(engine.ORES[i].band[0] >= engine.ORES[i - 1].band[0], `ore bands descend (${engine.ORES[i].name})`);
+  check(
+    engine.ORES[i].value > engine.ORES[i - 1].value,
+    `ore values ascend (${engine.ORES[i].name})`,
+  );
+  check(
+    engine.ORES[i].band[0] >= engine.ORES[i - 1].band[0],
+    `ore bands descend (${engine.ORES[i].name})`,
+  );
 }
 for (const kind of Object.keys(engine.UPGRADES) as (keyof UpgradeLevels)[]) {
   check(engine.upgradeCost(kind, 1) > engine.upgradeCost(kind, 0), `${kind} cost is monotonic`);
@@ -36,11 +42,14 @@ const ORE_COUNT = 9;
 const RAMP_STOPS = 6;
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
-const resourceFiles = readdirSync(join(HERE, '..', 'src', 'resources'))
+const resourceFiles = readdirSync(join(HERE, '..', 'shared', 'src', 'resources'))
   .filter((file) => file.endsWith('.ts') && file !== 'index.ts')
   .map((file) => file.replace(/\.ts$/, ''))
   .sort();
-const indexSource = readFileSync(join(HERE, '..', 'src', 'resources', 'index.ts'), 'utf8');
+const indexSource = readFileSync(
+  join(HERE, '..', 'shared', 'src', 'resources', 'index.ts'),
+  'utf8',
+);
 const importedByIndex = resourceFiles.every((name) => indexSource.includes(`'./${name}'`));
 check(importedByIndex, 'resources/index.ts imports every entity file (no drift)');
 
@@ -49,13 +58,28 @@ const ores = all('ore');
 check(strata.length === STRATA_COUNT, `${STRATA_COUNT} strata resources (got ${strata.length})`);
 check(ores.length === ORE_COUNT, `${ORE_COUNT} ore resources (got ${ores.length})`);
 for (const stratum of strata) {
-  check(!!stratum.id && Number.isFinite(stratum.top) && stratum.top >= 0, `strata ${stratum.id}: id + top`);
-  check(stratum.ramp.length === RAMP_STOPS && stratum.ramp.every((hex) => HEX_COLOR.test(hex)), `strata ${stratum.id}: ${RAMP_STOPS}-stop hex ramp`);
+  check(
+    !!stratum.id && Number.isFinite(stratum.top) && stratum.top >= 0,
+    `strata ${stratum.id}: id + top`,
+  );
+  check(
+    stratum.ramp.length === RAMP_STOPS && stratum.ramp.every((hex) => HEX_COLOR.test(hex)),
+    `strata ${stratum.id}: ${RAMP_STOPS}-stop hex ramp`,
+  );
 }
 for (const ore of ores) {
-  check(Number.isFinite(ore.id) && !!ore.name && ore.band.length === 2, `ore ${ore.name}: id/name/band`);
-  check(ore.value > 0 && ore.hp >= 0 && ore.weight > 0 && HEX_COLOR.test(ore.color), `ore ${ore.name}: value/hp/weight/color`);
-  check(!!shapes[ore.art.shape] && ore.art.c.length === 3, `ore ${ore.name}: art shape + colour triad`);
+  check(
+    Number.isFinite(ore.id) && !!ore.name && ore.band.length === 2,
+    `ore ${ore.name}: id/name/band`,
+  );
+  check(
+    ore.value > 0 && ore.hp >= 0 && ore.weight > 0 && HEX_COLOR.test(ore.color),
+    `ore ${ore.name}: value/hp/weight/color`,
+  );
+  check(
+    !!shapes[ore.art.shape] && ore.art.c.length === 3,
+    `ore ${ore.name}: art shape + colour triad`,
+  );
   check(ore.desc.length > 0, `ore ${ore.name}: codex blurb`);
 }
 
@@ -75,7 +99,10 @@ const DT = 1 / 60; // one physics frame at 60fps
     engine.physicsStep(state, { left: true }, DT);
     if (state.x < minX) minX = state.x;
   }
-  check(maxX > engine.WIDTH + 20, `player moves right past the old WIDTH bound (reached x=${maxX.toFixed(0)})`);
+  check(
+    maxX > engine.WIDTH + 20,
+    `player moves right past the old WIDTH bound (reached x=${maxX.toFixed(0)})`,
+  );
   check(minX < -20, `player moves left into negative columns (reached x=${minX.toFixed(0)})`);
 }
 
@@ -104,7 +131,11 @@ const FRAMES_PER_SHOP = 4000; // physics frames between shopping trips
 const MYTHRIL_MIN_DEPTH = 480; // Mythril band starts here (2× finer grid)
 const SHALLOW_BAND_TOP = 8; // ores whose band starts at/above this can be skipped by a 1-wide shaft
 
-function greedyPlaythrough(seed: number): { state: SaveState; frames: number; firstMinedFrame: Record<number, number> } {
+function greedyPlaythrough(seed: number): {
+  state: SaveState;
+  frames: number;
+  firstMinedFrame: Record<number, number>;
+} {
   const state = engine.newGame(seed);
   const firstMinedFrame: Record<number, number> = {};
   let frames = 0;
@@ -131,7 +162,11 @@ function greedyPlaythrough(seed: number): { state: SaveState; frames: number; fi
 
   while (state.depth < TARGET_DEPTH && frames < FRAME_BUDGET) {
     shop();
-    for (let i = 0; i < FRAMES_PER_SHOP && state.depth < TARGET_DEPTH && frames < FRAME_BUDGET; i++) {
+    for (
+      let i = 0;
+      i < FRAMES_PER_SHOP && state.depth < TARGET_DEPTH && frames < FRAME_BUDGET;
+      i++
+    ) {
       const tileBelow = { column: Math.floor(state.x), row: Math.floor(state.y) + 1 };
       const result = engine.physicsStep(state, { mine: tileBelow }, DT);
       frames++;
@@ -147,14 +182,18 @@ function greedyPlaythrough(seed: number): { state: SaveState; frames: number; fi
 }
 
 const run = greedyPlaythrough(GREEDY_SEED);
-console.log(`\nGreedy bot: depth ${run.state.depth}, ${run.frames.toLocaleString()} frames, ${run.state.earned.toLocaleString()} coins earned`);
+console.log(
+  `\nGreedy bot: depth ${run.state.depth}, ${run.frames.toLocaleString()} frames, ${run.state.earned.toLocaleString()} coins earned`,
+);
 console.log('upgrades', run.state.up, 'tech', run.state.tech);
 
 check(run.state.depth >= MYTHRIL_MIN_DEPTH, `bot reached Mythril depth (got ${run.state.depth})`);
 check(run.frames < FRAME_BUDGET, `bot finished within frame budget (used ${run.frames})`);
 for (const ore of engine.ORES) {
   const frame = run.firstMinedFrame[ore.id];
-  console.log(`  ${frame ? 'OK ' : '-- '}  ${ore.name.padEnd(8)} ${frame ? `first mined @ frame ${frame}` : '(shallow band, not on shaft path)'}`);
+  console.log(
+    `  ${frame ? 'OK ' : '-- '}  ${ore.name.padEnd(8)} ${frame ? `first mined @ frame ${frame}` : '(shallow band, not on shaft path)'}`,
+  );
   // Dirt/Copper live in shallow rows a single-column shaft can skip; their reachability is
   // covered by the world-scan above. Everything deeper must fall on the descent path.
   if (ore.band[0] > SHALLOW_BAND_TOP) check(!!frame, `${ore.name} was mined by the greedy bot`);

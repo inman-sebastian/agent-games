@@ -1,0 +1,25 @@
+{
+  "name": "@delve/server",
+  "version": "1.0.0",
+  "description": "DELVE's Node + ws server — same shared ruleset, store of record, serves the build.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:ws --external:sirv --tsconfig=tsconfig.json",
+    "start": "node dist/index.js --serve-static",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@delve/shared": "workspace:*",
+    "sirv": "^3.0.2",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
