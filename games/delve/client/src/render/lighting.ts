@@ -58,6 +58,8 @@ export interface LightingConfig {
   solidTile: (column: number, row: number) => boolean;
   /** true (default): cap RGB together (keep hue); false: clamp per channel (washes to white). */
   hueCap?: boolean;
+  /** false: skip the darkness scrim (the fog/void) but keep the lamp glow — a debug view. */
+  scrim?: boolean;
 }
 
 export interface LightingInstance {
@@ -378,7 +380,7 @@ export function create(): LightingInstance {
       gridH * T,
     );
     g.restore(); // reverts composite op + smoothing (back to nearest)
-    g.drawImage(scrimCanvas, 0, 0); // dithered darkness
+    if (cfg.scrim !== false) g.drawImage(scrimCanvas, 0, 0); // dithered darkness (fog / void)
     g.drawImage(vigCanvas, 0, 0); // shared vignette frame
 
     lightCount = emitters.length;
