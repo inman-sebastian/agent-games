@@ -729,6 +729,34 @@ upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
 This also answers [Q3](#open-questions): coins become vestigial and should go, rather
 than surviving as a parallel currency that needs its own justification.
 
+**Agreed, and it already has a home.** This is
+[#6 — *delve: rework the incremental / economy mechanics*](https://github.com/inman-sebastian/agent-games/issues/6),
+whose intent was always heading here. The scope now resolves concretely: **#6 is the
+deletion of the coin economy**, not a retune of it. Worth editing the issue to say so,
+since its current wording ("what the upgrade/craft/reward curve looks like once digging
+isn't an auto-coin faucet") still assumes coins survive in some form.
+
+#### Consequence: the balance gate goes with it
+
+`tools/verify.ts` currently proves *"a greedy bot reaches Mythril within a sane
+budget"* — a **coin-economy-shaped assertion**. Delete the economy and the gate stops
+testing anything real. It needs replacing, not deleting, because the content-quality
+guarantee it provides is the reason no broken balance has shipped so far.
+
+The natural replacement follows the same spirit but asserts the *new* pillar:
+
+- Every generated world contains its guaranteed content (structures, biomes, ore
+  tiers) at the **per-player density** the presets promise
+  ([§7](#player-cap-scales-with-world-size)).
+- Every tier of the crafting/equipment tree is **reachable** from a fresh world —
+  the materials it needs actually generate at depths the player can survive with the
+  gear available up to that point.
+
+That second one is the real progression gate once coins are gone: it's the
+crafting-tree equivalent of "the greedy bot reaches Mythril," and it's what stops a
+soft-lock where the thing you need to go deeper can only be made from something that
+only exists deeper.
+
 ### Build order
 
 1. **Bound the world and guarantee content density.** *(Small preset only.)*
