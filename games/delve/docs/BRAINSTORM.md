@@ -701,6 +701,96 @@ together produce a clean formulation worth keeping:
 That's a real decision with real stakes, made fresh before every descent, and it costs
 almost nothing to implement beyond the slot limit itself.
 
+
+### Candidate equipment slate
+
+Ideas that fit the drone's identity. Each needs the same four properties: it
+**removes a constraint**, its early version is **useful but flawed**, its upgrades
+change **behaviour rather than numbers**, and it stays **specialized** so the loadout
+choice survives ([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)).
+
+#### Design the slate by axis, not by item
+
+The single most useful rule for choosing what to build: **give each item its own
+axis**, so no two compete for the same job. A loadout decision is only real if the
+options aren't substitutes. Candidate axes: vertical traversal, horizontal traversal,
+bulk excavation, fluid control, light & discovery, navigation, combat support,
+environmental survival. One strong item per axis produces genuine choice; three
+mining tools produce a tier list.
+
+#### Traversal
+
+- **Jetpack** _(already named)_ — vertical traversal. Removes "I must dig my way back
+  out." Early: a short burst, four or five tiles, loud, slow to recharge. Late:
+  sustained lift.
+  **Caveat, flagged rather than buried:** an endpoint of *unlimited free flight* is the
+  one upgrade in this document that breaks two systems at once. It deletes the
+  traversal problem permanently ([T10](#t10-the-jetpack-deletes-the-traversal-problem))
+  *and* it generalizes, which collapses the loadout choice
+  ([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)). A better
+  endpoint keeps it specialized: brilliant vertically, mediocre horizontally —
+  precision hover in a shaft, not free movement everywhere.
+
+- **Grapple / anchor line** — *horizontal* traversal and precision, deliberately a
+  different axis from the jetpack so the two don't substitute. Early: short reach,
+  slow retract, occasionally slips off the block. Late: fast, multi-anchor, can haul
+  blocks (or yourself) toward the other end.
+
+#### Excavation
+
+- **Charges / shaped explosives** — bulk excavation. Removes "I mine one tile at a
+  time." Early: an unpredictable-but-*deterministic* blast shape that will absolutely
+  take out things you wanted, including you. Late: directional, shaped, safe-fused.
+  Stays specialized by being terrible near loot, structures and fluid — exactly where
+  precision matters.
+
+- **Shoring / support tool** — places structural supports. Removes "I can't dig wide
+  without collapsing it." Early: clumsy and material-hungry. Late: auto-shores the
+  tunnel behind you as you advance. Valuable specifically *because* cave-ins and
+  load-bearing blocks are real rules, and it makes those rules into a system the
+  player engages with rather than avoids.
+
+#### Fluid
+
+- **Pump / fluid tool** — the purest expression of the specialization principle. Early:
+  drains slowly, and mishandled it floods the space you're standing in. Late: directs
+  flow, freezes a column, or converts lava to obsidian on contact.
+  **Completely dead weight when there's no fluid, and indispensable when there is** —
+  which is exactly the shape that keeps a loadout decision alive.
+
+#### Light, discovery & navigation
+
+- **Companion lantern** — a sibling to the drone, and the strongest candidate after it.
+  Early: a flickering, unreliable light that gutters at the worst moments. Late: a
+  floating orb that **drifts ahead of you and lights up what it finds interesting**.
+  That last step turns a light source into a *discovery* tool, which directly addresses
+  the residual local-cue problem in [T9](#t9-exploration-still-needs-breadcrumbs) —
+  without a HUD marker, and with character.
+
+- **Scanner → cartographer** — the existing Ore Scanner, given an arc. Early: short
+  range and **reports false positives**, so it's useful but you learn not to trust it
+  fully. Late: maps the surrounding area and marks structures and biomes.
+  Worth more in DELVE than in most games because horizontal wrapping removed the
+  world's absolute reference frame ([T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame));
+  a mapping tool is the answer to a problem the topology created.
+
+#### Combat & survival
+
+- **Combat drone** — the mining drone's sibling, and nearly free once entities exist
+  (same entity, different target selection). Early: aggros things you were sneaking
+  past. Late: intercepts and body-blocks for you.
+
+- **Heat suit / diving gear** — environmental survival, one per hazard biome. Early:
+  buys you a handful of seconds in the molten biome or underwater. Late: sustained
+  immunity, or brief lava-wading. The archetypal specialized item: worthless
+  everywhere except the one place it's mandatory, which makes packing it a real
+  decision about where you're going.
+
+- **Collector / magnet** — automates pickup, freeing the player from chasing drops.
+  Early: hoovers up junk indiscriminately and tugs *you* around. Late: filtered, and
+  reaches through rock. A chore-automation item, so it must stay on the right side of
+  [automate the chore, never the choice](#the-rules-that-make-automation-safe-here).
+
 ### The two ideas pull against each other
 
 Recorded as [T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)
