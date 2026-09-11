@@ -20,14 +20,14 @@ foundation, not one option among several.
 The genre is best described as the intersection of seven categories. Listing them
 together is the fastest honest summary of the target:
 
-| Category          | What it means here                                                      |
-| ----------------- | ----------------------------------------------------------------------- |
-| **Exploration**   | The primary driver. Digging is how you travel; finding is the reward.   |
-| **Open world**    | Infinite in all directions, freely traversable, no bounded shaft.       |
-| **Incremental**   | Continuous, compounding growth in player capability.                    |
-| **Survival**      | Enemies + player health + situational breath. **No attrition meters.**  |
-| **Crafting**      | Tools, weapons, equipment are made, not just bought.                    |
-| **Base building** | _(purpose TBD — see [Open questions](#open-questions))_                  |
+| Category          | What it means here                                                          |
+| ----------------- | --------------------------------------------------------------------------- |
+| **Exploration**   | The primary driver. Digging is how you travel; finding is the reward.       |
+| **Open world**    | Large, bounded, horizontally wrapping. **Not** infinite — see [§4](#4-world-topology--hosting). |
+| **Incremental**   | Continuous, compounding growth in player capability.                        |
+| **Survival**      | Enemies + player health + situational breath. **No attrition meters.**      |
+| **Crafting**      | Tools, weapons, equipment are made, not just bought.                        |
+| **Base building** | _(purpose TBD — see [Open questions](#open-questions))_                      |
 | **Light RPG**     | Levelable skills/proficiencies + equipment and weapons. Deliberately light. |
 
 "Light RPG" specifically means two things and no more: **skills that can be leveled
@@ -85,12 +85,107 @@ Distinct biomes encountered by digging, in the Terraria mold — the example giv
 was stumbling into a **glowing mushroom cavern**. Each biome should read instantly
 as somewhere *else*: its own palette, light, flora, hazards, and finds.
 
+Confirmed so far:
+
+- **Glowing mushroom cavern** (the canonical example).
+- **Molten / core biome** at extreme depth — lava pockets, heat, presumably the
+  most dangerous band in the world. See [§3](#3-fluids-water--lava).
+
 **Discoverability and exploration are a headline pillar**, not a feature. The
 question "what's over there / down there?" is the engine of the game.
 
 ---
 
-## 3. The incremental loop, rebuilt
+## 3. Fluids: water & lava
+
+**A real fluid simulation is wanted**, not static decorative pools — for **water**
+and for **lava**, where deep molten pockets and core-adjacent biomes are part of the
+depth payoff.
+
+Why this matters beyond flavour: simulated fluid is one of the strongest generators
+of *emergent* situations in this genre. Flooding your own tunnel, draining a cavern
+to reach what's in it, breaching a lava pocket and having to outrun it, and
+water/lava contact producing stone or obsidian are all player stories that a static
+pool can never produce. It also interacts directly with mining: **the player's own
+digging is what moves fluid around**, which is a rare case of a system that gets
+more interesting specifically because of the core verb.
+
+The known, proven approach here is **cellular-automata fluid** (Terraria, Starbound,
+and every falling-sand game), simulated only in active regions near players rather
+than world-wide. That's the technique to reach for rather than inventing one.
+
+Costs and consequences are real and tracked in [T2](#t2-fluid-simulation-is-the-biggest-technical-risk-on-the-board).
+
+---
+
+## 4. World topology & hosting
+
+**The world is finite, not infinite.** This reverses the "infinite in all
+directions" direction currently in DESIGN.md.
+
+- **Horizontally: large but bounded, and it wraps.** The leftmost edge of the world
+  joins seamlessly to the rightmost edge. Walk far enough in one direction and you
+  come back around.
+- **Vertically: bounded.** There's a defined maximum depth, tuned as needed. Depth
+  doesn't need to be infinite to feel deep.
+- **Large enough** that it never reads as repetitive or obviously constrained.
+
+### Why bounded solves the empty-digging problem
+
+A finite world means finite space to fill, which means **content density can be
+guaranteed** rather than hoped for. Generation can place a known number of
+structures, biomes and set-pieces per world and be *sure* the player meets them. In
+an infinite world, density is a probability and long empty stretches are inevitable.
+This is a much stronger answer to [T4](#t4-exploration-still-needs-breadcrumbs) than
+any signalling system would have been.
+
+Wrapping additionally means **you can never be permanently lost**. Travelling in one
+direction is always eventually productive, which keeps exploration low-anxiety.
+
+> **Factual note, since it's load-bearing:** Terraria worlds are finite, but they do
+> **not** wrap — they have hard edges with Ocean biomes at both ends. The finite
+> insight matches Terraria; the wrap is DELVE's own call. Worth knowing because
+> Terraria's edges do real work: they're landmarks, they anchor a global sense of
+> direction ("the dungeon is west"), and they're a distinct biome in their own right.
+> A wrapping world gives that up in exchange for seamlessness — see
+> [T3](#t3-wrapping-removes-the-worlds-absolute-reference-frame).
+
+### Hosted worlds
+
+The client/server split already shipped (authoritative server + client prediction)
+feeds directly into this: **players host their own worlds/servers.**
+
+World generation parameters become **server settings**, chosen at world creation:
+
+- **Size presets** — small / medium / large.
+- **Optional truly-infinite world** for players who explicitly want it and accept
+  the tradeoff: lower content density and duller stretches between discoveries.
+
+This reframes "infinite vs finite" from a design argument into a **player-facing
+option with an honestly-stated tradeoff**, which is a much better place for it to
+live. It does mean generation and content placement must work in both modes.
+
+---
+
+## 5. Combat
+
+**Resolved: a full combat system**, not a mining-flavoured afterthought.
+
+- **Multiple weapons** and **multiple pieces of equipment**.
+- Each carries **its own perks and benefits** — weapons and gear are differentiated
+  by what they let you do, not just by a damage number.
+
+This confirms combat as a **parallel discipline** to mining, with its own crafting,
+its own progression, and its own feel. It's a major scope commitment and should be
+planned as one of the game's primary systems rather than a feature.
+
+The "removes a constraint" rule from [§6](#6-the-incremental-loop-rebuilt) applies
+here too and is the thing that keeps a weapon roster from being a stat ladder:
+a weapon should ideally change *how you fight*, not just how fast things die.
+
+---
+
+## 6. The incremental loop, rebuilt
 
 The incremental side is a **core loop**, not a side system — but the *source* of
 progression moves. Progression comes from **finding or crafting tools, weapons and
@@ -103,9 +198,13 @@ Named examples:
 - **Jetpack.** Hold jump to fly, letting the player ascend a vertical shaft directly
   instead of having to dig their way back out.
 
-The pattern behind both: an item doesn't just add a number, it **removes a
-constraint the player has been living with**. That's a strong, cohesive design rule
-and worth stating explicitly as one.
+### The design rule behind both
+
+An item doesn't add a number, it **removes a constraint the player has been living
+with.** Reach removes "I must be adjacent." The jetpack removes "I must dig my way
+out." This is worth adopting as an explicit, game-wide rule for equipment design —
+it's what separates memorable gear from a stat ladder, and it applies to weapons
+([§5](#5-combat)) as much as to tools.
 
 ---
 
@@ -128,7 +227,51 @@ before building any of them.
 Refinery and Fortune are specifically idle-game levers — multipliers on a coin
 economy. They pull toward a different genre than equipment and skills do.
 
-### T2. The jetpack deletes the traversal problem
+### T2. Fluid simulation is the biggest technical risk on the board
+
+Fluid is mutable, high-frequency, world-scale shared state, and the server is now
+**authoritative**. That combination is the hard part:
+
+- Fluid must be **simulated server-side** or clients desync from each other and from
+  the server's truth.
+- Fluid changes touch **many cells per tick**, unlike the current model where the
+  player mutates one tile at a time — the existing "only save what changed" and
+  client-prediction assumptions are sized for a very different update rate.
+- Client prediction of fluid is hard; the likely compromise is predicting *player*
+  motion locally while treating fluid as server-owned and interpolated.
+- It must be bounded to **active regions** near players, or cost scales with world
+  size instead of with what's being played.
+
+None of this makes it a bad idea — it's the single highest-value system discussed so
+far. It just wants prototyping early rather than being bolted on late, because it
+has the power to reshape the netcode.
+
+### T3. Wrapping removes the world's absolute reference frame
+
+A cylinder has no "far west." Every horizontal position is relative to spawn, and
+"go left until you hit the edge" stops being a valid instruction or a valid memory.
+
+Consequences worth deciding on:
+
+- **Navigation and the map** need an origin. Spawn becomes the only fixed point, and
+  a minimap has to handle the seam.
+- **Landmark-based memory** ("the big cavern near the left edge") gets weaker.
+  Player-placed markers or waypoints become more valuable than they'd otherwise be.
+- **Directional content placement** ("the deep dungeon is always far from spawn")
+  still works, but distance has a maximum of half the world width.
+
+### T4. Exploration still needs breadcrumbs
+
+Largely answered by bounding the world — guaranteed density beats any amount of
+signalling. Two residual cases:
+
+- The **optional infinite mode** reintroduces the original problem in full, and is
+  the mode that most needs a signalling layer.
+- Even at good density, the player needs *local* "there's something here" cues —
+  a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
+  Currently there's only a short-range Ore Scanner and the lamp.
+
+### T5. The jetpack deletes the traversal problem
 
 Flight is an excellent reward precisely because vertical traversal is currently a
 real problem. But the moment it's available, that problem is gone permanently — and
@@ -139,53 +282,34 @@ Not a reason to cut it. A reason to decide **when** in the arc it lands, and whe
 it's absolute (free flight) or metered (fuel, charge, cooldown) so it changes the
 traversal problem rather than ending it.
 
-### T3. Exploration needs breadcrumbs
-
-An infinite world plus rare structures plus random digging means the player can dig
-for a long time and find nothing. Terraria avoids this with visible cave mouths,
-background shifts, ambient audio, and a map — the world constantly signals "there's
-something over here."
-
-DELVE currently has an Ore Scanner and a lamp radius, both short-range. Discovery as
-a pillar needs a deliberate **signalling layer** — something that makes the
-interesting thing findable without making it un-surprising.
-
 ---
-
-### T4. Water is a whole system
-
-Situational breath implies **water bodies in the world**, which is one of the larger
-systems on the table: fluid generation, flow/settling behaviour when you mine into a
-pocket, swimming physics, buoyancy, a breath meter and drowning, plus water
-rendering and lighting through it.
-
-Terraria's water is a genuinely deep system and a lot of its best emergent moments
-(flooding your own tunnel, draining a cavern) come from flow being simulated rather
-than static. The cheap version is **static water bodies that never flow** — fine to
-swim in, no emergent behaviour. Worth choosing the tier deliberately, because the
-gap in cost between them is large.
 
 ## Open questions
 
-- **Q1. What happens when you die?** Health and enemies mean death, and death is the
+- **Q1. Is this multiplayer?** "Players host their own servers" reads as multiple
+  simultaneous players in one world, and the authoritative-server architecture is
+  already built for it. But it could also mean self-hosted single-player worlds. The
+  answer is load-bearing for combat netcode, fluid authority, base building
+  (shared or per-player?), progression, and inventory. Worth answering explicitly.
+
+- **Q2. What happens when you die?** Health and enemies mean death, and death is the
   moment that decides how bravely players explore. Respawn at a base, at the surface,
   at a checkpoint? Do you drop coins, inventory, or nothing? A harsh answer makes
   deep exploration feel expensive and players play conservatively; a soft answer
   keeps the "just see what's down there" impulse alive.
 
-- **Q2. What is a base _for_?** Base building needs a functional reason to exist or
+- **Q3. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
   crafting stations must live somewhere, and night is dangerous so you need a safe
   place. Does DELVE have NPCs? A day/night or danger cycle? Deep forward camps that
   save travel time? The answer decides whether base building is a pillar or a hobby.
 
-- **Q3. Is combat its own discipline, or an extension of mining?** Enemies imply
-  weapons, and weapons imply a combat system with its own depth, feel and
-  progression. The cheap, cohesive version is that your pickaxe *is* your weapon and
-  combat is mining-flavoured. The expensive version is a parallel weapon/combat track
-  with its own crafting tree. Both are valid; they're very different amounts of work.
-
 - **Q4. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
   If crafting and loot become the progression spine, coins, selling, and the
   Upgrades panel may be vestigial — or may become a parallel currency track that
   needs its own justification.
+
+- **Q5. Is there a surface?** The world is bounded vertically at the bottom; what's
+  at the top? A full surface layer with sky, weather and day/night is a large amount
+  of content and changes the game's identity (DELVE is currently entirely
+  subterranean). A shallow "mouth of the mine" is much cheaper.
