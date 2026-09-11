@@ -153,13 +153,17 @@ direction is always eventually productive, which keeps exploration low-anxiety.
 ### Hosted worlds
 
 The client/server split already shipped (authoritative server + client prediction)
-feeds directly into this: **players host their own worlds/servers.**
+feeds directly into this: **players create their own worlds.** The hosting model is
+settled in [§7](#decided-shape-one-dedicated-server-many-player-created-worlds) — one
+dedicated server holding many player-created world instances, not player-run machines.
 
-World generation parameters become **server settings**, chosen at world creation:
+World generation parameters become **world-creation settings**:
 
-- **Size presets** — small / medium / large.
+- **Size presets** — small / medium / large, each with its own
+  [player cap](#player-cap-scales-with-world-size).
 - **Optional truly-infinite world** for players who explicitly want it and accept
   the tradeoff: lower content density and duller stretches between discoveries.
+  (Deferred, not a launch feature — see [Defer deliberately](#defer-deliberately).)
 
 This reframes "infinite vs finite" from a design argument into a **player-facing
 option with an honestly-stated tradeoff**, which is a much better place for it to
@@ -210,8 +214,9 @@ it's what separates memorable gear from a stat ladder, and it applies to weapons
 
 ## 7. Multiplayer
 
-**Resolved: the game is scoped as multiplayer-compatible.** Player count per world
-is undetermined and the existing infrastructure hasn't been stress-tested.
+**Resolved: the game is scoped as multiplayer-compatible.** Player count is set by
+the world-size preset ([below](#player-cap-scales-with-world-size)); the existing
+infrastructure hasn't been stress-tested.
 
 This is the right call to make early rather than late — retrofitting multiplayer is
 famously the expensive version. The client/server split and authoritative netcode
@@ -381,10 +386,9 @@ With worlds outliving their players, two things need explicit answers:
 
 ### Target scale
 
-**Real target: small parties on bounded worlds.** Two players on a small world, four
-friends on a medium world — now with a **hard cap of four**, see
-[Proposed shape](#proposed-shape-host-based-hard-cap-of-4). That's the shape to build
-and tune for.
+**Real target: small parties on bounded worlds** — two to four players, per the
+Small preset's cap ([above](#player-cap-scales-with-world-size)). That's the shape to
+build and tune for first.
 
 **Blue sky, explicitly not a goal:** dozens of players on an infinite world. Noted as
 something to revisit if it turns out to be reachable, not something to design toward.
@@ -677,10 +681,10 @@ traversal problem rather than ending it.
   benefits from) or **per-player** (everyone keeps their own)? Shared bases need
   griefing/permission answers; per-player bases need the world to hold many of them.
 
-- **Q3. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
-  If crafting and loot become the progression spine, coins, selling, and the
-  Upgrades panel may be vestigial — or may become a parallel currency track that
-  needs its own justification.
+- **Q3. Does the coin economy survive?** **Answered: no.** Crafting and equipment
+  become the progression spine; coins, selling and the Upgrades panel are deleted
+  rather than retuned. See
+  [Recommendation](#the-one-thing-to-decide-before-building-anything) and issue #6.
 
 - **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
   at the top? A full surface layer with sky, weather and day/night is a large amount
@@ -851,5 +855,7 @@ Not cuts — parked, with the reason:
   harness of N scripted clients against one world. Turns the whole scaling
   conversation from a guess into a number.
 - **Content-per-player density** — the invariant that makes the size presets
-  interchangeable ([§7](#player-cap-scales-with-world-size)). Assert it in the existing
-  `tools/verify.ts` gate so no generated world can ship sparse.
+  interchangeable ([§7](#player-cap-scales-with-world-size)). Assert it in the reborn
+  content-verification gate
+  ([above](#the-verify-scripts-actual-flaw-and-what-to-keep)) so no generated world can
+  ship sparse.
