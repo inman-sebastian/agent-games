@@ -11,7 +11,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import sirv from 'sirv';
-import { newGame } from '@delve/shared';
+import { newSession } from '@delve/shared';
 import { WS_PATH, PROTOCOL_VERSION } from '@delve/shared';
 import type { ClientMessage, ServerMessage } from '@delve/shared';
 import { loadSave, persistSave } from './store';
@@ -69,7 +69,7 @@ wss.on('connection', (ws) => {
       const fresh = !state;
       if (!state) {
         // no server save yet: seed one from the client's proposed seed (keeps local continuity)
-        state = newGame(msg.seed ?? (Math.random() * 2 ** 31) >>> 0);
+        state = newSession(msg.seed ?? (Math.random() * 2 ** 31) >>> 0);
         persistSave(playerId, state);
       }
       send(ws, { t: 'hello', protocol: PROTOCOL_VERSION, state, fresh });

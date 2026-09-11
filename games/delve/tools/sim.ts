@@ -11,7 +11,7 @@
 //          r = run right / u = jump, each followed by a frame count @ 1/60s), then print state
 import { readFileSync } from 'node:fs';
 import * as engine from '@delve/shared';
-import type { SaveState, Input } from '@delve/shared';
+import type { Session, Input } from '@delve/shared';
 
 const DT = 1 / 60; // one physics frame at 60fps
 const DEFAULT_SEED = 12345;
@@ -53,15 +53,21 @@ const num = (value: string | true | undefined, fallback: number): number =>
   value == null || value === true ? fallback : Number(value);
 const seed = num(options.seed, DEFAULT_SEED);
 
-function loadState(): SaveState {
-  if (typeof options.from !== 'string') return engine.newGame(seed);
-  const saved = JSON.parse(readFileSync(options.from, 'utf8')) as Partial<SaveState>;
-  const base = engine.newGame(saved.seed ?? seed);
+function loadState(): Session {
+  if (typeof options.from !== 'string') return engine.newSession(seed);
+  const saved = JSON.parse(readFileSync(options.from, 'utf8')) as {
+    world?: Partial<Session['world']>;
+    player?: Partial<Session['player']>;
+  };
+  const base = engine.newSession(saved.world?.seed ?? seed);
   return {
-    ...base,
-    ...saved,
-    up: { ...base.up, ...saved.up },
-    tech: { ...base.tech, ...saved.tech },
+    world: { ...base.world, ...saved.world },
+    player: {
+      ...base.player,
+      ...saved.player,
+      up: { ...base.player.up, ...saved.player?.up },
+      tech: { ...base.player.tech, ...saved.player?.tech },
+    },
   };
 }
 
@@ -140,7 +146,8 @@ function cmdPlay(): void {
     }
     for (let i = 0; i < repeats; i++) {
       const input: Input = {};
-      if (key === 'd') input.mine = { column: Math.floor(state.x), row: Math.floor(state.y) + 1 };
+      if (key === 'd')
+        input.mine = { column: Math.floor(state.player.x), row: Math.floor(state.player.y) + 1 };
       else input[moveKeys[key]] = true;
       const result = engine.physicsStep(state, input, DT);
       frames++;
@@ -156,14 +163,14 @@ function cmdPlay(): void {
   console.log(
     JSON.stringify(
       {
-        pos: [Number(state.x.toFixed(2)), Number(state.y.toFixed(2))],
-        depth: state.depth,
-        coins: state.coins,
-        earned: state.earned,
+        pos: [Number(state.player.x.toFixed(2)), Number(state.player.y.toFixed(2))],
+        depth: state.player.depth,
+        coins: state.player.coins,
+        earned: state.player.earned,
         frames,
-        grounded: state.grounded,
-        up: state.up,
-        tech: state.tech,
+        grounded: state.player.grounded,
+        up: state.player.up,
+        tech: state.player.tech,
         mined,
       },
       null,

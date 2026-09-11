@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import * as engine from '@delve/shared';
 import { all, shapes } from '@delve/shared';
-import type { UpgradeLevels, SaveState } from '@delve/shared';
+import type { UpgradeLevels, Session } from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -88,16 +88,16 @@ for (const ore of ores) {
 // 0..WIDTH. Walk the open surface far both ways to prove there's no invisible barrier.
 const DT = 1 / 60; // one physics frame at 60fps
 {
-  const state = engine.newGame(999);
-  let maxX = state.x;
-  let minX = state.x;
+  const state = engine.newSession(999);
+  let maxX = state.player.x;
+  let minX = state.player.x;
   for (let frame = 0; frame < 3000; frame++) {
     engine.physicsStep(state, { right: true }, DT);
-    if (state.x > maxX) maxX = state.x;
+    if (state.player.x > maxX) maxX = state.player.x;
   }
   for (let frame = 0; frame < 6000; frame++) {
     engine.physicsStep(state, { left: true }, DT);
-    if (state.x < minX) minX = state.x;
+    if (state.player.x < minX) minX = state.player.x;
   }
   check(
     maxX > engine.WIDTH + 20,
@@ -132,42 +132,42 @@ const MYTHRIL_MIN_DEPTH = 480; // Mythril band starts here (2× finer grid)
 const SHALLOW_BAND_TOP = 8; // ores whose band starts at/above this can be skipped by a 1-wide shaft
 
 function greedyPlaythrough(seed: number): {
-  state: SaveState;
+  state: Session;
   frames: number;
   firstMinedFrame: Record<number, number>;
 } {
-  const state = engine.newGame(seed);
+  const state = engine.newSession(seed);
   const firstMinedFrame: Record<number, number> = {};
   let frames = 0;
 
   const shop = (): void => {
-    engine.sellAll(state); // sell the haul before buying
+    engine.sellAll(state.player); // sell the haul before buying
     for (;;) {
       let cheapest: keyof UpgradeLevels | null = null;
       let cheapestCost = Infinity;
       for (const kind of Object.keys(engine.UPGRADES) as (keyof UpgradeLevels)[]) {
-        if (state.up[kind] >= engine.UPGRADES[kind].max) continue;
-        const cost = engine.upgradeCost(kind, state.up[kind]);
-        if (cost <= state.coins && cost < cheapestCost) {
+        if (state.player.up[kind] >= engine.UPGRADES[kind].max) continue;
+        const cost = engine.upgradeCost(kind, state.player.up[kind]);
+        if (cost <= state.player.coins && cost < cheapestCost) {
           cheapest = kind;
           cheapestCost = cost;
         }
       }
       if (!cheapest) break;
-      engine.buyUpgrade(state, cheapest);
+      engine.buyUpgrade(state.player, cheapest);
     }
-    engine.buyTech(state, 'scanner');
-    engine.buyTech(state, 'lantern');
+    engine.buyTech(state.player, 'scanner');
+    engine.buyTech(state.player, 'lantern');
   };
 
-  while (state.depth < TARGET_DEPTH && frames < FRAME_BUDGET) {
+  while (state.player.depth < TARGET_DEPTH && frames < FRAME_BUDGET) {
     shop();
     for (
       let i = 0;
-      i < FRAMES_PER_SHOP && state.depth < TARGET_DEPTH && frames < FRAME_BUDGET;
+      i < FRAMES_PER_SHOP && state.player.depth < TARGET_DEPTH && frames < FRAME_BUDGET;
       i++
     ) {
-      const tileBelow = { column: Math.floor(state.x), row: Math.floor(state.y) + 1 };
+      const tileBelow = { column: Math.floor(state.player.x), row: Math.floor(state.player.y) + 1 };
       const result = engine.physicsStep(state, { mine: tileBelow }, DT);
       frames++;
       for (const event of result.events) {
@@ -183,11 +183,14 @@ function greedyPlaythrough(seed: number): {
 
 const run = greedyPlaythrough(GREEDY_SEED);
 console.log(
-  `\nGreedy bot: depth ${run.state.depth}, ${run.frames.toLocaleString()} frames, ${run.state.earned.toLocaleString()} coins earned`,
+  `\nGreedy bot: depth ${run.state.player.depth}, ${run.frames.toLocaleString()} frames, ${run.state.player.earned.toLocaleString()} coins earned`,
 );
-console.log('upgrades', run.state.up, 'tech', run.state.tech);
+console.log('upgrades', run.state.player.up, 'tech', run.state.player.tech);
 
-check(run.state.depth >= MYTHRIL_MIN_DEPTH, `bot reached Mythril depth (got ${run.state.depth})`);
+check(
+  run.state.player.depth >= MYTHRIL_MIN_DEPTH,
+  `bot reached Mythril depth (got ${run.state.player.depth})`,
+);
 check(run.frames < FRAME_BUDGET, `bot finished within frame budget (used ${run.frames})`);
 for (const ore of engine.ORES) {
   const frame = run.firstMinedFrame[ore.id];
@@ -198,7 +201,10 @@ for (const ore of engine.ORES) {
   // covered by the world-scan above. Everything deeper must fall on the descent path.
   if (ore.band[0] > SHALLOW_BAND_TOP) check(!!frame, `${ore.name} was mined by the greedy bot`);
 }
-check(Number.isFinite(run.state.coins) && run.state.coins >= 0, 'coins stay finite & non-negative');
+check(
+  Number.isFinite(run.state.player.coins) && run.state.player.coins >= 0,
+  'coins stay finite & non-negative',
+);
 
 console.log(`\n${failures === 0 ? 'ALL GOOD' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures ? 1 : 0);

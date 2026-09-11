@@ -91,9 +91,27 @@ export interface TechOwned {
   lantern: boolean;
 }
 
-/** The dynamic game state (the save). The static world is a pure function of `seed`. */
-export interface SaveState {
+/** oreId → lifetime `{ mined, deepest }` (the discovery codex). */
+export type OreLog = Record<number, { mined: number; deepest: number }>;
+
+/**
+ * The SHARED, mutable world — the part every player in a session digs together (Terraria-style).
+ * The static world is a pure function of `seed`; this holds only the mutations. In multiplayer
+ * one WorldState is shared across all players; the server owns it and streams deltas.
+ */
+export interface WorldState {
   seed: number;
+  /** `"column,row"` → excavated. */
+  dug: Record<string, boolean>;
+  /** `"column,row"` → hp already dealt to a not-yet-broken cell (shared tile-break progress). */
+  dmg: Record<string, number>;
+}
+
+/**
+ * One player's PER-PLAYER state: kinematics + mining timing + economy/progression. Distinct from
+ * the shared world, so each player has their own body and wallet against the common terrain.
+ */
+export interface PlayerState {
   /** Continuous player centre, in tile units. */
   x: number;
   y: number;
@@ -101,26 +119,30 @@ export interface SaveState {
   vy: number;
   grounded: boolean;
   facing: Facing;
-  /** Current mining target key + accumulated sub-hit time. */
+  /** This player's current mining target key + accumulated sub-hit time. */
   digKey: string | null;
   digTime: number;
   jumpBuffer: number;
   coyote: number;
   jumpLatch: boolean;
-  /** `"column,row"` → excavated. */
-  dug: Record<string, boolean>;
-  /** `"column,row"` → hp already dealt to a not-yet-broken cell. */
-  dmg: Record<string, number>;
   coins: number;
   earned: number;
   /** oreId → count held. */
   inv: Record<number, number>;
-  /** oreId → lifetime { mined, deepest } (the codex). */
-  log: Record<number, { mined: number; deepest: number }>;
+  log: OreLog;
   depth: number;
   best: number;
   up: UpgradeLevels;
   tech: TechOwned;
+}
+
+/**
+ * A world plus one player — the single-player save unit, and the object the sim steps. In
+ * multiplayer, many Sessions share the SAME `world` reference (one shared world, many players).
+ */
+export interface Session {
+  world: WorldState;
+  player: PlayerState;
 }
 
 /** One frame of player intent handed to the physics step. */

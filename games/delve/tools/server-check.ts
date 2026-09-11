@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { newGame } from '@delve/shared';
+import { newSession } from '@delve/shared';
 import { PROTOCOL_VERSION, WS_PATH } from '@delve/shared';
 import type { ClientMessage, ServerMessage } from '@delve/shared';
 
@@ -107,10 +107,13 @@ async function main(): Promise<void> {
     // 1) first join → a fresh save seeded from our proposal
     const first = await joinAs(playerId, seed);
     check(first.hello.fresh === true, 'first join creates a fresh save');
-    check(first.hello.state.seed === seed, 'fresh save uses the proposed seed');
+    check(first.hello.state.world.seed === seed, 'fresh save uses the proposed seed');
 
     // 2) sync a mutated state → persisted + acked
-    const mutated = { ...newGame(seed), coins: 999, depth: 50, earned: 999 };
+    const mutated = newSession(seed);
+    mutated.player.coins = 999;
+    mutated.player.depth = 50;
+    mutated.player.earned = 999;
     const ack = nextMessage(first.ws, 'synced');
     first.ws.send(JSON.stringify({ t: 'sync', state: mutated } satisfies ClientMessage));
     await ack;
@@ -121,7 +124,7 @@ async function main(): Promise<void> {
     const second = await joinAs(playerId, seed);
     check(second.hello.fresh === false, 'reconnect finds the existing save');
     check(
-      second.hello.state.coins === 999 && second.hello.state.depth === 50,
+      second.hello.state.player.coins === 999 && second.hello.state.player.depth === 50,
       'reconnect hydrates the synced progress',
     );
     second.ws.close();

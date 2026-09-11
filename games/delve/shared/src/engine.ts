@@ -1,15 +1,20 @@
-// engine.ts — the mining SIM: player state, platformer physics (gravity / run / jump), dig
-// resolution, economy, upgrades. Pure and DOM-free, so it runs identically in the browser, the
-// dev tools (via tsx), and the future authoritative server. The static world lives in
-// blocks.ts (re-exported here so callers have a single "engine" surface); dynamic state is the
-// SaveState this file mutates.
+// engine.ts — the mining SIM: player physics (gravity / run / jump), dig resolution, economy,
+// upgrades. Pure and DOM-free, so it runs identically in the browser, the dev tools (via tsx),
+// and the authoritative server. The static world lives in blocks.ts (re-exported here so callers
+// have a single "engine" surface); the DYNAMIC state is split in two (see types.ts):
+//   • WorldState  — shared terrain mutations (dug tiles, tile damage). One per world; in
+//                   multiplayer every player digs the SAME WorldState.
+//   • PlayerState — one player's body + wallet (position/velocity, coins, inventory, upgrades).
+// A `Session` bundles one world + one player; the sim steps a Session (its `.world` may be shared
+// across many players). Each function below takes exactly what it touches — world, player, or both.
 import { blockAt, solidAt, rockHp, rarityOf, ORE_BY_ID, WIDTH, SURFACE } from './blocks';
 import { tileRand } from './rng';
 import type {
   Input,
-  SaveState,
   SimEvent,
-  TileCoord,
+  WorldState,
+  PlayerState,
+  Session,
   UpgradeLevels,
   TechOwned,
   Block,
@@ -60,6 +65,12 @@ const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
 const MAX_STEP_DT = 1 / 30; // clamp per-step dt so fast motion can't tunnel a tile
 
+// Fixed simulation rate. The authoritative server and each client's prediction step at this exact
+// dt, so a replayed input on the client reproduces the server's result (no lockstep needed — the
+// client only predicts its own avatar and reconciles). 60 Hz keeps a safe margin under MAX_STEP_DT.
+export const TICK_HZ = 60;
+export const TICK_DT = 1 / TICK_HZ;
+
 export const PHYS = {
   HW: HALF_WIDTH,
   HH: HALF_HEIGHT,
@@ -102,10 +113,15 @@ export function tileInfo(
   return { ore: block.ore, maxHp: block.hp };
 }
 
-export function newGame(seed: number): SaveState {
+/** A fresh shared world for `seed`. */
+export function newWorld(seed: number): WorldState {
+  return { seed: seed >>> 0 || 1, dug: {}, dmg: {} };
+}
+
+/** A fresh player, spawned on the surface at the centre column. */
+export function newPlayer(): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
-    seed: seed >>> 0 || 1,
     x: startColumn + 0.5, // player CENTRE (tile units); starts on the surface
     y: SURFACE + 0.5,
     vx: 0,
@@ -117,8 +133,6 @@ export function newGame(seed: number): SaveState {
     jumpBuffer: 0,
     coyote: 0,
     jumpLatch: false,
-    dug: {},
-    dmg: {},
     coins: 0,
     earned: 0,
     inv: {},
@@ -130,12 +144,19 @@ export function newGame(seed: number): SaveState {
   };
 }
 
+/** A fresh single-player session (world + player) for `seed`. */
+export function newSession(seed: number): Session {
+  return { world: newWorld(seed), player: newPlayer() };
+}
+
 export const key = (column: number, row: number): string => `${column},${row}`;
-export const isDug = (state: SaveState, column: number, row: number): boolean =>
-  row <= SURFACE || !!state.dug[key(column, row)];
+
+export const isDug = (world: WorldState, column: number, row: number): boolean =>
+  row <= SURFACE || !!world.dug[key(column, row)];
+
 /** A cell blocks the player when it's static-solid and not yet dug. */
-export const solidCell = (state: SaveState, column: number, row: number): boolean =>
-  solidAt(state.seed, column, row) && !isDug(state, column, row);
+export const solidCell = (world: WorldState, column: number, row: number): boolean =>
+  solidAt(world.seed, column, row) && !isDug(world, column, row);
 
 interface Stats {
   power: number;
@@ -145,13 +166,13 @@ interface Stats {
   vision: number;
 }
 
-export function stats(state: SaveState): Stats {
+export function stats(player: PlayerState): Stats {
   return {
-    power: 1 + state.up.pick, // damage per hit
-    interval: BASE_DIG_INTERVAL_MS * Math.pow(DIG_INTERVAL_FALLOFF, state.up.speed), // ms between dig hits
-    valueMult: 1 + REFINE_VALUE_PER_LEVEL * state.up.refine,
-    fortune: Math.min(FORTUNE_CAP, FORTUNE_PER_LEVEL * state.up.fortune),
-    vision: BASE_VISION + (state.tech.lantern ? LANTERN_VISION_BONUS : 0),
+    power: 1 + player.up.pick, // damage per hit
+    interval: BASE_DIG_INTERVAL_MS * Math.pow(DIG_INTERVAL_FALLOFF, player.up.speed), // ms between dig hits
+    valueMult: 1 + REFINE_VALUE_PER_LEVEL * player.up.refine,
+    fortune: Math.min(FORTUNE_CAP, FORTUNE_PER_LEVEL * player.up.fortune),
+    vision: BASE_VISION + (player.tech.lantern ? LANTERN_VISION_BONUS : 0),
   };
 }
 
@@ -160,76 +181,78 @@ export function upgradeCost(kind: keyof UpgradeLevels, level: number): number {
   return Math.floor(upgrade.base * Math.pow(upgrade.mult, level));
 }
 
-export function buyUpgrade(state: SaveState, kind: keyof UpgradeLevels): boolean {
+export function buyUpgrade(player: PlayerState, kind: keyof UpgradeLevels): boolean {
   const upgrade = UPGRADES[kind];
-  if (state.up[kind] >= upgrade.max) return false;
-  const cost = upgradeCost(kind, state.up[kind]);
-  if (state.coins < cost) return false;
-  state.coins -= cost;
-  state.up[kind]++;
+  if (player.up[kind] >= upgrade.max) return false;
+  const cost = upgradeCost(kind, player.up[kind]);
+  if (player.coins < cost) return false;
+  player.coins -= cost;
+  player.up[kind]++;
   return true;
 }
 
-export function buyTech(state: SaveState, kind: keyof TechOwned): boolean {
+export function buyTech(player: PlayerState, kind: keyof TechOwned): boolean {
   const tech = TECH[kind];
-  if (state.tech[kind] || state.coins < tech.cost) return false;
-  state.coins -= tech.cost;
-  state.tech[kind] = true;
+  if (player.tech[kind] || player.coins < tech.cost) return false;
+  player.coins -= tech.cost;
+  player.tech[kind] = true;
   return true;
 }
 
 // --- inventory / selling ---
-export const invCount = (state: SaveState): number =>
-  Object.values(state.inv).reduce((sum, count) => sum + count, 0);
+export const invCount = (player: PlayerState): number =>
+  Object.values(player.inv).reduce((sum, count) => sum + count, 0);
 
 /** Total coins the current inventory would sell for (base value × refinery multiplier). */
-export const invValue = (state: SaveState): number => {
+export const invValue = (player: PlayerState): number => {
   let value = 0;
-  for (const oreId in state.inv) {
+  for (const oreId in player.inv) {
     const ore = ORE_BY_ID[Number(oreId)];
-    if (ore) value += state.inv[oreId] * ore.value;
+    if (ore) value += player.inv[oreId] * ore.value;
   }
-  return Math.floor(value * stats(state).valueMult);
+  return Math.floor(value * stats(player).valueMult);
 };
 
 /** Sell everything → coins. Available anytime (no hauling), so the loop can't soft-lock. */
-export function sellAll(state: SaveState): number {
-  const amount = invValue(state);
+export function sellAll(player: PlayerState): number {
+  const amount = invValue(player);
   if (amount > 0) {
-    state.coins += amount;
-    state.earned += amount;
+    player.coins += amount;
+    player.earned += amount;
   }
-  state.inv = {};
+  player.inv = {};
   return amount;
 }
 
 // Chip/break one target cell over `dt` while the player pushes into it. Damage is dealt in
 // discrete hits paced by dig speed, so it reads as chipping and the sound/juice stay punchy.
-// Pushes 'chip'/'break' events; returns true if the cell broke.
+// Tile-break progress (`world.dmg`) lives on the shared world; the hit timer (`player.digKey/
+// digTime`) and the spoils (inv/log/best) are the acting player's. Returns true if the cell broke.
 export function mineTile(
-  state: SaveState,
+  session: Session,
   column: number,
   row: number,
   dt: number,
   events: SimEvent[],
 ): boolean {
   if (row <= SURFACE) return false;
-  const block = blockAt(state.seed, column, row);
+  const { world, player } = session;
+  const block = blockAt(world.seed, column, row);
   const cellKey = key(column, row);
-  if (state.digKey !== cellKey) {
-    state.digKey = cellKey; // switched target → restart the hit timer
-    state.digTime = 0;
+  if (player.digKey !== cellKey) {
+    player.digKey = cellKey; // switched target → restart the hit timer
+    player.digTime = 0;
   }
-  state.digTime += dt;
+  player.digTime += dt;
 
-  const { power, interval, fortune } = stats(state);
+  const { power, interval, fortune } = stats(player);
   const secondsPerHit = interval / MS_PER_SECOND;
   let broke = false;
-  while (state.digTime >= secondsPerHit) {
-    state.digTime -= secondsPerHit;
-    const dealt = (state.dmg[cellKey] ?? 0) + power;
+  while (player.digTime >= secondsPerHit) {
+    player.digTime -= secondsPerHit;
+    const dealt = (world.dmg[cellKey] ?? 0) + power;
     if (dealt < block.hp) {
-      state.dmg[cellKey] = dealt;
+      world.dmg[cellKey] = dealt;
       events.push({
         type: 'chip',
         c: column,
@@ -241,20 +264,20 @@ export function mineTile(
       continue;
     }
     // broke through
-    delete state.dmg[cellKey];
-    state.dug[cellKey] = true;
+    delete world.dmg[cellKey];
+    world.dug[cellKey] = true;
     let quantity = 0;
     let rich = false;
     if (block.ore) {
       // ore goes into the inventory (sold later); a rich vein yields 3× the ore
-      rich = isRich(state.seed, column, row, fortune);
+      rich = isRich(world.seed, column, row, fortune);
       quantity = rich ? RICH_ORE_MULTIPLIER : 1;
-      state.inv[block.ore] = (state.inv[block.ore] ?? 0) + quantity;
-      const record = (state.log[block.ore] ??= { mined: 0, deepest: 0 });
+      player.inv[block.ore] = (player.inv[block.ore] ?? 0) + quantity;
+      const record = (player.log[block.ore] ??= { mined: 0, deepest: 0 });
       record.mined += quantity;
       if (row > record.deepest) record.deepest = row;
       const rarity = rarityOf(block.ore);
-      if (rarity > state.best) state.best = rarity;
+      if (rarity > player.best) player.best = rarity;
     }
     events.push({
       type: 'break',
@@ -265,8 +288,8 @@ export function mineTile(
       rich,
       maxHp: block.hp,
     });
-    state.digKey = null;
-    state.digTime = 0;
+    player.digKey = null;
+    player.digTime = 0;
     broke = true;
     break;
   }
@@ -276,143 +299,143 @@ export function mineTile(
 const EPSILON = 1e-4;
 
 /**
- * Advance the sim by `dt` seconds under `input`. Movement is continuous platformer physics
- * (run + gravity + jump) with axis-separated AABB tile collision. Mining is DECOUPLED from
- * movement (#3): `input.mine` names a tile to mine this frame, dug only if it's solid and
- * within REACH. Returns the events the presentation layer turns into juice.
+ * Advance the session by `dt` seconds under `input`. Movement is continuous platformer physics
+ * (run + gravity + jump) with axis-separated AABB tile collision against the shared world. Mining
+ * is DECOUPLED from movement (#3): `input.mine` names a tile to mine this frame, dug only if it's
+ * solid and within REACH. Returns the events the presentation layer turns into juice.
  */
 export function physicsStep(
-  state: SaveState,
+  session: Session,
   input: Input,
   dt: number,
 ): { events: SimEvent[]; grounded: boolean; jumped: boolean } {
   if (dt > MAX_STEP_DT) dt = MAX_STEP_DT; // never advance far enough to tunnel a tile
-  if (dt <= 0) return { events: [], grounded: state.grounded, jumped: false };
+  const { world, player } = session;
+  if (dt <= 0) return { events: [], grounded: player.grounded, jumped: false };
 
   const events: SimEvent[] = [];
   let minedThisFrame = false;
   const mine = (column: number, row: number): void => {
     minedThisFrame = true;
-    mineTile(state, column, row, dt, events);
+    mineTile(session, column, row, dt, events);
   };
 
   // --- jump input: buffer a fresh press, decay the buffer ---
   const jumpHeld = !!input.jump;
-  if (jumpHeld && !state.jumpLatch) state.jumpBuffer = JUMP_BUFFER;
-  state.jumpLatch = jumpHeld;
-  state.jumpBuffer = Math.max(0, state.jumpBuffer - dt);
+  if (jumpHeld && !player.jumpLatch) player.jumpBuffer = JUMP_BUFFER;
+  player.jumpLatch = jumpHeld;
+  player.jumpBuffer = Math.max(0, player.jumpBuffer - dt);
 
   // --- horizontal intent: accelerate toward run speed, or rub off with friction ---
   const direction = input.left ? -1 : input.right ? 1 : 0;
   if (direction) {
-    state.facing = direction < 0 ? 'left' : 'right';
-    state.vx += direction * (state.grounded ? RUN_ACCEL : AIR_ACCEL) * dt;
+    player.facing = direction < 0 ? 'left' : 'right';
+    player.vx += direction * (player.grounded ? RUN_ACCEL : AIR_ACCEL) * dt;
   } else {
     const friction = FRICTION * dt;
-    state.vx = state.vx > 0 ? Math.max(0, state.vx - friction) : Math.min(0, state.vx + friction);
+    player.vx =
+      player.vx > 0 ? Math.max(0, player.vx - friction) : Math.min(0, player.vx + friction);
   }
-  state.vx = clamp(state.vx, -RUN_SPEED, RUN_SPEED);
+  player.vx = clamp(player.vx, -RUN_SPEED, RUN_SPEED);
 
   // --- gravity ---
-  state.vy = Math.min(MAX_FALL, state.vy + GRAVITY * dt);
+  player.vy = Math.min(MAX_FALL, player.vy + GRAVITY * dt);
 
   // --- integrate + resolve X (stop at walls; mining no longer happens here) ---
-  let nextX = state.x + state.vx * dt;
-  const rowTop = Math.floor(state.y - HALF_HEIGHT + EPSILON);
-  const rowBottom = Math.floor(state.y + HALF_HEIGHT - EPSILON);
-  if (state.vx > 0) {
+  let nextX = player.x + player.vx * dt;
+  const rowTop = Math.floor(player.y - HALF_HEIGHT + EPSILON);
+  const rowBottom = Math.floor(player.y + HALF_HEIGHT - EPSILON);
+  if (player.vx > 0) {
     const column = Math.floor(nextX + HALF_WIDTH);
-    if (anySolidInColumn(state, column, rowTop, rowBottom)) {
+    if (anySolidInColumn(world, column, rowTop, rowBottom)) {
       nextX = column - HALF_WIDTH - EPSILON;
-      state.vx = 0;
+      player.vx = 0;
     }
-  } else if (state.vx < 0) {
+  } else if (player.vx < 0) {
     const column = Math.floor(nextX - HALF_WIDTH);
-    if (anySolidInColumn(state, column, rowTop, rowBottom)) {
+    if (anySolidInColumn(world, column, rowTop, rowBottom)) {
       nextX = column + 1 + HALF_WIDTH + EPSILON;
-      state.vx = 0;
+      player.vx = 0;
     }
   }
-  state.x = nextX;
+  player.x = nextX;
 
   // --- integrate + resolve Y (land / bonk head) ---
-  let nextY = state.y + state.vy * dt;
-  const columnLeft = Math.floor(state.x - HALF_WIDTH + EPSILON);
-  const columnRight = Math.floor(state.x + HALF_WIDTH - EPSILON);
-  state.grounded = false;
-  if (state.vy > 0) {
+  let nextY = player.y + player.vy * dt;
+  const columnLeft = Math.floor(player.x - HALF_WIDTH + EPSILON);
+  const columnRight = Math.floor(player.x + HALF_WIDTH - EPSILON);
+  player.grounded = false;
+  if (player.vy > 0) {
     const row = Math.floor(nextY + HALF_HEIGHT); // falling → check the floor below the feet
-    if (anySolidInRow(state, columnLeft, columnRight, row)) {
+    if (anySolidInRow(world, columnLeft, columnRight, row)) {
       nextY = row - HALF_HEIGHT - EPSILON;
-      state.vy = 0;
-      state.grounded = true;
+      player.vy = 0;
+      player.grounded = true;
     }
-  } else if (state.vy < 0) {
+  } else if (player.vy < 0) {
     const row = Math.floor(nextY - HALF_HEIGHT); // rising → check the ceiling above the head
-    if (anySolidInRow(state, columnLeft, columnRight, row)) {
+    if (anySolidInRow(world, columnLeft, columnRight, row)) {
       nextY = row + 1 + HALF_HEIGHT + EPSILON;
-      state.vy = 0;
+      player.vy = 0;
     }
   }
-  state.y = nextY;
+  player.y = nextY;
 
   // --- mining: a separate aim/target action, independent of movement (#3). Reach is a tile
   // ring (Chebyshev), so base REACH=1 = the eight adjacent tiles. ---
   if (input.mine) {
     const { column, row } = input.mine;
     const withinReach =
-      Math.abs(column - Math.floor(state.x)) <= REACH &&
-      Math.abs(row - Math.floor(state.y)) <= REACH;
-    if (withinReach && solidCell(state, column, row)) mine(column, row);
+      Math.abs(column - Math.floor(player.x)) <= REACH &&
+      Math.abs(row - Math.floor(player.y)) <= REACH;
+    if (withinReach && solidCell(world, column, row)) mine(column, row);
   }
 
   // --- jump (after ground state is known this frame) ---
   let jumped = false;
-  if (state.jumpBuffer > 0 && (state.grounded || state.coyote > 0)) {
-    state.vy = -JUMP_VELOCITY;
-    state.grounded = false;
-    state.coyote = 0;
-    state.jumpBuffer = 0;
+  if (player.jumpBuffer > 0 && (player.grounded || player.coyote > 0)) {
+    player.vy = -JUMP_VELOCITY;
+    player.grounded = false;
+    player.coyote = 0;
+    player.jumpBuffer = 0;
     jumped = true;
-    events.push({ type: 'jump', c: Math.floor(state.x), r: Math.floor(state.y) });
+    events.push({ type: 'jump', c: Math.floor(player.x), r: Math.floor(player.y) });
   }
-  state.coyote = state.grounded ? COYOTE_TIME : Math.max(0, state.coyote - dt);
+  player.coyote = player.grounded ? COYOTE_TIME : Math.max(0, player.coyote - dt);
 
   // idle → forget the current dig target so re-engaging restarts the hit timer cleanly
   if (!minedThisFrame) {
-    state.digKey = null;
-    state.digTime = 0;
+    player.digKey = null;
+    player.digTime = 0;
   }
 
-  const reachedRow = Math.floor(state.y);
-  if (reachedRow > state.depth) state.depth = reachedRow;
-  return { events, grounded: state.grounded, jumped };
+  const reachedRow = Math.floor(player.y);
+  if (reachedRow > player.depth) player.depth = reachedRow;
+  return { events, grounded: player.grounded, jumped };
 }
 
 function anySolidInColumn(
-  state: SaveState,
+  world: WorldState,
   column: number,
   rowTop: number,
   rowBottom: number,
 ): boolean {
   for (let row = rowTop; row <= rowBottom; row++) {
-    if (solidCell(state, column, row)) return true;
+    if (solidCell(world, column, row)) return true;
   }
   return false;
 }
 
 function anySolidInRow(
-  state: SaveState,
+  world: WorldState,
   columnLeft: number,
   columnRight: number,
   row: number,
 ): boolean {
   for (let column = columnLeft; column <= columnRight; column++) {
-    if (solidCell(state, column, row)) return true;
+    if (solidCell(world, column, row)) return true;
   }
   return false;
 }
 
-export const atSurface = (state: SaveState): boolean => state.y <= SURFACE + 1;
-
-/** Types callers commonly need. */
+export const atSurface = (player: PlayerState): boolean => player.y <= SURFACE + 1;

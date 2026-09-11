@@ -5,7 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SaveState } from '@delve/shared';
+import type { Session } from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DELVE_DATA_DIR || join(HERE, '..', 'data');
@@ -17,18 +17,18 @@ const safeId = (playerId: string): string =>
 const saveFile = (playerId: string): string => join(DATA_DIR, `${safeId(playerId)}.json`);
 
 /** The player's saved state, or null if none exists (or the file is unreadable/corrupt). */
-export function loadSave(playerId: string): SaveState | null {
+export function loadSave(playerId: string): Session | null {
   const file = saveFile(playerId);
   if (!existsSync(file)) return null;
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as SaveState;
+    return JSON.parse(readFileSync(file, 'utf8')) as Session;
   } catch {
     return null; // corrupt save → treat as none; the caller will create a fresh one
   }
 }
 
 /** Persist the player's state (whole-file write). Creates DATA_DIR on first use. */
-export function persistSave(playerId: string, state: SaveState): void {
+export function persistSave(playerId: string, state: Session): void {
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(saveFile(playerId), JSON.stringify(state));
 }

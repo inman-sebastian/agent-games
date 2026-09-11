@@ -4,7 +4,7 @@
 // shake), the HUD/shop/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
-import type { SaveState, Input, TileCoord, SimEvent } from '@delve/shared';
+import type { Session, Input, TileCoord, SimEvent } from '@delve/shared';
 import {
   T,
   setStrata as setRenderStrata,
@@ -53,38 +53,63 @@ lb.imageSmoothingEnabled = false;
 const SAVE_KEY = 'delve.save.v1';
 const SAVE_INTERVAL_MS = 2500;
 
-function fresh(): SaveState {
-  return engine.newGame((Math.random() * 2 ** 31) >>> 0);
+function fresh(): Session {
+  return engine.newSession((Math.random() * 2 ** 31) >>> 0);
 }
-// Merge a saved object over a fresh game (fills fields added since it was written), migrate old
-// pre-physics grid saves, and reset transient physics. Used by both the localStorage load and the
-// server hydrate (src/net.ts), so both paths reconstruct state identically. `saved` is
-// deserialized external data, so it's genuinely untyped here.
-function hydrate(saved: any): SaveState {
-  const base = engine.newGame(saved.seed);
-  const state: SaveState = {
-    ...base,
-    ...saved,
-    up: { ...base.up, ...saved.up },
-    tech: { ...base.tech, ...saved.tech },
-  };
-  if (saved.x === undefined && saved.c !== undefined) {
-    state.x = saved.c + 0.5; // migrate pre-physics grid saves
-    state.y = saved.r + 0.5;
+// Reconstruct a Session from a saved object over a fresh one (fills fields added since it was
+// written) and reset transient physics. Handles three formats: the current split save
+// ({ world, player }), the pre-split flat save, and the pre-physics grid save. Used by both
+// the localStorage load and the server hydrate (src/net.ts). `saved` is deserialized external
+// data, so it's genuinely untyped here.
+function hydrate(saved: any): Session {
+  const seed = saved.world?.seed ?? saved.seed;
+  const base = engine.newSession(seed);
+  const s: Session =
+    saved.world && saved.player
+      ? {
+          world: { ...base.world, ...saved.world },
+          player: {
+            ...base.player,
+            ...saved.player,
+            up: { ...base.player.up, ...saved.player.up },
+            tech: { ...base.player.tech, ...saved.player.tech },
+          },
+        }
+      : {
+          // migrate a pre-split flat save: peel world fields off, the rest is the player
+          world: { ...base.world, dug: saved.dug ?? {}, dmg: saved.dmg ?? {} },
+          player: {
+            ...base.player,
+            x: saved.x ?? base.player.x,
+            y: saved.y ?? base.player.y,
+            facing: saved.facing ?? base.player.facing,
+            coins: saved.coins ?? 0,
+            earned: saved.earned ?? 0,
+            inv: saved.inv ?? {},
+            log: saved.log ?? {},
+            depth: saved.depth ?? 0,
+            best: saved.best ?? 0,
+            up: { ...base.player.up, ...(saved.up ?? {}) },
+            tech: { ...base.player.tech, ...(saved.tech ?? {}) },
+          },
+        };
+  if (saved.world === undefined && saved.x === undefined && saved.c !== undefined) {
+    s.player.x = saved.c + 0.5; // pre-physics grid save
+    s.player.y = saved.r + 0.5;
   }
-  state.vx = 0; // reset transient physics fields
-  state.vy = 0;
-  state.grounded = false;
-  state.digKey = null;
-  state.digTime = 0;
-  return state;
+  s.player.vx = 0; // reset transient physics fields
+  s.player.vy = 0;
+  s.player.grounded = false;
+  s.player.digKey = null;
+  s.player.digTime = 0;
+  return s;
 }
-function load(): SaveState | null {
+function load(): Session | null {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const saved = JSON.parse(raw);
-    if (!saved || !saved.seed) return null;
+    if (!saved || !(saved.seed || saved.world?.seed)) return null;
     return hydrate(saved);
   } catch {
     return null;
@@ -101,19 +126,19 @@ function save(): void {
   net.sync(s);
 }
 
-let s: SaveState = load() || fresh();
+let s: Session = load() || fresh();
 setInterval(save, SAVE_INTERVAL_MS);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) save();
 });
 
-// 2-axis camera (keeps the miner centred). The sim position (s.x, s.y) is continuous and smooth
+// 2-axis camera (keeps the miner centred). The sim position (s.player.x, s.player.y) is continuous and smooth
 // from the physics step, so the camera follows it directly.
 let camX = 0;
 let camY = 0;
 function snapCam(): void {
-  camX = s.x * T - LW / 2 + T / 2;
-  camY = s.y * T - LH / 2 + T / 2;
+  camX = s.player.x * T - LW / 2 + T / 2;
+  camY = s.player.y * T - LH / 2 + T / 2;
 }
 
 // ---- audio (synth) ----------------------------------------------------------------------
@@ -280,7 +305,7 @@ const ckey = (cx: number, cy: number): string => cx + ',' + cy;
 // A tile is solid rock when it's below the surface and not yet dug. The world is unbounded — every
 // column below the surface is rock until you dig it (no side walls).
 const solidTile = (column: number, row: number): boolean =>
-  engine.solidAt(s.seed, column, row) && !engine.isDug(s, column, row);
+  engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
 function newChunkCanvas(): Chunk {
   const cv = document.createElement('canvas');
@@ -359,7 +384,7 @@ function dugInRegion(cx: number, cy: number): string[] {
   const top = cy * CH - MARGIN - TOP_LIGHT_LOOKUP_ROWS;
   const bottom = cy * CH + CH - 1 + MARGIN;
   const out: string[] = [];
-  for (const k in s.dug) {
+  for (const k in s.world.dug) {
     const comma = k.indexOf(',');
     const c = +k.slice(0, comma);
     const r = +k.slice(comma + 1);
@@ -482,8 +507,8 @@ const motes = Array.from({ length: 10 }, () => ({
 
 function render(t: number): void {
   ctx.clearRect(0, 0, LW, LH);
-  const px = s.x; // continuous player centre (tile units)
-  const py = s.y;
+  const px = s.player.x; // continuous player centre (tile units)
+  const py = s.player.y;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
   const targetCamX = px * T - LW / 2 + T / 2;
   const targetCamY = py * T - LH / 2 + T / 2;
@@ -491,7 +516,7 @@ function render(t: number): void {
   camY += (targetCamY - camY) * CAMERA_LERP;
   const shx = SHAKE_ENABLED ? (Math.random() * 2 - 1) * shake : 0;
   const shy = SHAKE_ENABLED ? (Math.random() * 2 - 1) * shake : 0;
-  const st = engine.stats(s);
+  const st = engine.stats(s.player);
 
   ctx.save();
   ctx.translate(Math.round(shx - camX), Math.round(shy - camY));
@@ -566,18 +591,18 @@ function render(t: number): void {
     if (r <= engine.SURFACE) continue;
     for (let c = colL; c <= colR; c++) {
       if (!solidTile(c, r)) continue;
-      const block = engine.blockAt(s.seed, c, r);
+      const block = engine.blockAt(s.world.seed, c, r);
       if (!block.ore) continue;
-      const vis = Math.max(lightAt(c, r) ** 2, s.tech.scanner ? 0.4 : 0);
+      const vis = Math.max(lightAt(c, r) ** 2, s.player.tech.scanner ? 0.4 : 0);
       if (vis <= 0.06) continue;
       const art = ORE_ART[block.ore];
       if (!art || art.dim) continue; // dirt: no block, shows as plain rock
-      const frac = block.hp ? (s.dmg[engine.key(c, r)] || 0) / block.hp : 0;
+      const frac = block.hp ? (s.world.dmg[engine.key(c, r)] || 0) / block.hp : 0;
       // cluster-aware: a neighbour is "same ore" if it's still solid and the same node, so a pocket
       // of ore cells tiles into one mass. (engine.oreAt is a cheap id-only lookup.)
       const oreId = block.ore;
       const sameOre = (dc: number, dr: number): boolean =>
-        solidTile(c + dc, r + dr) && engine.oreAt(s.seed, c + dc, r + dr) === oreId;
+        solidTile(c + dc, r + dr) && engine.oreAt(s.world.seed, c + dc, r + dr) === oreId;
       ctx.globalAlpha = Math.min(1, vis);
       drawOreBlock(ctx, art, c * T, r * T, c, r, frac, sameOre);
       ctx.globalAlpha = 1;
@@ -645,10 +670,10 @@ function render(t: number): void {
 
   // miner + lamp glow — sprite is 1 tile, centred on the player x and standing on its feet (y+HH)
   const halfHeight = engine.PHYS.HH;
-  const bob = s.grounded ? Math.sin(t * 10) * (moving ? 0.5 : 0.2) : 0;
+  const bob = s.player.grounded ? Math.sin(t * 10) * (moving ? 0.5 : 0.2) : 0;
   const mX = Math.round(px * T - T / 2);
   const mY = Math.round((py + halfHeight) * T - T);
-  drawMiner(ctx, mX, mY, s.facing, bob); // lamp bloom is part of the lighting pass
+  drawMiner(ctx, mX, mY, s.player.facing, bob); // lamp bloom is part of the lighting pass
 
   // coin floaties
   ctx.textAlign = 'center';
@@ -669,7 +694,7 @@ function render(t: number): void {
     const withinReach =
       Math.abs(column - Math.floor(px)) <= engine.PHYS.REACH &&
       Math.abs(row - Math.floor(py)) <= engine.PHYS.REACH;
-    const ok = engine.solidCell(s, column, row) && withinReach;
+    const ok = engine.solidCell(s.world, column, row) && withinReach;
     ctx.globalAlpha = ok ? 0.85 : 0.22;
     ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
     ctx.strokeRect(column * T + 0.5, row * T + 0.5, T - 1, T - 1);
@@ -768,8 +793,8 @@ function keyboardAimTile(): TileCoord {
   if (held.down) dy = 1;
   else if (held.left) dx = -1;
   else if (held.right) dx = 1;
-  else dx = s.facing === 'left' ? -1 : 1;
-  return { column: Math.floor(s.x) + dx, row: Math.floor(s.y) + dy };
+  else dx = s.player.facing === 'left' ? -1 : 1;
+  return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) + dy };
 }
 
 // ---- game loop --------------------------------------------------------------------------
@@ -831,14 +856,14 @@ function frame(now: number): void {
     const input: Input = { left: held.left, right: held.right, jump: held.jump, mine: mineNow };
     const res = engine.physicsStep(s, input, dt);
     for (const ev of res.events) onEvent(ev);
-    moving = Math.abs(s.vx) > 0.5;
+    moving = Math.abs(s.player.vx) > 0.5;
     if (aim.down && hover) {
-      s.facing =
-        hover.column < Math.floor(s.x)
+      s.player.facing =
+        hover.column < Math.floor(s.player.x)
           ? 'left'
-          : hover.column > Math.floor(s.x)
+          : hover.column > Math.floor(s.player.x)
             ? 'right'
-            : s.facing;
+            : s.player.facing;
     }
   } else {
     moving = false;
@@ -880,23 +905,23 @@ addEventListener('keydown', (e: KeyboardEvent) => {
   }
 });
 function updateDebug(): void {
-  const st = engine.stats(s);
+  const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
-  const ore = engine.ORES[s.best];
+  const ore = engine.ORES[s.player.best];
   const netInfo = net.netStatus();
   dbg.textContent =
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
-    `pos   ${s.x.toFixed(2)},${s.y.toFixed(2)}  vel ${s.vx.toFixed(1)},${s.vy.toFixed(1)}  ${s.grounded ? 'ground' : 'air'}  facing ${s.facing}\n` +
-    `depth ${s.depth}m  best ${ore ? ore.name : '—'}\n` +
+    `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
+    `depth ${s.player.depth}m  best ${ore ? ore.name : '—'}\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
     `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
-    `save  dug ${Object.keys(s.dug).length}  dmg ${Object.keys(s.dmg).length}\n` +
-    `econ  coins ${Math.floor(s.coins)}  earned ${s.earned}  cargo ${engine.invCount(s)} (${engine.invValue(s)} ◈)\n` +
+    `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
+    `econ  coins ${Math.floor(s.player.coins)}  earned ${s.player.earned}  cargo ${engine.invCount(s.player)} (${engine.invValue(s.player)} ◈)\n` +
     `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
-    `up    pick ${s.up.pick} · speed ${s.up.speed} · refine ${s.up.refine} · fortune ${s.up.fortune}   tech ${s.tech.scanner ? 'scanner' : '—'}/${s.tech.lantern ? 'lantern' : '—'}\n` +
+    `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · refine ${s.player.up.refine} · fortune ${s.player.up.fortune}   tech ${s.player.tech.scanner ? 'scanner' : '—'}/${s.player.tech.lantern ? 'lantern' : '—'}\n` +
     `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
     `net   ${netInfo.status}${netInfo.lastSyncedAt ? `  last-sync ${((Date.now() - netInfo.lastSyncedAt) / 1000).toFixed(0)}s ago` : ''}`;
 }
@@ -909,13 +934,13 @@ const paused = (): boolean =>
   overlay.classList.contains('on') || codexOverlay.classList.contains('on');
 
 function updateHUD(): void {
-  el('depth').textContent = String(s.depth);
-  el('coins').textContent = Math.floor(s.coins).toLocaleString();
-  el('cargo').textContent = engine.invValue(s).toLocaleString();
+  el('depth').textContent = String(s.player.depth);
+  el('coins').textContent = Math.floor(s.player.coins).toLocaleString();
+  el('cargo').textContent = engine.invValue(s.player).toLocaleString();
   const found = el('found');
-  const ore = engine.ORES[s.best];
+  const ore = engine.ORES[s.player.best];
   found.textContent = ore ? ore.name : '—';
-  found.style.color = ore && s.best > 0 ? ore.color : 'var(--dim)';
+  found.style.color = ore && s.player.best > 0 ? ore.color : 'var(--dim)';
 }
 
 function buildShop(): void {
@@ -925,7 +950,7 @@ function buildShop(): void {
     const upgrade = engine.UPGRADES[k];
     const row = document.createElement('div');
     row.className = 'row';
-    row.innerHTML = `<div class="info"><div class="nm">${upgrade.name} <span class="lv">Lv ${s.up[k]}${s.up[k] >= upgrade.max ? ' MAX' : ''}</span></div>
+    row.innerHTML = `<div class="info"><div class="nm">${upgrade.name} <span class="lv">Lv ${s.player.up[k]}${s.player.up[k] >= upgrade.max ? ' MAX' : ''}</span></div>
         <div class="ds">${upgrade.desc}</div></div><button data-up="${k}"></button>`;
     upgradesEl.appendChild(row);
   }
@@ -942,7 +967,7 @@ function buildShop(): void {
   upgradesEl.addEventListener('click', (e) => {
     const k = (e.target as HTMLElement).dataset.up as keyof typeof engine.UPGRADES | undefined;
     if (!k) return;
-    if (engine.buyUpgrade(s, k)) {
+    if (engine.buyUpgrade(s.player, k)) {
       sfx.buy();
       save();
     }
@@ -951,14 +976,14 @@ function buildShop(): void {
   techEl.addEventListener('click', (e) => {
     const k = (e.target as HTMLElement).dataset.tech as keyof typeof engine.TECH | undefined;
     if (!k) return;
-    if (engine.buyTech(s, k)) {
+    if (engine.buyTech(s.player, k)) {
       sfx.buy();
       save();
     }
     refreshShop();
   });
   el('sellBtn').addEventListener('click', () => {
-    const amount = engine.sellAll(s);
+    const amount = engine.sellAll(s.player);
     if (amount > 0) {
       sfx.sell(amount);
       save();
@@ -968,13 +993,13 @@ function buildShop(): void {
   });
 }
 function refreshShop(): void {
-  el('shopCoins').textContent = Math.floor(s.coins).toLocaleString();
+  el('shopCoins').textContent = Math.floor(s.player.coins).toLocaleString();
   // cargo list (ore icon rows) + sell button
   const cargoEl = el('cargoList');
   cargoEl.innerHTML = '';
-  const ids = Object.keys(s.inv)
+  const ids = Object.keys(s.player.inv)
     .map(Number)
-    .filter((id) => s.inv[id] > 0)
+    .filter((id) => s.player.inv[id] > 0)
     .sort((a, b) => a - b);
   if (!ids.length) {
     cargoEl.textContent = 'empty';
@@ -984,12 +1009,12 @@ function refreshShop(): void {
       row.className = 'invrow';
       row.appendChild(oreIcon(id, 16));
       const label = document.createElement('span');
-      label.innerHTML = `${engine.ORE_BY_ID[id].name} <b>×${s.inv[id]}</b>`;
+      label.innerHTML = `${engine.ORE_BY_ID[id].name} <b>×${s.player.inv[id]}</b>`;
       row.appendChild(label);
       cargoEl.appendChild(row);
     }
   }
-  const val = engine.invValue(s);
+  const val = engine.invValue(s.player);
   const sellBtn = el('sellBtn') as HTMLButtonElement;
   sellBtn.textContent = val > 0 ? `Sell all  +${val.toLocaleString()} ◈` : 'Sell all';
   sellBtn.disabled = val <= 0;
@@ -998,26 +1023,26 @@ function refreshShop(): void {
     const k = btn.dataset.up as keyof typeof engine.UPGRADES;
     const upgrade = engine.UPGRADES[k];
     btn.closest('.row')!.querySelector('.lv')!.textContent =
-      'Lv ' + s.up[k] + (s.up[k] >= upgrade.max ? ' MAX' : '');
-    if (s.up[k] >= upgrade.max) {
+      'Lv ' + s.player.up[k] + (s.player.up[k] >= upgrade.max ? ' MAX' : '');
+    if (s.player.up[k] >= upgrade.max) {
       btn.textContent = 'MAX';
       btn.disabled = true;
     } else {
-      const cost = engine.upgradeCost(k, s.up[k]);
+      const cost = engine.upgradeCost(k, s.player.up[k]);
       btn.textContent = cost.toLocaleString() + ' ◈';
-      btn.disabled = s.coins < cost;
+      btn.disabled = s.player.coins < cost;
     }
   }
   for (const b of el('tech').querySelectorAll('button')) {
     const btn = b as HTMLButtonElement;
     const k = btn.dataset.tech as keyof typeof engine.TECH;
     const tech = engine.TECH[k];
-    if (s.tech[k]) {
+    if (s.player.tech[k]) {
       btn.textContent = 'OWNED';
       btn.disabled = true;
     } else {
       btn.textContent = tech.cost.toLocaleString() + ' ◈';
-      btn.disabled = s.coins < tech.cost;
+      btn.disabled = s.player.coins < tech.cost;
     }
   }
 }
@@ -1042,7 +1067,7 @@ function renderCodex(): void {
   const codexList = el('codexList');
   codexList.innerHTML = '';
   for (const ore of engine.ORES) {
-    const entry = s.log[ore.id];
+    const entry = s.player.log[ore.id];
     const found = !!entry;
     const row = document.createElement('div');
     row.className = 'row';

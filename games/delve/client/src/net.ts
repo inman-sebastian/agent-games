@@ -3,7 +3,7 @@
 // server stays the store of record, and reconnects with backoff. The game keeps running entirely
 // on its local sim + localStorage if the server is unreachable — the network is additive, never a
 // hard dependency (offline/dev must still play).
-import type { SaveState } from '@delve/shared';
+import type { Session } from '@delve/shared';
 import { WS_PATH, PROTOCOL_VERSION } from '@delve/shared';
 import type { ClientMessage, ServerMessage } from '@delve/shared';
 
@@ -16,9 +16,9 @@ export type NetStatus = 'offline' | 'connecting' | 'online';
 
 export interface NetHandlers {
   /** Current authoritative client state (for the join seed + adopt-on-fresh + reconnect re-sync). */
-  getState: () => SaveState;
+  getState: () => Session;
   /** Called with the server snapshot to hydrate from on the FIRST hello of a page load. */
-  onHydrate: (state: SaveState) => void;
+  onHydrate: (state: Session) => void;
 }
 
 /** Stable per-player id, generated once and kept in localStorage. */
@@ -86,7 +86,7 @@ function open(): void {
     status = 'online';
     reconnectDelay = RECONNECT_MIN_MS; // reset backoff on a good connection
     const state = handlers!.getState();
-    post({ t: 'join', protocol: PROTOCOL_VERSION, playerId: playerId(), seed: state.seed });
+    post({ t: 'join', protocol: PROTOCOL_VERSION, playerId: playerId(), seed: state.world.seed });
   };
 
   ws.onmessage = (event) => {
@@ -132,7 +132,7 @@ export function connect(h: NetHandlers): void {
 }
 
 /** Debounced push of the latest state to the server. No-op while offline (localStorage covers it). */
-export function sync(state: SaveState): void {
+export function sync(state: Session): void {
   if (!isOpen()) return;
   if (syncTimer !== null) clearTimeout(syncTimer);
   syncTimer = window.setTimeout(() => {

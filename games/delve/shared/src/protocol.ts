@@ -6,7 +6,7 @@
 // record — it persists whatever the client syncs and replays it on reconnect. Authoritative
 // simulation / anti-cheat (the server applying intents itself) is P3 — the `intent` message and
 // `ClientIntent` type below define that vocabulary now so both sides already share it.
-import type { SaveState, TileCoord } from './types';
+import type { Session, TileCoord } from './types';
 
 /** Bumped on any breaking wire change; a join with a mismatched version is rejected. */
 export const PROTOCOL_VERSION = 1;
@@ -29,7 +29,7 @@ export interface JoinMessage {
 /** Push the client's current authoritative state; the server persists it (store of record). */
 export interface SyncMessage {
   t: 'sync';
-  state: SaveState;
+  state: Session;
 }
 
 /** A single player action. Reserved for P3 (the server will validate + apply these itself);
@@ -54,7 +54,7 @@ export type ClientMessage = JoinMessage | SyncMessage | IntentMessage;
 export interface HelloMessage {
   t: 'hello';
   protocol: number;
-  state: SaveState;
+  state: Session;
   /** true when the server had no save and just created one — the client keeps its local state
    * and syncs it up (so existing local progress is adopted rather than overwritten). */
   fresh: boolean;
