@@ -307,70 +307,77 @@ That's a small, well-defined milestone, and it converts every pinned question fr
 argument into an experiment. Worth doing **early** for that reason alone, well before
 the systems whose interactions are in question actually exist.
 
-### Proposed shape: host-based, hard cap of 4
+### Decided shape: one dedicated server, many player-created worlds
 
-**One player hosts, up to three others join. Maximum four players, full stop.**
+**Resolved, and it's the original plan rather than the client-hosted detour.** A
+single dedicated server that *we* host, inside which **players create their own
+worlds** — small multi-tenant instances, not separate machines.
 
-The hard cap is the best part of this proposal and worth keeping regardless of how
-hosting is implemented. A concrete number turns a pile of open-ended scaling
-questions into a fixed budget:
+This drops the browser-can't-listen problem entirely (no WebRTC, no NAT traversal, no
+TURN bill) and drops the listen-server social tax (no "we can only play when Dave is
+online"). Worlds persist independently of whether their creator is around, and players
+can drop in and out freely.
 
-- **Interest management can be deferred entirely** for now (keep the protocol's
-  *shape* area-of-interest-ready per
-  [Keeping the blue-sky door open cheaply](#keeping-the-blue-sky-door-open-cheaply),
-  but the implementation can stay naive).
-- Entity counts, fluid active-region counts and bandwidth all get a known ceiling.
-- Four is enough for the social experience being aimed at, and small enough that
-  nothing in the design needs to be built defensively.
+The tradeoffs accepted in exchange are ordinary and known: hosting cost, uptime and
+ops are now real, and the [shape questions](#pin-the-feel-questions-not-the-shape-questions)
+that a client-hosted model let us defer are now **required work** — world instances
+decoupled from connections, world lifecycle, and world-scoped persistence.
 
-Host-authority also **changes nothing conceptually** about what already exists: the
-authoritative server, inputs-only clients, and prediction/reconciliation all stay
-exactly as they are. The server simply runs somewhere else.
+### Player cap scales with world size
 
-#### What it genuinely buys
+Max players is **determined by the world-size preset** rather than being one global
+number. Illustrative, not final:
 
-- No dedicated hosting infrastructure, no running costs, no ops.
-- The "does the world keep running when nobody's there?" question **does** go away —
-  the world lives while the host plays and is dormant otherwise.
-- Self-hosting was already the intended model ([Hosted worlds](#hosted-worlds)), so
-  this is a refinement of the plan rather than a departure from it.
+| Preset | Max players |
+| --- | --- |
+| Small | 4 |
+| Medium | 8 |
+| Large | 16 |
 
-#### The correction: persistence doesn't go away, it relocates
+This is a genuinely good resolution to
+[T5](#t5-player-count-and-world-size-interact), because it makes the two knobs
+*literally one knob* instead of two that have to be kept in sync. Two things fall out
+of it that are worth building on:
 
-The world still has to be saved — it just gets saved on the host's machine, and the
-host's save becomes **the one canonical copy**. Guests hold nothing. That introduces a
-failure mode that a dedicated server doesn't have, and it's a *social* one rather than
-a technical one:
+1. **The tuning invariant becomes content-per-player, not content-per-area.** If
+   structures, biomes and ore are generated per *expected player* rather than per unit
+   of world, all three presets feel the same to play — nobody's world is sparse and
+   nobody's world is stripped bare in an hour. That's a much easier target to tune
+   against, and it makes the discovery pillar hold at every size.
+2. **The player picks their own experience honestly.** Small is intimate and dense;
+   large is sprawling and social. Neither is the "correct" one.
 
-- The world is playable **only when the host is available**. This is the well-known
-  listen-server tax (Valheim, Minecraft LAN, Stardew): "we can only play when Dave is
-  online."
-- If the host loses their save, everyone loses the world.
-- **Host migration** is the classic hard problem. At four players, "the session ends
-  when the host leaves" is a completely acceptable answer — but it should be a chosen
-  answer, not a discovered one.
-- The host plays at zero latency while guests pay full round-trip. Prediction already
-  handles this; it's worth knowing it exists.
+#### Where the cost and risk concentrate
 
-#### The real cost: browsers can't accept inbound connections
+Worth knowing before large worlds get built: **the cap's top end is where every
+"naive is fine" assumption stops being true.**
 
-This is the part that needs pricing, and it's specific to DELVE being a **browser
-game**. "One client hosts" is cheap in a native game and genuinely expensive in a
-browser, because a browser tab cannot listen for incoming connections. The current
-stack is Node + `ws`, and a browser cannot run a `ws` server.
+- At four players, interest management can stay a trivial radius check. At sixteen
+  scattered across a large world, it's **mandatory** — sixteen independent interest
+  sets and sixteen active fluid regions, with nothing shared between them.
+- Per [Target scale](#target-scale), player count multiplies *simulated surface area*,
+  not just bandwidth. A large world at capacity is roughly four times the simulation
+  load of a small one at capacity, in one process.
+- Because the server is ours, **that load is a bill**. Hosting cost scales with
+  *concurrent active worlds*, so many small worlds is the cheap case and a few large
+  worlds running fluid at capacity is the expensive one.
 
-Two ways to get host-based play, with very different costs:
+Practical consequence: **ship Small first.** It's the cheapest to run, the easiest to
+tune, and it's the size that makes the naive implementations acceptable. Medium and
+Large can follow once interest management and fluid budgets are real.
 
-| Approach | What it means | Cost |
-| --- | --- | --- |
-| **Host runs a local server** _(recommended)_ | The existing `@delve/server` becomes something a player launches on their own machine; friends point their browser at it. | **Near zero.** The server already exists and already serves the built client. The client currently derives its WebSocket URL from `location.host` (`client/src/net.ts`), so the change is making that address configurable — a join-by-address field. |
-| **Host inside the browser tab** | True peer-hosting with no separate process. Requires **WebRTC data channels**, which means a signalling server, NAT traversal, and a **TURN relay fallback that costs money** for players behind symmetric NATs. | **High**, and it reintroduces hosted infrastructure — the exact thing this proposal was meant to avoid. |
+#### World lifecycle is now a required system
 
-The recommendation is the first row. It delivers the identical social model (a friend
-hosts, the world lives on their machine, the session ends when they stop) for
-essentially no new architecture, and it keeps every property of the authoritative
-server that's already working. "Host" becomes a role a player takes, not a change to
-how the game is built.
+With worlds outliving their players, two things need explicit answers:
+
+- **Hibernation.** A world with nobody in it must stop ticking entirely — no fluid, no
+  entities, no snapshots. This is the single lever that keeps cost proportional to
+  *active* worlds rather than to *created* worlds, and without it a hosted
+  multi-tenant model gets expensive fast. (Fluid mid-flow at hibernation simply settles
+  on resume; no one is watching.)
+- **Retention.** Created worlds accumulate forever unless something evicts them.
+  Abandoned-world cleanup, storage caps, or explicit deletion — not urgent, but it's a
+  real cost curve and better decided than discovered.
 
 ### Target scale
 
@@ -609,15 +616,11 @@ an answer alongside the rest of the shared-world griefing question
 
 ### T5. Player count and world size interact
 
-World size presets ([§4](#4-world-topology--hosting)) and player count are the same
-knob viewed from two angles. A small world with eight players is crowded, stripped of
-ore fast, and its guaranteed content gets consumed once — the discovery pillar is a
-**consumable resource shared between players**. A large world with two players is
-lonely and mostly empty.
-
-Worth deciding whether size presets are named for *world scale* (small/medium/large)
-or for *party size* (solo/co-op/party), and whether content density scales with
-expected player count rather than with area alone.
+**Resolved** — by tying the player cap to the size preset
+([§7](#player-cap-scales-with-world-size)), the two knobs become one. The residual
+work is the tuning invariant that makes it actually hold: generate content **per
+expected player**, not per unit of area, so a small world isn't stripped bare and a
+large one isn't empty.
 
 ### T6. Wrapping removes the world's absolute reference frame
 
