@@ -8,6 +8,10 @@ import './emerald';
 import './ruby';
 import './diamond';
 import './mythril';
+import './platinum';
+import './obsidian';
+import './quartz';
+import './stonebricks';
 
 export { oreMaterial, registerOreMaterial } from './types';
 export type { Material, ShadeCtx } from './types';
