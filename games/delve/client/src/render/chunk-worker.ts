@@ -2,9 +2,13 @@
 // fresh world never stalls the game loop. Uses the SAME renderer as the main thread
 // (cave-render) into an OffscreenCanvas, and ships the finished chunk back as a transferable
 // ImageBitmap (zero-copy). A chunk is a CW×CH tile block addressed by (cx, cy); rock shape
-// depends only on dug state, so each request carries the dug tiles overlapping its region. The
-// strata palette is posted in the init message, so the Worker needn't load the entity registry.
+// depends only on dug state, so each request carries the dug tiles overlapping its region. Ore
+// is baked INTO the chunk (via each ore's material shader) so veins feather into the rock exactly
+// as they do everywhere else — so the Worker also carries the world seed + the material registry.
 import { composeBand, setStrata } from './cave-render';
+import { oreAt } from '@delve/shared';
+import { oreMaterial } from './materials';
+import type { Material } from './materials';
 import type { StrataResource } from '@delve/shared';
 
 interface WorkerConfig {
@@ -16,11 +20,14 @@ interface WorkerConfig {
   strata?: readonly StrataResource[];
 }
 type IncomingMessage =
-  { type: 'init'; cfg: WorkerConfig } | { type: 'chunk'; cx: number; cy: number; dug: Set<string> };
+  | { type: 'init'; cfg: WorkerConfig }
+  | { type: 'world'; seed: number }
+  | { type: 'chunk'; cx: number; cy: number; dug: Set<string> };
 
 const worker = self as unknown as DedicatedWorkerGlobalScope;
 
 let cfg: WorkerConfig = { T: 16, CW: 12, CH: 6, SURFACE: 0, MARGIN: 1 };
+let worldSeed: number | null = null; // set by the 'world' message; ore is baked once it's known
 let scratch: OffscreenCanvas | null = null;
 let scratchCtx: OffscreenCanvasRenderingContext2D | null = null;
 let core: OffscreenCanvas | null = null;
@@ -31,6 +38,10 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
   if (message.type === 'init') {
     cfg = message.cfg;
     setStrata(cfg.strata ?? []);
+    return;
+  }
+  if (message.type === 'world') {
+    worldSeed = message.seed;
     return;
   }
   if (message.type !== 'chunk') return;
@@ -53,6 +64,11 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
   const solidTile = (column: number, row: number): boolean =>
     row > SURFACE && !dug.has(`${column},${row}`);
 
+  // each solid tile's ore (if any) → its material, baked into the band so it feathers into the rock
+  const seed = worldSeed;
+  const materialAt: ((column: number, row: number) => Material | null) | undefined =
+    seed === null ? undefined : (column, row) => oreMaterial(oreAt(seed, column, row));
+
   const bandLeft = message.cx * CW - MARGIN;
   const bandTop = message.cy * CH - MARGIN;
   composeBand(
@@ -64,6 +80,7 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
     CH + 2 * MARGIN,
     Infinity,
     SURFACE,
+    materialAt,
   );
   coreCtx!.clearRect(0, 0, coreWidth, coreHeight);
   coreCtx!.drawImage(
