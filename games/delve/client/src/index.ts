@@ -21,7 +21,7 @@ import {
   hexRgb,
 } from './render/cave-render';
 import { ORE_ART, SHAPES } from './render/ore-art';
-import { oreMaterial, collectTwinkleEdges } from './render/materials';
+import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
 import { drawMiner } from './render/sprites';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
@@ -644,6 +644,40 @@ function render(t: number): void {
         );
       }
     }
+  }
+
+  // tiered damage: chip away tiles taking dig damage (rock + ore alike). Iterate the sparse dmg map
+  // (only in-progress tiles), gated to the view + lamp reach. A material may override the shared look.
+  for (const cellKey in s.world.dmg) {
+    const dmg = s.world.dmg[cellKey];
+    if (!dmg) continue;
+    const comma = cellKey.indexOf(',');
+    const dc = +cellKey.slice(0, comma);
+    const dr = +cellKey.slice(comma + 1);
+    if (dc < colL || dc > colR || dr < rowT || dr > rowB) continue; // off-screen
+    if (!solidTile(dc, dr)) continue;
+    const dlit = lightAt(dc, dr);
+    if (dlit < 0.16) continue; // hidden by fog
+    const hp = engine.blockAt(s.world.seed, dc, dr).hp;
+    if (hp <= 0) continue;
+    // which side is it being mined from? the dominant cardinal axis toward the miner (chunks bite out
+    // of that edge). px/py are the player's centre in tile units.
+    const towardX = px - (dc + 0.5);
+    const towardY = py - (dr + 0.5);
+    const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
+    const dirY = dirX === 0 ? Math.sign(towardY) : 0;
+    const damageCtx = {
+      g: ctx,
+      x: dc * T,
+      y: dr * T,
+      scale: 1,
+      frac: dmg / hp,
+      seed: hashXY(dc, dr, 71),
+      lit: dlit,
+      dirX,
+      dirY,
+    };
+    (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
   }
 
   // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as

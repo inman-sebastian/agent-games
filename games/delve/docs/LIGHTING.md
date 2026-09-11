@@ -34,10 +34,10 @@ Light is **occluded by rock** — Terraria's technique:
 2. The field is **propagated** across the visible tile window with four corner sweeps
    (max-with-attenuation). Attenuation is the _destination tile's_ opacity:
    **open/dug tiles conduct** light (`OPEN_ATTEN`), **solid rock absorbs** it fast
-   (`ROCK_ATTEN`). So light pools down the tunnels you've carved and dies a couple
-   tiles into rock — the lit region takes the **shape of the dug space, not a circle**,
-   and it bends around corners (an L-shaped tunnel lights as an L). One round converges
-   because each sweep chains through already-updated neighbours in its direction.
+   (`ROCK_ATTEN`). So light pools down the tunnels you've carved and fades ~3 tiles into
+   rock — the lit region takes the **shape of the dug space, not a circle**, and it bends
+   around corners (an L-shaped tunnel lights as an L). One round converges because each
+   sweep chains through already-updated neighbours in its direction.
 3. The tile field is **bilinear-sampled per pixel** (smooth across tiles, no grid) and
    composited in two passes: a **smooth additive colour glow** (warm lamp + coloured
    ore, drawn with `'lighter'`) + a **dithered darkness scrim** derived from the _same
@@ -48,6 +48,15 @@ Because the scrim is derived from the light field, **a source lights its own
 surroundings out of the dark** by the identical rule, and the **first rock layer
 around a lit tunnel catches a warm rim for free** (one attenuated step of warm light)
 — the SteamWorld dug-edge signature, emergent rather than special-cased.
+
+### Exposed-rock transition band
+
+Exposed rock reads as a **broad, softly-fading lit band** ~2–3 tiles deep (SteamWorld/Core
+Keeper), not a thin bright rim snapping to black. Two knobs set it together: the lamp's
+`ROCK_ATTEN` (how far light reaches into rock) and the **baked** geometric light `range` in
+`cave-render` (`shadeRock`), which fades brightness over ~1–1.5 tiles from the nearest open
+edge. The wide band both looks better and gives surface-level FX (e.g. mining **damage**) a
+real canvas — damage FX lives in `client/src/render/materials/fx.ts` (`drawDamage`).
 
 ### Lamp-only vision (the void)
 

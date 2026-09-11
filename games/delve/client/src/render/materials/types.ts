@@ -59,6 +59,29 @@ export interface TwinkleCtx {
   litAt: (t: number) => number;
 }
 
+/** Per-frame context for a mineable tile's damage state — drawn on top of the baked surface as the
+ * tile is chipped away. Like `twinkle`, this is imperative canvas drawing, but keyed on dig progress
+ * (`frac`) rather than time. Materials may override the shared chipping (see fx.drawDamage) for a
+ * bespoke break (e.g. a future gem shatter); everything defaults to the shared look. */
+export interface DamageCtx {
+  g: CanvasRenderingContext2D;
+  /** Display-pixel top-left of the tile. */
+  x: number;
+  y: number;
+  /** Display pixels per art pixel (so chips size crisply). */
+  scale: number;
+  /** Dig progress 0..1 (dmg / hp) — drives how much of the tile is chipped away. */
+  frac: number;
+  /** Stable per-tile integer seed (so the chip pattern is deterministic, not flickering). */
+  seed: number;
+  /** Litness 0..1 at this tile (chips only show where the tile is visible). */
+  lit: number;
+  /** Cardinal direction the tile is being mined FROM (toward the miner): one axis ±1, the other 0.
+   * Chunks are bitten out of the silhouette on this side. 0,0 = don't deform (unknown side). */
+  dirX: number;
+  dirY: number;
+}
+
 export interface Material {
   /** Per-pixel colour of the BAKED surface (required). */
   shade(ctx: ShadeCtx): Rgb;
@@ -66,6 +89,8 @@ export interface Material {
   feather?: number;
   /** Optional ANIMATED glint drawn per-frame on this material's exposed, lit tiles. */
   twinkle?: (ctx: TwinkleCtx) => void;
+  /** Optional bespoke damage/break FX; when absent the shared chipping (fx.drawDamage) is used. */
+  damage?: (ctx: DamageCtx) => void;
 }
 
 // ---- ore material registry (keyed by ore id) --------------------------------------------

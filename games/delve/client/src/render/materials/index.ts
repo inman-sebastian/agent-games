@@ -11,5 +11,5 @@ import './mythril';
 
 export { oreMaterial, registerOreMaterial } from './types';
 export type { Material, ShadeCtx } from './types';
-export { collectTwinkleEdges } from './fx';
+export { collectTwinkleEdges, drawDamage } from './fx';
 export type { TwinkleEdge } from './fx';
