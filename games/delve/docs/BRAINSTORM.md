@@ -136,7 +136,7 @@ A finite world means finite space to fill, which means **content density can be
 guaranteed** rather than hoped for. Generation can place a known number of
 structures, biomes and set-pieces per world and be *sure* the player meets them. In
 an infinite world, density is a probability and long empty stretches are inevitable.
-This is a much stronger answer to [T4](#t4-exploration-still-needs-breadcrumbs) than
+This is a much stronger answer to [T5](#t5-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
 Wrapping additionally means **you can never be permanently lost**. Travelling in one
@@ -148,7 +148,7 @@ direction is always eventually productive, which keeps exploration low-anxiety.
 > Terraria's edges do real work: they're landmarks, they anchor a global sense of
 > direction ("the dungeon is west"), and they're a distinct biome in their own right.
 > A wrapping world gives that up in exchange for seamlessness — see
-> [T3](#t3-wrapping-removes-the-worlds-absolute-reference-frame).
+> [T4](#t4-wrapping-removes-the-worlds-absolute-reference-frame).
 
 ### Hosted worlds
 
@@ -208,6 +208,62 @@ it's what separates memorable gear from a stat ladder, and it applies to weapons
 
 ---
 
+## 7. Multiplayer
+
+**Resolved: the game is scoped as multiplayer-compatible.** Player count per world
+is undetermined and the existing infrastructure hasn't been stress-tested.
+
+This is the right call to make early rather than late — retrofitting multiplayer is
+famously the expensive version. The client/server split and authoritative netcode
+already shipped give it a genuinely strong foundation:
+
+- The **server is authoritative** and clients send **inputs only**, never state — so
+  cheating is impossible by construction, which is the hard part to retrofit.
+- **Client prediction + reconciliation** against server snapshots already works, and
+  deliberately doesn't rely on cross-machine determinism.
+- One **shared ruleset** (`@delve/shared`) is imported by both sides, so rules can't
+  drift between client and server.
+- A **versioned wire protocol** already rejects mismatched clients.
+
+### What's actually built today, precisely
+
+Worth stating plainly, because it changes what "netcode is written" means in
+planning terms. The current implementation is **authoritative single-player**:
+
+- Each WebSocket connection owns **its own private world** (`server/src/index.ts`
+  holds one `Session` per connection — "this connection's authoritative world and
+  player"), created from that player's own seed.
+- The state message carries **one player** and no roster — there is no representation
+  of a second player anywhere in the protocol.
+- There are **no replicated entities of any kind**. The wire model is tiles plus one
+  player: dug-tile keys and tile-damage progress.
+- Persistence is **one whole-file JSON write per player** (`server/src/store.ts`,
+  which says so itself: fine for single-player, a real DB is a later concern).
+
+So the *architecture* is multiplayer-shaped and the *hardest* decision (server
+authority) is already correct. The multiplayer **feature set** is unbuilt. The gap
+is concrete and known-shaped, not vague:
+
+| Needed | Why |
+| --- | --- |
+| **World instances decoupled from connections** | Many players must join *one* world; today world lifetime is connection lifetime. |
+| **Player roster + join/leave** | Snapshots must carry other players; clients must render and interpolate them. |
+| **Entity replication** | Enemies, dropped loot, projectiles are all server-owned entities. The protocol currently has no entity concept at all. |
+| **Interest management** | A large world can't stream everything to everyone. Today the client receives the world's entire dug-tile set; that doesn't scale with world size or player count. |
+| **World-scoped persistence** | Per-player whole-file writes can't hold a shared world, especially with fluid state in it. |
+
+### The ordering consequence
+
+Combat ([§5](#5-combat)) and fluids ([§3](#3-fluids-water--lava)) both require the
+entity/replication layer that doesn't exist yet. Enemies are replicated entities;
+loot drops are replicated entities; fluid is high-rate replicated world state.
+
+That makes **replication + interest management the load-bearing next system** —
+the thing most of the rest of this document is waiting on, whether or not it looks
+like the most exciting piece.
+
+---
+
 ## Tensions
 
 Conflicts between ideas in this doc, or between an idea and something it quietly
@@ -246,7 +302,19 @@ None of this makes it a bad idea — it's the single highest-value system discus
 far. It just wants prototyping early rather than being bolted on late, because it
 has the power to reshape the netcode.
 
-### T3. Wrapping removes the world's absolute reference frame
+### T3. Player count and world size interact
+
+World size presets ([§4](#4-world-topology--hosting)) and player count are the same
+knob viewed from two angles. A small world with eight players is crowded, stripped of
+ore fast, and its guaranteed content gets consumed once — the discovery pillar is a
+**consumable resource shared between players**. A large world with two players is
+lonely and mostly empty.
+
+Worth deciding whether size presets are named for *world scale* (small/medium/large)
+or for *party size* (solo/co-op/party), and whether content density scales with
+expected player count rather than with area alone.
+
+### T4. Wrapping removes the world's absolute reference frame
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
@@ -260,7 +328,7 @@ Consequences worth deciding on:
 - **Directional content placement** ("the deep dungeon is always far from spawn")
   still works, but distance has a maximum of half the world width.
 
-### T4. Exploration still needs breadcrumbs
+### T5. Exploration still needs breadcrumbs
 
 Largely answered by bounding the world — guaranteed density beats any amount of
 signalling. Two residual cases:
@@ -271,7 +339,7 @@ signalling. Two residual cases:
   a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
   Currently there's only a short-range Ore Scanner and the lamp.
 
-### T5. The jetpack deletes the traversal problem
+### T6. The jetpack deletes the traversal problem
 
 Flight is an excellent reward precisely because vertical traversal is currently a
 real problem. But the moment it's available, that problem is gone permanently — and
@@ -286,30 +354,33 @@ traversal problem rather than ending it.
 
 ## Open questions
 
-- **Q1. Is this multiplayer?** "Players host their own servers" reads as multiple
-  simultaneous players in one world, and the authoritative-server architecture is
-  already built for it. But it could also mean self-hosted single-player worlds. The
-  answer is load-bearing for combat netcode, fluid authority, base building
-  (shared or per-player?), progression, and inventory. Worth answering explicitly.
-
-- **Q2. What happens when you die?** Health and enemies mean death, and death is the
+- **Q1. What happens when you die?** Health and enemies mean death, and death is the
   moment that decides how bravely players explore. Respawn at a base, at the surface,
   at a checkpoint? Do you drop coins, inventory, or nothing? A harsh answer makes
   deep exploration feel expensive and players play conservatively; a soft answer
   keeps the "just see what's down there" impulse alive.
 
-- **Q3. What is a base _for_?** Base building needs a functional reason to exist or
+- **Q2. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
   crafting stations must live somewhere, and night is dangerous so you need a safe
   place. Does DELVE have NPCs? A day/night or danger cycle? Deep forward camps that
   save travel time? The answer decides whether base building is a pillar or a hobby.
+  Multiplayer sharpens this: is a base **shared** (one party camp everyone builds and
+  benefits from) or **per-player** (everyone keeps their own)? Shared bases need
+  griefing/permission answers; per-player bases need the world to hold many of them.
 
-- **Q4. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
+- **Q3. Does the coin economy survive?** See [T1](#t1-three-progression-channels-now-exist).
   If crafting and loot become the progression spine, coins, selling, and the
   Upgrades panel may be vestigial — or may become a parallel currency track that
   needs its own justification.
 
-- **Q5. Is there a surface?** The world is bounded vertically at the bottom; what's
+- **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
   at the top? A full surface layer with sky, weather and day/night is a large amount
   of content and changes the game's identity (DELVE is currently entirely
   subterranean). A shallow "mouth of the mine" is much cheaper.
+
+- **Q5. How many players per world, roughly?** Not the exact number — the *order of
+  magnitude*. Two-to-four co-op, eight-to-sixteen party, or dozens. It sets the bar
+  for interest management, entity counts, fluid simulation budget and world sizing,
+  and those are very different engineering targets. Stress-testing the existing
+  infrastructure would turn this from a guess into a measurement.
