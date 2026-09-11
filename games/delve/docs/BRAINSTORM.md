@@ -227,8 +227,12 @@ already shipped give it a genuinely strong foundation:
 
 ### What's actually built today, precisely
 
-Worth stating plainly, because it changes what "netcode is written" means in
-planning terms. The current implementation is **authoritative single-player**:
+**The slimness is deliberate.** What shipped was a single-player game ported into a
+multiplayer-shaped framework with the bare minimum needed to run, kept malleable so
+it can grow into whatever the features demand. That's the right call and this section
+is a description of the starting point, not a list of oversights.
+
+The current implementation is **authoritative single-player**:
 
 - Each WebSocket connection owns **its own private world** (`server/src/index.ts`
   holds one `Session` per connection — "this connection's authoritative world and
@@ -251,6 +255,36 @@ is concrete and known-shaped, not vague:
 | **Entity replication** | Enemies, dropped loot, projectiles are all server-owned entities. The protocol currently has no entity concept at all. |
 | **Interest management** | A large world can't stream everything to everyone. Today the client receives the world's entire dug-tile set; that doesn't scale with world size or player count. |
 | **World-scoped persistence** | Per-player whole-file writes can't hold a shared world, especially with fluid state in it. |
+
+### Target scale
+
+**Real target: small parties on bounded worlds.** Two players on a small world, four
+friends on a medium world. That's the shape to build and tune for.
+
+**Blue sky, explicitly not a goal:** dozens of players on an infinite world. Noted as
+something to revisit if it turns out to be reachable, not something to design toward.
+
+The gap between those two is bigger than the player counts suggest, and it's worth
+knowing why: **player count multiplies the simulated surface area, not just the
+bandwidth.** Fluid and entities are simulated in active regions around players, so
+two players scattered in a bounded world means two active regions, while dozens
+scattered across an infinite world means dozens of independent simulation
+neighbourhoods with nothing shared between them. Bandwidth is the easy half.
+
+The good news is that the real target is *dramatically* cheaper than the blue-sky
+one, and several things that would be mandatory at scale are optional at four
+players: interest management can start as a naive radius cull, entity counts stay
+small, spatial partitioning can stay simple, and a single Node process with a fixed
+tick is comfortably enough.
+
+### Keeping the blue-sky door open cheaply
+
+One decision now preserves the option later at near-zero cost: **make replication
+area-of-interest-shaped from the start**, even when the implementation behind it is a
+trivial "is it near the player" check. What forecloses scale isn't a naive
+implementation, it's baking *send-everything-to-everyone* into the wire protocol —
+which is the current shape, where the client receives the world's entire dug-tile
+set. Getting the protocol's shape right is cheap today and expensive to retrofit.
 
 ### The ordering consequence
 
@@ -379,8 +413,9 @@ traversal problem rather than ending it.
   of content and changes the game's identity (DELVE is currently entirely
   subterranean). A shallow "mouth of the mine" is much cheaper.
 
-- **Q5. How many players per world, roughly?** Not the exact number — the *order of
-  magnitude*. Two-to-four co-op, eight-to-sixteen party, or dozens. It sets the bar
-  for interest management, entity counts, fluid simulation budget and world sizing,
-  and those are very different engineering targets. Stress-testing the existing
-  infrastructure would turn this from a guess into a measurement.
+- **Q5. What's the actual concurrency ceiling of the current stack?** The target is
+  small parties ([§7](#7-multiplayer)), which is comfortable — but nothing has been
+  stress-tested, so the ceiling is unknown rather than known-to-be-fine. A cheap
+  headless load harness (N scripted clients against one world) would turn the
+  blue-sky question from a guess into a measurement, and would say early whether
+  "dozens" is a stretch or a fantasy.
