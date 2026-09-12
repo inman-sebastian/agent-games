@@ -10,6 +10,25 @@ every question in text or a tiny cropped PNG.
 > tools below are for _inspection_, not gating; the retired `verify.ts` / `server-check.ts`
 > scripts are now Vitest suites.
 
+## `import-aseprite.ts` — lift layered frames out of a `.aseprite` file
+
+```sh
+pnpm --filter delve exec tsx tools/import-aseprite.ts <file.aseprite> <EXPORT_NAME> [--trust-source]
+pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--skin torso=#4d9be6]
+```
+
+Reads the layers directly — no Aseprite install, no intermediate export — normalises layer names to
+DELVE's slots, maps each layer's colours to indices, and writes a committed module under
+`client/src/render/entity/sprites/`. **It verifies before it writes and refuses on a mismatch**: the
+emitted data is decoded back and diffed pixel for pixel against both the file's own layers and its
+sibling PNG export.
+
+`sprite-shot.ts` renders any imported animation to a PNG with no browser and no dev server, which is
+how an import gets checked. `client/labs/sprite-lab.html` is the interactive version, with per-layer
+visibility and recolouring.
+
+Full pipeline, format and the open questions: [`docs/SPRITES.md`](../docs/SPRITES.md).
+
 ## `rig-measure.ts` — how close the humanoid is to its reference, in numbers
 
 ```sh
