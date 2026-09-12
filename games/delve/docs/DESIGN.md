@@ -124,10 +124,11 @@ the single place capability is resolved. See [Progression](#progression).
 
   **Fuel is a soft-lock generator and stays out; cargo is not.** This pillar used to exclude
   both, and that conflation was wrong: with no fuel you cannot dig, so you cannot move, so
-  you are stranded — but a full bag only stops you *collecting*, never *mining*, and mining
+  you are stranded — but a full bag only stops you _collecting_, never _mining_, and mining
   is the traversal verb. So **inventory capacity is finite**, and it's a progression axis: one
   material occupies one slot, stacked without limit, with no weight — capacity caps how many
-  *kinds* of thing you carry, never how much. See [Direction & roadmap](#direction--roadmap).
+  _kinds_ of thing you carry, never how much. See [Direction & roadmap](#direction--roadmap).
+
 - **Deterministic world.** Every cell's static contents are a pure `f(seed, c, r)` (see
   [ARCHITECTURE.md](ARCHITECTURE.md)); the same seed always generates the same mine, and only
   what you've changed is saved. **Determinism is load-bearing** — it's what makes content
@@ -137,6 +138,7 @@ the single place capability is resolved. See [Progression](#progression).
   _The world is currently **infinite** horizontally, which is being reversed: it becomes large
   but **bounded**, with hard edges and a bedrock floor. Only infinity is dropped; determinism
   stays. See [Direction & roadmap](#direction--roadmap)._
+
 - **One saturated element.** Ore is the only vivid colour against deliberately muted
   rock, and depth reads by palette (see [PALETTE.md](PALETTE.md)).
 
@@ -151,8 +153,8 @@ above, **the decision wins and the section above is what changes.**
 > **Where the reasoning lives.** These decisions were worked out in a temporary scratchpad,
 > `docs/BRAINSTORM.md`, which was migrated into these docs and then deleted. **Its ~53 commits are
 > still on `main`** — `git log -- games/delve/docs/BRAINSTORM.md` replays the whole session,
-> including the arguments that were tried and rejected. That history is the record of *why*; this
-> doc is the record of *what*.
+> including the arguments that were tried and rejected. That history is the record of _why_; this
+> doc is the record of _what_.
 
 Two topics have their own docs because they're large catalogues rather than mechanics:
 **[BIOMES.md](BIOMES.md)** owns the world's places, and **[UI.md](UI.md)** owns the interface.
@@ -162,15 +164,15 @@ Two topics have their own docs because they're large catalogues rather than mech
 **A Terraria-like.** The intersection of seven categories, which together are the fastest honest
 summary of the target:
 
-| Category | What it means here |
-| --- | --- |
-| **Exploration** | The primary driver. Digging is how you travel; finding is the reward |
-| **Open world** | Large and bounded, with hard edges. **Not** infinite |
-| **Incremental** | Continuous, compounding growth in player capability |
-| **Survival** | Enemies, health, situational breath. **No upkeep meters** |
-| **Crafting** | Tools, weapons and equipment are made, not bought |
-| **Base building** | Building is a mechanic; a base has four jobs (below) |
-| **Light RPG** | *Elements* of RPGs — equipment and skill trees. Not the genre |
+| Category          | What it means here                                                   |
+| ----------------- | -------------------------------------------------------------------- |
+| **Exploration**   | The primary driver. Digging is how you travel; finding is the reward |
+| **Open world**    | Large and bounded, with hard edges. **Not** infinite                 |
+| **Incremental**   | Continuous, compounding growth in player capability                  |
+| **Survival**      | Enemies, health, situational breath. **No upkeep meters**            |
+| **Crafting**      | Tools, weapons and equipment are made, not bought                    |
+| **Base building** | Building is a mechanic; a base has four jobs (below)                 |
+| **Light RPG**     | _Elements_ of RPGs — equipment and skill trees. Not the genre        |
 
 **"Light RPG" is deliberately narrow.** It was never a genre commitment. What's in: equipment that
 changes what you can do, and attributes the player invests in. What's out: classes, quests,
@@ -194,16 +196,16 @@ can die, and breath applies underwater.
 
 **Breath is a hazard timer**, not an exception to the rule — and it matters more than "situational"
 suggests, because fluid is simulated and the player's own digging moves it, so drowning is something
-that happens *to* you mid-core-verb rather than something you opt into. The
+that happens _to_ you mid-core-verb rather than something you opt into. The
 [world-edge death timer](#the-world) is a hazard timer too.
 
 ### Death costs the trip, never the character
 
-| | On death |
-| --- | --- |
-| **Inventory** | **Dropped** — and recoverable |
-| **Equipment** | Kept |
-| **Attributes** | Kept |
+|                | On death                      |
+| -------------- | ----------------------------- |
+| **Inventory**  | **Dropped** — and recoverable |
+| **Equipment**  | Kept                          |
+| **Attributes** | Kept                          |
 
 The loss is scoped to **the expedition**, which is the unit inventory capacity already operates on.
 Nothing that took real investment is ever at risk, so an item's
@@ -226,18 +228,18 @@ machine. **Bedrock is the single exception.**
 
 **Bounded, with hard edges — not infinite, not wrapping.** Bounding is what makes guaranteed
 content density possible, which is the real answer to the empty-digging problem: a finite world has
-finite space to fill, so generation can place a known amount of content and be *sure* the player
+finite space to fill, so generation can place a known amount of content and be _sure_ the player
 meets it.
 
 **But the world must never read as a literal box.** Bedrock is right for the floor; visible bedrock
 side walls are not. So the boundary is **layered**, because every equipment item exists to remove a
 traversal constraint and **any boundary made of traversal constraints gets defeated by design**:
 
-| Layer | Catches |
-| --- | --- |
-| **Ocean** at both surface ends | Most players, who never test it — it deepens, and nothing is out there |
-| **Breath** | Anyone swimming |
-| **A death timer at the true edge** | *Everything else* — building, flight, grapple, and anything added later |
+| Layer                              | Catches                                                                 |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| **Ocean** at both surface ends     | Most players, who never test it — it deepens, and nothing is out there  |
+| **Breath**                         | Anyone swimming                                                         |
+| **A death timer at the true edge** | _Everything else_ — building, flight, grapple, and anything added later |
 
 The death timer is the Destiny pattern: reach the true edge and a countdown says turn back or die.
 **Legible, recoverable, and fair.** The world must also **extend visually past the playable limit**,
@@ -255,6 +257,20 @@ The amplitudes are chosen against a constraint rather than by eye: terrain must 
 than the player can walk up. It rises at most one tile per column, and the player gained a one-tile
 **step-up** assist to match, because one tile is a wall to a walker with no assist. That was not a
 prediction — the movement regression test stopped dead at the first hill.
+
+### What the body height costs the player, in tiles
+
+The 1.82-tile body turns these into rules worth knowing before designing a space:
+
+| to do this                | you need                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| stand or walk             | **2** tiles of clearance                                                          |
+| jump                      | **3** — a 2-tall tunnel leaves 0.18 tiles over the head                           |
+| climb a staircase you dug | **3** — mid-step the body straddles two columns and needs the extra row over both |
+
+The staircase figure was found by the simulated playtest, not predicted: carving two tiles climbs
+exactly one step and then jams against the ceiling of the column behind you. It is the practical
+answer to "how do I get back up", since there is no upward traversal yet.
 
 **There is a day/night cycle, and no sleeping.** No sleeping is what gives the cycle teeth: night
 can't be waited out, so **night is a pressure that pushes the player underground**, which is a
@@ -276,13 +292,13 @@ The world's **places** — biomes, their roster, scarcity, placement and boundar
 **Progression is layered.** Several independent systems on top of one another, not one system that
 owns getting stronger.
 
-| Layer | Character | Job |
-| --- | --- | --- |
-| **Attributes** | Broad, slow, permanent, applies everywhere | Raise the floor |
-| **Equipment** | Specialized, swappable, situational | Change what's possible *this trip* |
-| **Environment** | Temporary, contextual, mostly subtractive | Create pressure in specific places |
+| Layer           | Character                                  | Job                                |
+| --------------- | ------------------------------------------ | ---------------------------------- |
+| **Attributes**  | Broad, slow, permanent, applies everywhere | Raise the floor                    |
+| **Equipment**   | Specialized, swappable, situational        | Change what's possible _this trip_ |
+| **Environment** | Temporary, contextual, mostly subtractive  | Create pressure in specific places |
 
-**Each layer must do a different job.** Layers that all scale the same number cancel out as *feel*:
+**Each layer must do a different job.** Layers that all scale the same number cancel out as _feel_:
 if an attribute, a pickaxe tier and an environmental modifier each multiply dig speed, every
 individual upgrade is imperceptible and three systems have to be tuned against each other forever.
 
@@ -294,15 +310,15 @@ It wants building as a **modifier stack**: a base value plus contributions from 
 **Environmental modifiers have a different lifetime**, so `stats()` needs **world context**, not
 just the player. Client and server must agree on it.
 
-**When a number is worth having:** a number earns its place when it changes *what you can attempt*,
-and is filler when it only changes *how fast you do what you already do* **and** nothing real is
+**When a number is worth having:** a number earns its place when it changes _what you can attempt_,
+and is filler when it only changes _how fast you do what you already do_ **and** nothing real is
 being sped up. Crafting is a sink, so yield matters; a multiplier on a loop with no sink does not.
 
 ### Light
 
 Light gets a **floor the player can never trade away** — always enough lamp to not be lost in the
 dark. Everything above the floor is **earned and riskable**, coming from equipment. A deep biome may
-suppress light, and the diegetic mechanism is that the *place absorbs it*, not that the player's
+suppress light, and the diegetic mechanism is that the _place absorbs it_, not that the player's
 lamp is debuffed.
 
 There is **no fog of war and no seen-memory**: lighting is per-pixel illumination, and any world
@@ -311,7 +327,7 @@ a rendering of where you've been — which is what makes gating it apt.
 
 ### Inventory capacity limits variety, not volume
 
-**One material, one slot, stacked without limit. No weight.** Capacity caps how many *kinds* of
+**One material, one slot, stacked without limit. No weight.** Capacity caps how many _kinds_ of
 thing you carry. Dirt and stone are one slot each forever, so **travelling never fills the bag** —
 what fills it is meeting materials you aren't already carrying.
 
@@ -329,7 +345,7 @@ announces itself.
 one**: higher yield, and an increased chance of a **rare, unexpected item**. It lives at the
 **equipment** layer.
 
-This matters beyond flavour: `isRich` currently takes the *player's* fortune, so **whether a tile is
+This matters beyond flavour: `isRich` currently takes the _player's_ fortune, so **whether a tile is
 rich depends on who is looking at it** — which breaks under shared worlds and breaks the determinism
 the content gate relies on. Re-pointing Fortune at extraction makes generation player-independent
 again. (Same semantics as Minecraft's Fortune: drops, never generation.)
@@ -339,12 +355,12 @@ material** — a loot table on a block.
 
 ## Equipment & the loadout
 
-**The investment arc.** An item starts *sort of* useful and occasionally annoying, and ends up so
+**The investment arc.** An item starts _sort of_ useful and occasionally annoying, and ends up so
 good at its job you never want to unequip it. The payoff isn't a bigger number, it's a **changed
 relationship** — you remember the item that used to embarrass you and now carries you.
 
 **The failure mode to design against:** "bad now, good later" means nobody reaches later. Early-stage
-gear must be **useful but flawed**, not useless and irritating. The annoyance is the *texture* of the
+gear must be **useful but flawed**, not useless and irritating. The annoyance is the _texture_ of the
 arc; the utility is what keeps the player on it.
 
 **Slots are scarce, and they grow.** Equipment starts at a **single slot**, with more unlocked
@@ -353,24 +369,24 @@ thing — so the choice is hardest when the player has the fewest options.
 
 > **Your loadout is a declaration of which constraints you're accepting for this expedition.**
 
-**The invariant that keeps it alive late:** *slot count must grow more slowly than the item roster.*
+**The invariant that keeps it alive late:** _slot count must grow more slowly than the item roster._
 Gain slots faster than specialized items and "equip the best set" wins and the loop dies; let the
-roster outrun the slots and every new slot is a new *interesting* decision.
+roster outrun the slots and every new slot is a new _interesting_ decision.
 
 ### Equipment needs the world creates
 
 **Decided: these needs exist**, because [biomes](BIOMES.md) are built around them and a biome
 without an answer is just a wall. **The items that fill them are candidates, not decisions.**
 
-| Need | Created by |
-| --- | --- |
-| **Underwater gear** | The Ocean, the Flooded Warren |
-| **A fluid tool** | The Flooded Warren |
-| **A structural / shoring tool** | Deadfall's cave-ins and load-bearing rock |
-| **A light source worth a scarce slot** | Nullshade, which absorbs lamplight |
-| **Heat protection** | Basalt Reach, the Molten Core |
-| **A tool that breaks gated shells** | The Works, the Crystal Vault |
-| **Vertical traversal** | Deep shafts; the jetpack is the named answer |
+| Need                                   | Created by                                   |
+| -------------------------------------- | -------------------------------------------- |
+| **Underwater gear**                    | The Ocean, the Flooded Warren                |
+| **A fluid tool**                       | The Flooded Warren                           |
+| **A structural / shoring tool**        | Deadfall's cave-ins and load-bearing rock    |
+| **A light source worth a scarce slot** | Nullshade, which absorbs lamplight           |
+| **Heat protection**                    | Basalt Reach, the Molten Core                |
+| **A tool that breaks gated shells**    | The Works, the Crystal Vault                 |
+| **Vertical traversal**                 | Deep shafts; the jetpack is the named answer |
 
 Candidate designs — a pump, a shoring tool, a companion lantern, a grapple, shaped charges, a
 collector, a combat drone — are **proposals**, not a roster.
@@ -382,13 +398,13 @@ block an idea on its own.
 
 - **Prefer removing a constraint over adding a number.** Reach removes "I must be adjacent"; the
   jetpack removes "I must dig my way out". Note the two aren't opposites — a bigger backpack
-  removes *"I must turn back when full"*.
+  removes _"I must turn back when full"_.
 - **Prefer one item per axis.** Vertical traversal, horizontal traversal, bulk excavation, fluid
   control, light, navigation, combat support, environmental survival. A loadout decision is only
   real if the options aren't substitutes; three mining tools produce a tier list.
 
 **Irreplaceable is scoped to a purpose, never to the game.** A fully-upgraded excavation item is
-indispensable for bulk digging and dead weight in a fight. Done that way the choice gets *more*
+indispensable for bulk digging and dead weight in a fight. Done that way the choice gets _more_
 interesting at max level, not less.
 
 ## Automation
@@ -403,7 +419,7 @@ intent** rather than an invisible effect that silently deletes tiles.
 **Two rules govern any automation here.**
 
 > **Automate the chore, never the choice.** Automation may remove repetition and execution. It must
-> never remove the decision of *where to go* or *what's worth looking at.*
+> never remove the decision of _where to go_ or _what's worth looking at._
 
 That's a formalisation of the stated identity constraint: **nothing may take away from the core
 identity of the game, which is exploration.** Removing the boring, mundane and repetitive parts of
@@ -413,7 +429,7 @@ exploring does more good than harm; removing the exploring does not.
 > idle game where the player's optimal move is to stop playing. Tethered, the same drones are pure
 > upside.
 
-That second one is a *consequence* of the first, not an independent law — if a future design
+That second one is a _consequence_ of the first, not an independent law — if a future design
 genuinely satisfies "automate the chore, never the choice" some other way, this follows rather than
 forbids.
 
@@ -450,7 +466,7 @@ drop-in play work: helping a friend costs you nothing.
 
 **Difficulty pacing therefore can't be guaranteed, and that's accepted.** A maxed character can
 enter a brand-new world and trivialize it. The testing consequence is explicit — the content gate
-asserts a *fresh character in a fresh world*, and the maxed case is **out of scope by design**.
+asserts a _fresh character in a fresh world_, and the maxed case is **out of scope by design**.
 
 **The codex is a ledger and never mechanical** — a record of everything encountered: enemies fought,
 NPCs met, materials gathered. It's **account-scoped**, so it survives starting over. A **recipe book**
@@ -470,14 +486,14 @@ in [UI.md](UI.md#open-questions); biome ones in [BIOMES.md](BIOMES.md#still-open
 - **Is a base shared or per-player** in a multiplayer world? Shared bases need griefing and
   permission answers; per-player bases need the world to hold many of them.
 - **Are respawn beacons per-player or shared**, and does a placed beacon keep occupying its
-  equipment slot? Beacons are *world*-scoped state while respawn is a *character* concern, so a
+  equipment slot? Beacons are _world_-scoped state while respawn is a _character_ concern, so a
   beacon in one world does nothing in another.
 - **Where in the arc does flight land, and is it metered?** Vertical traversal is currently a real
   problem, and that's exactly why a jetpack is a good reward — but the moment it exists the problem
   is gone, and with it the reason for ropes, ladders, platforms and shaft planning. Not a reason to
-  cut it; a reason to decide *when* it arrives and whether it's absolute or metered.
+  cut it; a reason to decide _when_ it arrives and whether it's absolute or metered.
 - **How much does finite capacity tax discovery?** The rubble problem is solved (one material, one
-  slot), but the bag now fills at exactly the rate the player meets *new kinds* of material — so the
+  slot), but the bag now fills at exactly the rate the player meets _new kinds_ of material — so the
   full-bag moment coincides with the game's best moment. That's a better problem than rubble spam,
   and it's still pointed at the pillar. Residual: does a full bag **block the pickup** or
   **auto-drop the least valuable stack**?
@@ -485,7 +501,7 @@ in [UI.md](UI.md#open-questions); biome ones in [BIOMES.md](BIOMES.md#still-open
   someone else's head. Either the best emergent story in the game or the fastest way to end a
   friendship, and it needs an answer alongside shared-world griefing generally.
 - **How does electricity work?** Wanted as a system alongside electric lighting; nothing designed.
-  Carry three things into that conversation: electric light *can fail* and the
+  Carry three things into that conversation: electric light _can fail_ and the
   [light floor](#light) cannot, so the two must stay separate; it's automation-adjacent, so
   "automate the chore, never the choice" applies; and it implies generation, transmission and
   consumers, which is a placement system — and building already exists.
@@ -499,22 +515,22 @@ in [UI.md](UI.md#open-questions); biome ones in [BIOMES.md](BIOMES.md#still-open
 
 Nomenclature drift caused a real wrong decision during the design session, so these words are pinned.
 
-| Term | Means |
-| --- | --- |
-| **Stat** | A *resolved* number describing current capability, computed by `stats()`. Never stored |
-| **Attribute** | A persistent, player-owned value feeding a stat, grown independently of gear or location |
-| **Skill tree** | The structure through which the player *chooses* which attributes to grow |
-| **Modifier** | A contribution to a stat from something other than an attribute. Has a **source** and a **lifetime** |
-| **Unlock** | A binary capability gate rather than a graded value |
-| **Lamp** | The player's own light **emitter** — reach and intensity. One source among many |
-| **Equipment** | An item occupying a scarce slot. Has its own upgrade path; may contribute modifiers |
-| **Loadout** | The set of currently equipped items |
-| **Progression layer** | One independent system that grows over time. Layers **coexist by design** |
+| Term                  | Means                                                                                                |
+| --------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Stat**              | A _resolved_ number describing current capability, computed by `stats()`. Never stored               |
+| **Attribute**         | A persistent, player-owned value feeding a stat, grown independently of gear or location             |
+| **Skill tree**        | The structure through which the player _chooses_ which attributes to grow                            |
+| **Modifier**          | A contribution to a stat from something other than an attribute. Has a **source** and a **lifetime** |
+| **Unlock**            | A binary capability gate rather than a graded value                                                  |
+| **Lamp**              | The player's own light **emitter** — reach and intensity. One source among many                      |
+| **Equipment**         | An item occupying a scarce slot. Has its own upgrade path; may contribute modifiers                  |
+| **Loadout**           | The set of currently equipped items                                                                  |
+| **Progression layer** | One independent system that grows over time. Layers **coexist by design**                            |
 
-**Retired — replace on sight:** *upgrade level* (implies buying, only one of several sources → use
-**attribute**); *progression spine* / *progression channel* (imply one system owns getting stronger,
-false by design → use **progression layer**, plural); *vision* (implies revealing tiles; there's no
-fog of war → use **lamp**, or **illumination**); *enhancement* (used loosely for all three of
+**Retired — replace on sight:** _upgrade level_ (implies buying, only one of several sources → use
+**attribute**); _progression spine_ / _progression channel_ (imply one system owns getting stronger,
+false by design → use **progression layer**, plural); _vision_ (implies revealing tiles; there's no
+fog of war → use **lamp**, or **illumination**); _enhancement_ (used loosely for all three of
 attribute, modifier and unlock).
 
 ## Direction & roadmap
@@ -552,16 +568,16 @@ content density possible.
 
 ### Epics
 
-| Epic | What it delivers |
-| --- | --- |
-| [#25](https://github.com/inman-sebastian/agent-games/issues/25) | Migrate the design brainstorm into these docs _(this section's source)_ |
-| [#26](https://github.com/inman-sebastian/agent-games/issues/26) | Bound the world — hard edges, bedrock floor, surface, day/night |
+| Epic                                                            | What it delivers                                                          |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [#25](https://github.com/inman-sebastian/agent-games/issues/25) | Migrate the design brainstorm into these docs _(this section's source)_   |
+| [#26](https://github.com/inman-sebastian/agent-games/issues/26) | Bound the world — hard edges, bedrock floor, surface, day/night           |
 | [#27](https://github.com/inman-sebastian/agent-games/issues/27) | Biomes & placement — replace depth-only spawning ([BIOMES.md](BIOMES.md)) |
-| [#6](https://github.com/inman-sebastian/agent-games/issues/6) | New progression system — layered attributes, equipment & crafting |
-| [#28](https://github.com/inman-sebastian/agent-games/issues/28) | UI foundation & surfaces ([UI.md](UI.md)) |
-| [#29](https://github.com/inman-sebastian/agent-games/issues/29) | Entities, replication & combat |
-| [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava |
-| [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes |
+| [#6](https://github.com/inman-sebastian/agent-games/issues/6)   | New progression system — layered attributes, equipment & crafting         |
+| [#28](https://github.com/inman-sebastian/agent-games/issues/28) | UI foundation & surfaces ([UI.md](UI.md))                                 |
+| [#29](https://github.com/inman-sebastian/agent-games/issues/29) | Entities, replication & combat                                            |
+| [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava                                           |
+| [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes          |
 
 ### Also queued
 
@@ -575,7 +591,7 @@ content density possible.
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
   mineable**, so dirt, clay and stone become collectible too and share the shader/surface-class
-  render path. Phase 1 (strata visible in the material lab) shipped. This is now a *prerequisite*
+  render path. Phase 1 (strata visible in the material lab) shipped. This is now a _prerequisite_
   for [everything is collectible](#the-world).
 - **Placement beyond depth.** Superseded in principle by [BIOMES.md](BIOMES.md): biome resolves from
   several signals, then decides contents. `strata.top` and per-material `band` ranges become
