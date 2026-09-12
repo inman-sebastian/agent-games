@@ -1393,7 +1393,7 @@ future revision of the idea.
 
 **Noted, not designed.** Electricity is wanted as a system, together with **electric lighting**.
 Deliberately not explored yet — parked for its own discussion like the
-[biome roster](#parked-for-a-dedicated-biome-session).
+[biome roster](#still-parked-for-this-session).
 
 Three things to carry into that conversation:
 
@@ -2350,7 +2350,7 @@ occasionally throws away something you wanted.
 - **Q7. What is the biome roster, and how is each placed?** Parked for a dedicated session — the
   taxonomy (band vs pocket) and per-biome scarcity are settled in principle, but the roster and the
   counts aren't. Full agenda in
-  [§2](#parked-for-a-dedicated-biome-session). Blocks whether a pocket biome may gate any
+  [§2](#still-parked-for-this-session). Blocks whether a pocket biome may gate any
   crafting material.
 
 - **Q4. Is there a surface?** **Answered: yes, and it is content** — Terraria-like. The
