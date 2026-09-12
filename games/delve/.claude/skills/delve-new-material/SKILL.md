@@ -46,6 +46,12 @@ register({
 - There is **no `value`/economy** — everything mined just goes into the inventory. Choose
   `band`/`weight`/`hp` to fit the existing progression (see the table in PALETTE.md and the ore
   resource files). Rarer + deeper ⇒ higher hp + lower weight.
+- ⚠️ **`band` is on its way out.** Depth-only placement is prototype leftover; placement is moving
+  to **biomes declaring their contents**
+  ([BIOMES.md](../../../docs/BIOMES.md), [MATERIALS.md](../../../docs/MATERIALS.md#placement-moves-to-biomes)).
+  When that lands, this step becomes *"pick the biomes this material belongs to"* and `weight`
+  narrows to abundance **within a biome**. Until then, keep using `band` — just don't treat depth as
+  the intended long-term answer for where something lives.
 - A `dim: true` ore (like dirt) renders as plain rock — **skip steps 2–3** for it (no material).
 
 ## Step 2 — the material shader (`client/src/render/materials/<name>.ts`)

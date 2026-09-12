@@ -15,14 +15,16 @@ This doc is the reference it (and you) build against.
   material: the solidity mask, distance fields, top-light, world-anchoring, convex-corner
   rounding, and the **per-pixel feathered colour blend** across material boundaries
   (material↔rock _and_ material↔material — only ever between two _solid_ tiles, so a mined-out
-  vein leaves no stain).
+  vein leaves no stain). It will also own **boundary _style_** — whether a given boundary feathers
+  at all (see [Hard boundaries](#hard-boundaries-blend-suppression)).
 - **Material shader** (`client/src/render/materials/<name>.ts`) owns colour only: a function
   `shade(ctx: ShadeCtx) => Rgb`, with full freedom (it imports `vnoise`/`mix`/etc. itself).
 
 ## The boundary (where things live)
 
-- **Gameplay data** — band / weight / hp / id / name / icon — stays in
+- **Gameplay data** — hp / id / name / icon / weight — stays in
   `shared/src/resources/<ore>.ts` (type `ore`), render-free so the server + tools can read it.
+  **`band` is on its way out** — see [Placement moves to biomes](#placement-moves-to-biomes).
 - **The shader** lives client-side and **self-registers by the same ore id**
   (`registerOreMaterial(id, material)`), mirroring the one-self-registering-file-per-entity
   pattern in `shared/src/resources/`. `client/src/render/materials/index.ts` imports each file.
@@ -43,6 +45,71 @@ interface Material {
 - `TwinkleCtx`: `g`, `x0,y0 → x1,y1` (the exposed edge in display px), `scale`, `time`, `seed`,
   `litAt(t)` — one glint travels the whole **cluster edge** (adjacent same-material lit tiles).
 - `DamageCtx`: `g`, `x, y`, `scale`, `frac` (dig progress), `seed`, `lit`, `dirX, dirY` (mined-from side).
+
+## Placement moves to biomes
+
+> **Decided, not built.** See [BIOMES.md](BIOMES.md).
+
+Today a material declares **where it spawns** as a depth range: `band: [minRow, maxRow]`. That's
+depth-only placement, and it's prototype leftover from when DELVE was a dig-down game.
+
+**The direction inverts the ownership: biomes declare their contents.** Placement resolves a biome
+from several signals, and the biome's own definition lists the materials it holds and how abundant
+each is.
+
+Why that direction and not material-declares-biome-affinity:
+
+- **A biome is an authored _place_**, so its identity includes what's in it. You can read one biome
+  file and know what the Glowing Mushroom Cavern contains.
+- **Absence is expressible by _omission_.** "This biome has no iron" is simply iron not being listed
+  — far clearer than iron carrying a zero weight for every biome it's absent from, and it scales as
+  the roster grows.
+
+**The cost is a feature.** Adding a material means editing the biomes it belongs to, which forces a
+decision about where it lives instead of letting it leak everywhere by default.
+
+**Consequences for this doc's workflow:**
+
+- `band` on `OreResource` and `top` on `StrataResource` both become obsolete.
+- The **`delve-new-material` skill loses its "pick a band" step** and gains "pick the biomes this
+  belongs to". That skill needs updating alongside the code change.
+- `weight` survives but its meaning narrows: **abundance within a biome**, rather than a share of a
+  depth band.
+
+## Hard boundaries (blend suppression)
+
+> **Decided, not built.** See [BIOMES.md](BIOMES.md).
+
+The compositor **always feathers** across a material boundary. That's exactly right for most of the
+world, and exactly wrong where crossing into a biome is supposed to be a *moment* — breaking into
+the Crystal Vault or reaching the Molten Core should read as one block over and unmistakably
+different, not as a soft fade.
+
+So boundary style becomes conditional: **when two adjacent solid tiles belong to biomes whose
+boundary is _hard_, skip the feather.**
+
+Three things make this cheaper and less invasive than it sounds:
+
+- **The no-blend path already exists.** `shadeRock` bails out with `if (bestDist === Infinity)
+  return` when a pixel has no differing neighbour. A hard boundary is the *same outcome for a
+  different reason*, so suppression reuses the existing early-out rather than adding a branch to the
+  blend maths.
+- **Hardness is a property of the _biome pair_, not the material.** It does **not** belong on the
+  `Material` contract — two tiles of the same pair of materials should feather inside a biome and
+  not feather across a hard biome edge. The compositor needs a biome lookup per tile, which it does
+  not have today; that's the actual work.
+- **Sealed pockets get their hard edge for free.** A tool-gated shell *is* a hard boundary, so The
+  Works and the Crystal Vault need nothing special here.
+
+> **`feather: 0` does not produce a hard edge — don't reach for it.** The blend half-width is
+> `w = Math.max(2, (wa + wb) * 0.5 * BLEND_WIDTH)`, so that floor of 2px survives any material
+> declaring zero. Suppression has to happen *before* the blend is computed, which is the early-out
+> above.
+
+**Readability requirement:** a hard boundary must change **texture or shape**, not only palette —
+never rely on colour alone. The surface classes below are the mechanism: a hard edge between two
+materials of *different classes* (say `stoneSurface` against `facetSurface`) already reads
+structurally, not just chromatically.
 
 ## Shared visual language — surface classes (non-negotiable)
 
