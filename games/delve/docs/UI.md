@@ -5,10 +5,14 @@ one, and the rules that keep the chrome looking like it belongs to the game. Wha
 lives in [DESIGN.md](DESIGN.md); the world's look lives in [PALETTE.md](PALETTE.md),
 [RENDERING.md](RENDERING.md) and [LIGHTING.md](LIGHTING.md).
 
-> **Status: specified, partly implemented.** What ships today is a top bar, a HUD, two overlay
-> panels (Inventory, Collection) and a touch pad, written as plain HTML with an inline `<style>`
-> block in `client/index.html` plus `client/src/ui/inventory.ts`. None of the rules below are applied
-> to it yet. Tracked by [#28](https://github.com/inman-sebastian/agent-games/issues/28).
+> **Status: specified, partly implemented.** What ships today is a title screen, a top bar, a HUD,
+> three overlay panels (Inventory, Collection, pause) and a touch pad, written as plain HTML with an
+> inline `<style>` block in `client/index.html` plus `client/src/ui/inventory.ts`. Screen flow runs
+> through the **app state machine** (`title | playing | paused`, see
+> [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)). None of the *art-direction* rules below are
+> applied yet, and one behavioural rule is currently **inverted** — see
+> [Panels never pause](#panels-never-pause). Tracked by
+> [#28](https://github.com/inman-sebastian/agent-games/issues/28).
 
 ## The problem this doc exists to fix
 
@@ -183,15 +187,28 @@ Stated explicitly because limiting pages is a tempting way to "balance" the wron
 
 ## Panels never pause
 
-**The world keeps running while any panel is open.** This is a first-class design decision, not a
+**The world keeps running while a game panel is open.** This is a first-class design decision, not a
 consequence of multiplayer.
 
-- Every invoked surface must be **safe to browse while something walks toward you** — which rules
-  out opaque full-screen panels.
+**Two kinds of surface, and only one of them may pause:**
+
+| Kind | Examples | Pauses? |
+| ---- | -------- | ------- |
+| **App screen** | Title, pause menu | **Yes** — that's what they're for |
+| **Game panel** | Inventory, codex, crafting, character, maps | **Never** |
+
+- Every game panel must be **safe to browse while something walks toward you** — which rules out
+  opaque full-screen panels.
 - The player is **deliberately vulnerable during inventory management**.
 - **No panel may block the frame loop**, and input routing has to decide **per key** whether the UI
   or the game receives it.
 - Reading the map is itself risky, which is a good property for an earned surface.
+
+> **The code currently does the opposite, and this is the change to make.** `openMenu()` in
+> `client/src/index.ts` calls `app.send('pause')`, and the Inventory and Collection overlays both go
+> through it — so opening either one pauses the sim today. The app machine's `paused` state is
+> correct for the **pause menu**; game panels need a path that opens an overlay *without* leaving
+> `playing`.
 
 ## Non-negotiables
 
