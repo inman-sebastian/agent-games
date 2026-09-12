@@ -18,7 +18,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node
 import { basename, dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readAseprite, flatten, type AseFile } from './aseprite';
-import { GROUND_ROW, SPRITE_SOURCES, type SpriteSource } from './sprite-manifest';
+import { ENTITIES, type SpriteEntity, type SpriteSource } from './sprite-manifest';
 
 /**
  * Layers that are scaffolding, backdrop or baked FX rather than character parts.
@@ -47,48 +47,6 @@ const SKIP_LAYERS = new Set([
   'old legs',
 ]);
 
-/**
- * Layer names, normalised to DELVE's slots.
- *
- * Overrides key on the slot name, so a chest piece that fits the idle has to fit the walk too — and
- * the pack calls one body part "Back Arm", "Back Hand" and "Left Arm" in three different files.
- */
-const SLOTS: readonly [RegExp, string][] = [
-  [/^head$/i, 'head'],
-  [/^torso$/i, 'torso'],
-  [/^(back|left)\s*(arm|hand)$/i, 'arm.far'],
-  [/^(front|lead|right)\s*(arm|hand)$/i, 'arm.near'],
-  [/^(back|left)\s*leg$/i, 'leg.far'],
-  [/^((front|lead|right)\s*leg|new legs)$/i, 'leg.near'],
-  // The pack already separates weapons onto their own layer, which is the equipment slot for free.
-  [/^(sword(\/sheathe)?|gun|katana)$/i, 'weapon'],
-  // Baked FX kept rather than skipped: keeping it makes the import exact, and a caller that renders
-  // its own hit feedback simply does not draw this slot.
-  [/^damage indicator$/i, 'fx.damage'],
-];
-
-const slotFor = (name: string): string | null =>
-  SLOTS.find(([re]) => re.test(name.trim()))?.[1] ?? null;
-
-/**
- * Every slot that may appear, in the order MOST files use. This is the canonical SET, not a sort key.
- *
- * Layers are emitted in their SOURCE file's order, because the pack's own order varies and matching
- * it is what keeps the import 1:1 — the Run file paints its torso above the near leg where every
- * other animation paints it below, and re-sorting to a house order broke that frame's composite.
- * Equipment only needs the NAMES to be consistent, which normalisation already guarantees.
- */
-const SLOT_ORDER = [
-  'arm.far',
-  'leg.far',
-  'torso',
-  'leg.near',
-  'arm.near',
-  'head',
-  'weapon',
-  'fx.damage',
-];
-
 const args = process.argv.slice(2);
 const packRoot = args[0];
 if (!packRoot) {
@@ -96,7 +54,7 @@ if (!packRoot) {
   process.exit(1);
 }
 const outAt = args.indexOf('--out');
-const outDir = resolve(
+const outRoot = resolve(
   outAt >= 0
     ? args[outAt + 1]
     : join(dirname(new URL(import.meta.url).pathname), '../client/src/render/entity/sprites'),
@@ -136,7 +94,9 @@ interface OutAnim {
   notes: string[];
 }
 
-function importOne(source: SpriteSource, path: string): OutAnim {
+function importOne(entity: SpriteEntity, source: SpriteSource, path: string): OutAnim {
+  const slotFor = (name: string): string | null =>
+    entity.slots.find(([re]) => re.test(name.trim()))?.[1] ?? null;
   const file = readAseprite(new Uint8Array(readFileSync(path)));
   const extraSkip = new Set((source.skip ?? []).map((n) => n.toLowerCase()));
   const parts = file.layers.filter(
@@ -152,7 +112,7 @@ function importOne(source: SpriteSource, path: string): OutAnim {
   if (unnamed.length > 0) {
     throw new Error(
       `${source.file}: layer(s) map to no slot: ${unnamed.map((l) => `"${l.name}"`).join(', ')}. ` +
-        "Add a SLOTS pattern or list them in the manifest's `skip`.",
+        `Add a slot pattern to the ${entity.name} entity, or list them in its \`skip\`.`,
     );
   }
 
@@ -296,9 +256,9 @@ function importOne(source: SpriteSource, path: string): OutAnim {
   }
 
   // ---- the ground line ----
-  // Taken from the manifest, not measured per animation — see `GROUND_ROW` there for why. What IS
+  // Taken from the entity, not measured per animation — see `SpriteEntity.ground` for why. What IS
   // checked here is that a grounded animation actually agrees with it.
-  const ground = GROUND_ROW;
+  const ground = entity.ground;
   if (source.grounded) {
     const tally = new Map<number, number>();
     for (let f = 0; f < file.frames; f++) {
@@ -312,8 +272,8 @@ function importOne(source: SpriteSource, path: string): OutAnim {
     const modal = [...tally].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0] + 1;
     if (modal !== ground) {
       throw new Error(
-        `${source.file}: marked grounded but its feet sit on row ${modal}, not GROUND_ROW ` +
-          `${ground}. Either the manifest's ground row is wrong or this animation is not grounded.`,
+        `${source.file}: marked grounded but its feet sit on row ${modal}, not ${entity.name}'s ` +
+          `ground row ${ground}. Either the manifest is wrong or this animation is not grounded.`,
       );
     }
   }
@@ -327,42 +287,56 @@ function importOne(source: SpriteSource, path: string): OutAnim {
   return { source, file, slug, ground, layers, notes };
 }
 
-const imported: OutAnim[] = SPRITE_SOURCES.map((source) => {
-  const path = join(packRoot, source.file);
-  if (!existsSync(path)) throw new Error(`missing from the pack: ${source.file}`);
-  return importOne(source, path);
+// ---- run every entity, then emit -----------------------------------------------------------------
+//
+// One pass over all entities before anything is written, because the template palette is SHARED.
+// That is what lets a material or an equipment ramp authored once apply to any entity whose slots it
+// names, and it is why the import has to be a batch rather than a per-file command.
+const byEntity = ENTITIES.map((entity) => {
+  console.log(`\n${entity.name}:`);
+  const anims = entity.sources.map((source) => {
+    const path = join(packRoot, entity.root, source.file);
+    if (!existsSync(path)) throw new Error(`missing from the pack: ${entity.root}/${source.file}`);
+    return importOne(entity, source, path);
+  });
+  return { entity, anims };
 });
 
-// ---- emit ---------------------------------------------------------------------------------------
-rmSync(outDir, { recursive: true, force: true });
-mkdirSync(outDir, { recursive: true });
+rmSync(outRoot, { recursive: true, force: true });
+mkdirSync(outRoot, { recursive: true });
 
 writeFileSync(
-  join(outDir, 'palette.ts'),
+  join(outRoot, 'palette.ts'),
   `// palette.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
 //
-// The reference pack's TEMPLATE palette: every distinct colour across every imported animation, in
+// The TEMPLATE palette: every distinct colour across every imported animation of every entity, in
 // first-seen order. A sprite pixel stores an index into this (0 = transparent, n = entry n - 1), so
-// this table is the one place a colour code means something — which is what makes an equipment
-// override work identically in every animation.
+// this table is the one place a colour code means something — which is what makes a skin or a
+// material authored once work identically in every animation, and across entities.
 //
-// These are CODE colours, not finished art: the pack is a colour-coded template. Shipping art means
-// mapping them to DELVE's palette — see ../skin.ts.
+// These are CODE colours, not finished art: the source packs are colour-coded templates. Everything
+// the player sees is decided in ../skin.ts.
 export const TEMPLATE_PALETTE = [
 ${template.map((c) => `  '${c}',`).join('\n')}
 ] as const;
 `,
 );
 
-for (const anim of imported) {
-  writeFileSync(
-    join(outDir, `${anim.slug}.ts`),
-    `// ${anim.slug}.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
+const key = (slug: string, entity: string): string =>
+  slug.replace(new RegExp(`^${entity}-`), '').replace(/-/g, '_');
+
+for (const { entity, anims } of byEntity) {
+  const dir = join(outRoot, entity.name);
+  mkdirSync(dir, { recursive: true });
+  for (const anim of anims) {
+    writeFileSync(
+      join(dir, `${anim.slug}.ts`),
+      `// ${anim.slug}.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
 //
-// Source: ${anim.source.file} (${anim.file.frames} frames, ${anim.file.width}x${anim.file.height})
+// Source: ${entity.root}/${anim.source.file} (${anim.file.frames} frames, ${anim.file.width}x${anim.file.height})
 ${anim.notes.map((n) => `// Note: ${n}\n`).join('')}//
-// Pixels are indices into TEMPLATE_PALETTE (see ./palette.ts), never colours.
-import type { SpriteAnim } from '../sprite';
+// Pixels are indices into TEMPLATE_PALETTE (see ../palette.ts), never colours.
+import type { SpriteAnim } from '../../sprite';
 
 export const ${anim.source.name}: SpriteAnim = {
   name: ${JSON.stringify(anim.slug)},
@@ -391,39 +365,57 @@ ${l.cels
   ],
 };
 `,
+    );
+  }
+
+  const upper = entity.name.toUpperCase();
+  writeFileSync(
+    join(dir, 'index.ts'),
+    `// index.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
+//
+// Every ${entity.name} animation listed in tools/sprite-manifest.ts. The source animations
+// deliberately NOT imported, and why, are recorded there too.
+${anims.map((a) => `import { ${a.source.name} } from './${a.slug}';`).join('\n')}
+
+export const ${upper}_SPRITES = {
+${anims.map((a) => `  ${key(a.slug, entity.name)}: ${a.source.name},`).join('\n')}
+} as const;
+
+export type ${titleCase(entity.name)}Anim = keyof typeof ${upper}_SPRITES;
+
+/**
+ * The layer slots a ${entity.name} animation may use, in paint order.
+ *
+ * Normalised at import precisely so a skin or material authored once applies to every animation —
+ * the source pack calls the same body part by several different names across its files.
+ */
+export const ${upper}_SLOTS = [${entity.order.map((s) => `'${s}'`).join(', ')}] as const;
+
+export type ${titleCase(entity.name)}Slot = (typeof ${upper}_SLOTS)[number];
+`,
   );
 }
 
-const key = (slug: string): string => slug.replace(/^player-/, '').replace(/-/g, '_');
 writeFileSync(
-  join(outDir, 'index.ts'),
+  join(outRoot, 'index.ts'),
   `// index.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
 //
-// Every animation listed in tools/sprite-manifest.ts. The pack animations deliberately NOT imported,
-// and why, are recorded there too.
-${imported.map((a) => `import { ${a.source.name} } from './${a.slug}';`).join('\n')}
-
+// Re-exports every imported entity. Adding an entity is an entry in tools/sprite-manifest.ts and a
+// re-run of the importer; nothing here is written by hand.
 export { TEMPLATE_PALETTE } from './palette';
-
-export const PLAYER_SPRITES = {
-${imported.map((a) => `  ${key(a.slug)}: ${a.source.name},`).join('\n')}
-} as const;
-
-export type PlayerAnim = keyof typeof PLAYER_SPRITES;
-
-/**
- * The layer slots a player animation may use, in paint order.
- *
- * Normalised at import precisely so an equipment override written once applies to every animation —
- * the pack itself calls the same body part "Back Arm", "Back Hand" and "Left Arm" in different files.
- */
-export const PLAYER_SLOTS = [${SLOT_ORDER.map((s) => `'${s}'`).join(', ')}] as const;
-
-export type PlayerSlot = (typeof PLAYER_SLOTS)[number];
+${byEntity.map(({ entity }) => `export * from './${entity.name}';`).join('\n')}
 `,
 );
 
-console.log(`\n${imported.length} animations, ${template.length} template colours -> ${outDir}`);
+const total = byEntity.reduce((n, e) => n + e.anims.length, 0);
+console.log(
+  `\n${byEntity.length} entit${byEntity.length === 1 ? 'y' : 'ies'}, ${total} animations, ` +
+    `${template.length} template colours -> ${outRoot}`,
+);
+
+function titleCase(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
 
 // ---- helpers ------------------------------------------------------------------------------------
 function dropStrays(layers: OutLayer[], flat: number[], pw: number, file: AseFile): void {

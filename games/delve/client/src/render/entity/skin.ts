@@ -12,8 +12,12 @@
 //
 // Better than expected, and it corrected an assumption: each body part carries 2-5 SHADES in the
 // template, not one flat colour, so a substituted ramp can be properly shaded rather than flat.
+import { clamp01, colorsFor, quantize, type Rgb } from '../palette';
+import { bandsOf } from './limb';
+import type { PartCtx } from './limb';
 import { TEMPLATE_PALETTE } from './sprites/palette';
-import type { SpriteSkin } from './sprite';
+import { vnoise } from '@delve/shared';
+import type { SpriteMaterial, SpriteSkin } from './sprite';
 
 /**
  * Which body part each template colour identifies, and how light it is within that part.
@@ -118,3 +122,91 @@ export const MINER_SKIN = buildSkin(MINER_RAMPS);
 
 /** The miner with the pack's baked damage flash suppressed — DELVE renders its own hit feedback. */
 export const MINER_SKIN_NO_FLASH: SpriteSkin = { ...MINER_SKIN, hide: ['fx.damage'] };
+
+// ---- equipment as PROCEDURAL MATERIAL -----------------------------------------------------------
+//
+// The other half of the pipeline, and the reason the surface coordinates exist. A colour table can
+// only ever show as many shades as the pack's template carries — two to five per part. A material is
+// sampled at each pixel's `(along, around)` and shades itself, so the band count stops being a
+// property of the imported art.
+//
+// These are the SAME shaders the procedural rig used, taking the same `PartCtx`, built from the same
+// `colorsFor` swatches and Bayer dither as the rock. A steel pauldron is the metal material rather
+// than an imitation of it, which is what keeps a character standing in front of a wall of ore
+// looking like it belongs there.
+
+/** Six-stop ramps, shadow → rim, exactly as a stratum declares one. All Resurrect-64. */
+const STEEL = ['#2e222f', '#3e3546', '#4c4a4e', '#625565', '#7a7576', '#9babb2'];
+const LEATHER = ['#25171c', '#2e222f', '#45293f', '#7a3045', '#a24b6f', '#cd683d'];
+const CLOTH_BLUE = ['#1a1932', '#2e222f', '#323353', '#484a77', '#4d65b4', '#4d9be6'];
+
+/**
+ * A part surface CALIBRATED FOR IMPORTED SPRITES, which is a different problem to the rock's.
+ *
+ * `clothSurface` and `plateSurface` were tuned against one big isolated limb on a 16px grid. Pointed
+ * at these sprites they blew out: an imported limb is three to five pixels wide, so cloth's +-0.25
+ * of brightness noise swings across most of the band ladder and the figure came out as white speckle
+ * with its silhouette dissolved. Same failure the procedural rig hit with edge erosion — a treatment
+ * sized for a tile is most of a small part.
+ *
+ * So: the same `bandsOf` ladder, the same Bayer `quantize`, a quarter of the amplitude, and relief
+ * that leans on the surface coordinate rather than on noise. `along` gives a gentle top-to-bottom
+ * fall so a limb reads as lit from above, `around` gives the cross-limb round, and the noise is just
+ * enough to stop it looking extruded.
+ */
+export function armourSurface(ctx: PartCtx): Rgb {
+  let b = 0.5 + (ctx.brightness - 0.5) * 0.55;
+  // Round across the part: brightest just off the spine, falling to the silhouette on both sides.
+  b += (ctx.depth - 0.5) * 0.3;
+  // Lit from above, so the top of a part is brighter than its bottom.
+  b += (0.5 - ctx.along) * 0.16;
+  b += (vnoise(ctx.localX * 0.19, ctx.localY * 0.19, TEX_SKIN) - 0.5) * 0.1;
+  return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
+}
+
+/** As `armourSurface`, plus a hard highlight just off the spine — reads as polished metal. */
+export function plateArmourSurface(ctx: PartCtx): Rgb {
+  const base = 0.5 + (ctx.brightness - 0.5) * 0.5;
+  let b = base + (ctx.depth - 0.5) * 0.34 + (0.5 - ctx.along) * 0.14;
+  if (ctx.depth > 0.78 && ctx.around > -0.2) b += 0.14;
+  b += (vnoise(ctx.localX * 0.13, ctx.localY * 0.13, TEX_SKIN + 5) - 0.5) * 0.07;
+  return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
+}
+
+const TEX_SKIN = 8821; // fixed seed for character texture noise, distinct from the rock's
+
+const material = (shade: (ctx: PartCtx) => Rgb, ramp: readonly string[]): SpriteMaterial => ({
+  shade,
+  // `colorsFor` wants a mutable array and is far too slow per pixel, so a material resolves its
+  // swatches once, here, and the draw loop only ever reads them.
+  colors: colorsFor([...ramp]),
+});
+
+/**
+ * A worked example, and the proof the pipeline does what it claims: plate over the torso and far
+ * arm, leather trousers, a cloth sleeve, bare skin for head and near arm.
+ *
+ * Note what is NOT here — any per-animation work. The coordinates are derived from each frame's own
+ * silhouette, so this armour fits all fifteen animations without being authored against any of them.
+ */
+export const PLATE_ARMOUR: SpriteSkin = {
+  ...MINER_SKIN,
+  materials: {
+    torso: material(plateArmourSurface, STEEL),
+    'arm.far': material(armourSurface, STEEL),
+    'arm.near': material(armourSurface, CLOTH_BLUE),
+    'leg.near': material(armourSurface, LEATHER),
+    'leg.far': material(armourSurface, LEATHER),
+  },
+};
+
+/** Every slot as plate — the clearest view of what the derived surface coordinates look like. */
+export const ALL_STEEL: SpriteSkin = {
+  ...MINER_SKIN,
+  materials: Object.fromEntries(
+    ['head', 'torso', 'arm.near', 'arm.far', 'leg.near', 'leg.far'].map((slot) => [
+      slot,
+      material(plateArmourSurface, STEEL),
+    ]),
+  ),
+};

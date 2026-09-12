@@ -30,7 +30,12 @@ how an import gets checked; `--template` shows the pack's raw code colours rathe
 skin. `client/labs/sprite-lab.html` is the interactive version, with per-layer
 visibility and recolouring.
 
-Full pipeline, format and the open questions: [`docs/SPRITES.md`](../docs/SPRITES.md).
+Adding another entity — an enemy, an NPC, a prop — is one entry in
+[`sprite-manifest.ts`](sprite-manifest.ts) and a re-run. Slots are declared per entity; the template
+palette is shared, so a skin or material authored once applies across entities.
+
+Full pipeline, format and the open questions: [`docs/SPRITES.md`](../docs/SPRITES.md). The
+step-by-step procedure is the `delve-import-sprites` skill.
 
 ## `rig-measure.ts` — how close the humanoid is to its reference, in numbers
 

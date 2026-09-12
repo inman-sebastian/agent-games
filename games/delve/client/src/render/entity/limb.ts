@@ -462,7 +462,12 @@ export function plateSurface(ctx: PartCtx): Rgb {
 // Band order mirrors the materials' dark→light swatch ladder so a part sits in the same tonal space
 // as the rock it stands on.
 const bandCache = new Map<RockColors, Rgb[]>();
-function bandsOf(colors: RockColors): Rgb[] {
+/**
+ * The band ladder a part surface quantizes into, darkest first. Exported so materials calibrated
+ * for a different SCALE — a 4px-wide imported limb rather than a 16px tile — can reuse the exact
+ * same ladder instead of inventing a parallel one.
+ */
+export function bandsOf(colors: RockColors): Rgb[] {
   let bands = bandCache.get(colors);
   if (!bands) {
     bands = [

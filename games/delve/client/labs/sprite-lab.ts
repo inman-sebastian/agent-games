@@ -6,7 +6,14 @@
 // at once because layer names are normalised at import time.
 import { PLAYER_SPRITES, PLAYER_SLOTS, type PlayerAnim } from '../src/render/entity/sprites';
 import { drawSprite, frameAt, type SpriteSkin } from '../src/render/entity/sprite';
-import { MINER_RAMPS, buildSkin, type SkinPart, type SkinRamps } from '../src/render/entity/skin';
+import {
+  ALL_STEEL,
+  MINER_RAMPS,
+  PLATE_ARMOUR,
+  buildSkin,
+  type SkinPart,
+  type SkinRamps,
+} from '../src/render/entity/skin';
 
 const SCALE = 6;
 const STRIP_SCALE = 2;
@@ -20,7 +27,15 @@ const names = Object.keys(PLAYER_SPRITES) as PlayerAnim[];
 let current: PlayerAnim = 'idle';
 let flip = false;
 let hidden = new Set<string>();
-let template = false; // show the pack's raw colour codes instead of the authored skin
+/**
+ * Which colour source to draw with. `template` is the pack's raw codes; `flat` is the authored
+ * colour table; `plate` and `steel` sample PROCEDURAL MATERIALS at each pixel's surface coordinate,
+ * which is the two-dimensional form of the same pipeline and the only mode that can produce more
+ * shades than the imported template carries.
+ */
+type Mode = 'flat' | 'template' | 'plate' | 'steel';
+const MODES: readonly Mode[] = ['flat', 'template', 'plate', 'steel'];
+let mode: Mode = 'flat';
 // Per-part ramps, seeded from the shipped miner. Editing one is authoring equipment.
 let ramps: SkinRamps = MINER_RAMPS;
 
@@ -71,7 +86,7 @@ side.append(layerBox);
 heading('skin');
 const modeBtn = document.createElement('button');
 modeBtn.onclick = (): void => {
-  template = !template;
+  mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
   rebuild();
 };
 side.append(modeBtn);
@@ -90,6 +105,15 @@ side.append(resetBtn);
 
 function buildRampControls(): void {
   rampBox.replaceChildren();
+  // The ramp pickers only drive the flat colour table; the material modes shade themselves.
+  if (mode !== 'flat') {
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.style.textAlign = 'left';
+    note.textContent = 'material mode shades from surface coordinates — ramps below are unused';
+    rampBox.append(note);
+    return;
+  }
   for (const part of Object.keys(ramps) as SkinPart[]) {
     const ramp = ramps[part];
     if (ramp.length === 0) continue;
@@ -137,10 +161,13 @@ function buildLayerControls(): void {
   }
 }
 
-/** The draw-time skin: the authored ramps, or the pack's raw codes, plus whatever is hidden. */
+/** The draw-time skin for the current mode, plus whatever slots are hidden. */
 function skinFor(): SpriteSkin {
   const hide = [...hidden];
-  return template ? { hide } : { ...buildSkin(ramps), hide };
+  if (mode === 'template') return { hide };
+  if (mode === 'plate') return { ...PLATE_ARMOUR, hide };
+  if (mode === 'steel') return { ...ALL_STEEL, hide };
+  return { ...buildSkin(ramps), hide };
 }
 
 // ---- drawing -----------------------------------------------------------------------------------
@@ -148,7 +175,11 @@ function rebuild(): void {
   const anim = PLAYER_SPRITES[current];
   for (const [name, b] of animButtons) b.setAttribute('aria-pressed', String(name === current));
   flipBtn.textContent = `facing: ${flip ? 'left' : 'right'}`;
-  modeBtn.textContent = template ? 'colours: pack template' : 'colours: authored skin';
+  modeBtn.textContent = `colours: ${
+    { flat: 'authored skin', template: 'pack template', plate: 'plate armour', steel: 'all steel' }[
+      mode
+    ]
+  }`;
   buildLayerControls();
   buildRampControls();
 

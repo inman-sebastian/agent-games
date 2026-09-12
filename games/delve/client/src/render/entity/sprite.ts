@@ -18,6 +18,9 @@
 // Frames are UPSCALED at draw time by an integer factor, never resampled, so every edge stays hard.
 import type { Rgb } from '../palette';
 import { TEMPLATE_PALETTE } from './sprites/palette';
+import { partCtx, surfaceOf, type SpriteMaterial } from './surface';
+
+export type { SpriteMaterial };
 
 /** One layer's pixels for one frame. `x`/`y` place the cel in the frame; indices are row-major. */
 export interface SpriteCel {
@@ -75,6 +78,15 @@ export interface SpriteSkin {
   readonly colors?: readonly (string | null)[];
   readonly hide?: readonly string[];
   readonly tint?: Rgb;
+  /**
+   * Per-slot PROCEDURAL materials, which take precedence over `colors` for the slots they name.
+   *
+   * This is the two-dimensional form of the same idea. A colour table can only ever produce as many
+   * shades as the imported template has (2-5 per part); a material is sampled at the pixel's surface
+   * coordinate and produces as many bands as it wants, from the same `colorsFor` swatches and Bayer
+   * dither as the rock. See surface.ts.
+   */
+  readonly materials?: Readonly<Record<string, SpriteMaterial>>;
 }
 
 const hexToRgb = (hex: string): Rgb => [
@@ -146,15 +158,23 @@ export function drawSprite(
     const cel = layer.cels[f];
     if (!cel) continue;
     const indices = indicesOf(cel);
+    // A material replaces the colour table for this slot, and needs the cel's surface coordinates.
+    const material = skin?.materials?.[layer.name];
+    const map = material ? surfaceOf(cel, indices) : null;
 
     for (let y = 0; y < cel.h; y++) {
       for (let x = 0; x < cel.w; x++) {
-        const index = indices[y * cel.w + x];
+        const i = y * cel.w + x;
+        const index = indices[i];
         if (index === 0) continue;
-        const rgb = skin?.tint ?? colors[index - 1];
-        if (!rgb) continue; // an index past the template palette — a hole, not a crash
         const sx = options.flip ? anim.w - 1 - (cel.x + x) : cel.x + x;
         const sy = cel.y + y;
+        const rgb =
+          skin?.tint ??
+          (map && material
+            ? material.shade(partCtx(map, i, sx, sy, material.colors))
+            : colors[index - 1]);
+        if (!rgb) continue; // an index past the template palette — a hole, not a crash
         // Rasterize the upscale: fill the whole destination block, never sample a source pixel.
         for (let dy = 0; dy < scale; dy++) {
           const py = baseY + sy * scale + dy;

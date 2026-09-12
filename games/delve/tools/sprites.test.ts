@@ -15,15 +15,18 @@ import {
 } from '../client/src/render/entity/sprites';
 import { drawSprite, frameAt, spriteMask } from '../client/src/render/entity/sprite';
 import {
+  ALL_STEEL,
   MINER_SKIN,
+  MINER_RAMPS,
   TEMPLATE_PARTS,
   buildSkin,
-  MINER_RAMPS,
 } from '../client/src/render/entity/skin';
+import { surfaceOf } from '../client/src/render/entity/surface';
 
+// One directory per entity under sprites/, so the registry check walks the entity's own folder.
 const SPRITE_DIR = join(
   dirname(new URL(import.meta.url).pathname),
-  '../client/src/render/entity/sprites',
+  '../client/src/render/entity/sprites/player',
 );
 const names = Object.keys(PLAYER_SPRITES) as PlayerAnim[];
 
@@ -32,7 +35,7 @@ const decode = (data: string): Uint8Array => new Uint8Array(Buffer.from(data, 'b
 describe('the sprite registry', () => {
   it('lists every module in the sprites directory', () => {
     const onDisk = readdirSync(SPRITE_DIR)
-      .filter((f) => f.endsWith('.ts') && f !== 'index.ts' && f !== 'palette.ts')
+      .filter((f) => f.endsWith('.ts') && f !== 'index.ts')
       .map((f) =>
         f
           .replace(/\.ts$/, '')
@@ -228,5 +231,137 @@ describe('the authored skin', () => {
       Math.max(...MINER_RAMPS[part].map(lum));
     expect(top('legNear')).toBeGreaterThan(top('legFar'));
     expect(top('armNear')).toBeGreaterThan(top('armFar'));
+  });
+});
+
+describe('surface coordinates', () => {
+  // The pixel-mapping pipeline: a pixel resolves to (along, around) on its part's surface, and a
+  // material samples that. These are the invariants equipment authored against coordinates relies
+  // on — get them wrong and a belt drawn at `along` 0.5 lands somewhere different every frame.
+  const cel = (w: number, h: number, fill: (x: number, y: number) => boolean) => {
+    const data = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (fill(x, y)) data[y * w + x] = 1;
+    return { spec: { x: 0, y: 0, w, h, data: Buffer.from(data).toString('base64') }, data };
+  };
+
+  it('runs `along` from 0 to 1 down a tall part', () => {
+    const { spec, data } = cel(4, 10, () => true);
+    const map = surfaceOf(spec, data);
+    expect(map.along[0]).toBeCloseTo(0, 5);
+    expect(map.along[9 * 4]).toBeCloseTo(1, 5);
+    expect(map.along[5 * 4]).toBeCloseTo(5 / 9, 5);
+  });
+
+  it('runs `along` across a WIDE part, not down it', () => {
+    // A foot, a fist, an outstretched arm. Scanning rows on a horizontal part would give every
+    // pixel nearly the same `along`, collapsing the coordinate that equipment is placed against.
+    const { spec, data } = cel(10, 3, () => true);
+    const map = surfaceOf(spec, data);
+    expect(map.along[0]).toBeCloseTo(0, 5);
+    expect(map.along[9]).toBeCloseTo(1, 5);
+    expect(map.along[1 * 10 + 5]).toBeCloseTo(5 / 9, 5);
+  });
+
+  it('runs `around` from -1 to +1 across the part, 0 on the spine', () => {
+    const { spec, data } = cel(5, 8, () => true);
+    const map = surfaceOf(spec, data);
+    const row = 3 * 5;
+    expect(map.around[row]).toBeCloseTo(-1, 5);
+    expect(map.around[row + 2]).toBeCloseTo(0, 5);
+    expect(map.around[row + 4]).toBeCloseTo(1, 5);
+  });
+
+  it('spans a run whole rather than per island', () => {
+    // A part with a one-pixel hole is still one part. Measuring islands separately would restart
+    // `around` mid-limb, so a marking would jump sides wherever the art has a gap.
+    //
+    // Tall on purpose: `around` runs across the part's SHORT axis, so a 5x4 shape is scanned by
+    // column and this would be testing the vertical coordinate instead.
+    const { spec, data } = cel(5, 12, (x) => x !== 2);
+    const map = surfaceOf(spec, data);
+    expect(map.around[6 * 5]).toBeCloseTo(-1, 5);
+    expect(map.around[6 * 5 + 4]).toBeCloseTo(1, 5);
+  });
+
+  it('puts depth 0 at the silhouette and 1 deepest inside', () => {
+    const { spec, data } = cel(9, 9, () => true);
+    const map = surfaceOf(spec, data);
+    expect(map.depth[0]).toBeLessThan(0.4); // a corner
+    expect(map.depth[4 * 9 + 4]).toBeCloseTo(1, 5); // the centre
+  });
+
+  it('points the normal outward', () => {
+    // From the distance-field gradient, so it works for any shape — a fist and a thigh both shade
+    // correctly without anyone declaring which way the part points.
+    const { spec, data } = cel(9, 9, () => true);
+    const map = surfaceOf(spec, data);
+    const top = 0 * 9 + 4;
+    const bottom = 8 * 9 + 4;
+    expect(map.normalY[top]).toBeLessThan(0); // up-facing edge points up
+    expect(map.normalY[bottom]).toBeGreaterThan(0);
+  });
+
+  it('leaves every coordinate inside its declared range', () => {
+    for (const anim of Object.values(PLAYER_SPRITES)) {
+      for (const layer of anim.layers) {
+        for (const c of layer.cels) {
+          if (!c) continue;
+          const map = surfaceOf(c, decode(c.data));
+          for (let i = 0; i < map.along.length; i++) {
+            if (decode(c.data)[i] === 0) continue;
+            expect(map.along[i]).toBeGreaterThanOrEqual(0);
+            expect(map.along[i]).toBeLessThanOrEqual(1);
+            expect(Math.abs(map.around[i])).toBeLessThanOrEqual(1);
+            expect(map.depth[i]).toBeGreaterThanOrEqual(0);
+            expect(map.depth[i]).toBeLessThanOrEqual(1);
+          }
+        }
+      }
+    }
+  });
+
+  it('draws a material without changing the silhouette', () => {
+    // A material must only decide COLOUR. If it changes which pixels are lit, equipment would
+    // silently reshape the character.
+    const anim = PLAYER_SPRITES.walk;
+    const blank = () =>
+      ({
+        width: anim.w,
+        height: anim.h,
+        data: new Uint8ClampedArray(anim.w * anim.h * 4),
+      }) as unknown as ImageData;
+    const lit = (img: ImageData): number => {
+      let n = 0;
+      for (let i = 3; i < img.data.length; i += 4) if (img.data[i]) n++;
+      return n;
+    };
+    for (let f = 0; f < anim.frames; f++) {
+      const flat = blank();
+      const plate = blank();
+      drawSprite(flat, anim, f, Math.floor(anim.w / 2), anim.ground, { skin: MINER_SKIN });
+      drawSprite(plate, anim, f, Math.floor(anim.w / 2), anim.ground, { skin: ALL_STEEL });
+      expect(lit(plate), `frame ${f}`).toBe(lit(flat));
+    }
+  });
+
+  it('gives a material more shades than the template carries', () => {
+    // The reason the pipeline exists. A colour table can only ever show as many shades as the pack
+    // authored (2-5 per part); a material samples a coordinate and bands as finely as it likes.
+    const anim = PLAYER_SPRITES.idle;
+    const shades = (skin: Parameters<typeof drawSprite>[5]) => {
+      const img = {
+        width: anim.w,
+        height: anim.h,
+        data: new Uint8ClampedArray(anim.w * anim.h * 4),
+      } as unknown as ImageData;
+      drawSprite(img, anim, 0, Math.floor(anim.w / 2), anim.ground, skin);
+      const seen = new Set<string>();
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 3] === 0) continue;
+        seen.add(`${img.data[i]},${img.data[i + 1]},${img.data[i + 2]}`);
+      }
+      return seen.size;
+    };
+    expect(shades({ skin: ALL_STEEL })).toBeGreaterThan(shades({ skin: MINER_SKIN }));
   });
 });

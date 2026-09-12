@@ -161,6 +161,61 @@ version — every animation playing, per-layer visibility, per-layer recolouring
 proved that; it guards what can rot afterwards: a module added and forgotten in the registry, a
 hand-edit to generated data, an index outside its palette, a layer name that drifts.
 
+## The pixel-mapping pipeline
+
+Two dimensions of the same idea, and the second is what makes equipment possible.
+
+**One dimension — a colour table.** A pixel's index resolves through a skin's `colors[]`. Cheap, and
+enough for skin tone, a shirt colour, a palette swap. Its ceiling is hard: the source template
+carries two to five shades per part, so a colour table can never show more than that.
+
+**Two dimensions — a surface coordinate.** A pixel also resolves to `(along, around)` on its body
+part's surface, and a **material** samples that:
+
+```
+along    0 at the part's start along its dominant axis, 1 at its end
+around  -1 at one silhouette edge, +1 at the other, 0 on the spine
+depth    0 at the silhouette, 1 deepest inside
+normal   outward, from the gradient of the distance field
+```
+
+Those feed a `PartCtx` — the same structure the procedural rig used — so `materials: { torso: … }`
+on a skin takes one of the shared part surfaces and shades from the same `colorsFor` swatches and
+Bayer dither as the rock. A steel pauldron is the metal material, not an imitation of it. The band
+count stops being a property of the imported art, which is what dissolves the shade-count ceiling.
+
+It also means **features are placed by position, not by colour** — a trim at `along > 0.8`, a belt
+across the torso, a boot below the shin's midpoint. Authored once, they fit all fifteen animations,
+because the coordinates are derived per frame from that frame's own silhouette. No per-animation work
+at all.
+
+How the coordinates are derived, in [`surface.ts`](../client/src/render/entity/surface.ts):
+`along` and `around` come from scanning the part's **dominant axis** — rows for a tall part, columns
+for a wide one, so a foot or an outstretched arm is measured along its length rather than across it.
+`depth` and the normal come from a **chamfer distance transform** of the part mask rather than an
+assumed limb axis, so a fist, a thigh and a curled-up roll pose all shade correctly without anyone
+declaring which way they point. Derived on first draw and cached, so it costs nothing per frame and
+adds nothing to the committed data.
+
+**Materials for characters are calibrated separately.** Use `armourSurface` / `plateArmourSurface`
+from `skin.ts`, not `clothSurface` / `plateSurface` from `limb.ts`. The latter were tuned against a
+16px tile; pointed at a 3-5px imported limb, their noise swings across most of the band ladder and
+the figure comes out as white speckle with its silhouette dissolved. Same lesson the procedural rig
+learned about edge erosion — a treatment sized for a tile is most of a small part.
+
+## Adding another entity
+
+`ENTITIES` in [`tools/sprite-manifest.ts`](../tools/sprite-manifest.ts) is a list, and the importer
+runs over all of it. An enemy, an NPC or a prop is one entry plus a re-run: a name, a pack
+subdirectory, a ground row, a slot table and its animations. Slots are declared **per entity**,
+because a spider is not a biped; `BIPED_SLOTS` is there to reuse for anything humanoid.
+
+What stays global is the template palette, and therefore the whole skin and material pipeline — so a
+material authored for the player's torso applies to any entity with a torso slot.
+
+The step-by-step procedure, including how to read an import failure, is the
+`delve-import-sprites` skill.
+
 ## What is not solved yet
 
 - **Scale.** The pack's figure is 29px tall on a 48px canvas, about 1.8 tiles. DELVE committed to
@@ -170,7 +225,12 @@ hand-edit to generated data, an index outside its palette, a layer name that dri
   re-skinning: the pack's head layer is a single silhouette including hair. A helmet needs an
   authored equipment layer drawn over the head, which is what the `weapon` slot's shape shows is
   possible.
-- **Ramp tuning.** The shipped miner skin reads correctly but runs dark on the far side. That is now
-  a lab job rather than a code change — `sprite-lab.html` edits every part's ramp live.
+- **Ramp tuning.** The shipped miner skin reads correctly but runs dark on the far side, and the
+  steel material runs light. Both are lab jobs rather than code changes — `sprite-lab.html` edits
+  every part's ramp live and switches between the flat and material modes.
+- **Materials do not know about world light yet.** A material shades from its own surface normal
+  against a fixed overhead light, so a character does not darken as it walks into an unlit tunnel the
+  way the rock does. Wiring the lighting pass into `partCtx` is the obvious next step and is the
+  thing that would make a character sit properly in the world.
 - **Animations the pack flattened.** Slide, Dash, Katana Walk, side Climb and running Shoot have no
   per-part layers and cannot be imported into this format as-is.
