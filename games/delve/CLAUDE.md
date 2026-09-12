@@ -41,11 +41,11 @@ tokens. **Always** verify with the built headless tools, in this order — only 
 Playwright when a question is genuinely impossible headlessly, and even then read text,
 not images:
 
-1. **Logic / world-gen** → `pnpm verify` (the content gate: resource conformance + ore
-   discoverability + movement regression) and `tools/sim.ts` (`state` / `map` / `probe` /
-   scripted `play`) — pure Node, no browser.
-   **Client/server protocol** → `pnpm server:check` (spawns the real server, drives the WS
-   join/sync/reconnect roundtrip) — also headless, no browser.
+1. **Logic / world-gen / protocol** → `pnpm test` (Vitest — the gate). Property/fuzz tests over
+   the sim + world-gen, the real client↔server protocol e2e (spawns the server), and the client
+   save/DOM under happy-dom; see [docs/TESTING.md](docs/TESTING.md). Favor an **invariant/property**
+   over a curated case. For interactive inspection (not gating), `tools/sim.ts` (`state` / `map` /
+   `probe` / scripted `play`) — pure Node, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
    via headless Chrome (no MCP), against a running `pnpm dev` server (set `SHOT_BASE`). The
    `page` is a path under the Vite root (`src/`): `labs/render.html` (world crops, the
@@ -59,6 +59,6 @@ If no cheap tool covers what you need, **build or extend one** (that's why `shot
 `page` arg and `labs/light-lab.html` exists) rather than defaulting to Playwright. See
 [tools/README.md](tools/README.md).
 
-- After any logic / world-gen / resource change, run **`pnpm verify`**.
+- After any logic / world-gen / resource change, run **`pnpm test`** (and add/extend a test for it).
 
 Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).

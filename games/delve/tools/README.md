@@ -1,23 +1,14 @@
 # DELVE dev tools
 
-Cheap headless verification, all driven from the shell. **Use these first — Playwright /
-MCP is a last resort.** Reading browser-automation screenshots (especially full-viewport
-or hi-DPI) is slow and burns tokens; these tools answer almost every question in text or a
-tiny cropped PNG. If something isn't covered, extend a tool rather than defaulting to
-Playwright. (Only genuinely live questions — input feel, real FPS — need the browser, and
-even then read the `?debug` overlay text, not screenshots.)
+Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Use these
+(and the tests) first — Playwright / MCP is a last resort.** Reading browser-automation
+screenshots (especially full-viewport or hi-DPI) is slow and burns tokens; these answer almost
+every question in text or a tiny cropped PNG.
 
-## `verify.ts` — the content gate
-
-There is no economy to pace, so this asserts the invariants that hold without one:
-every ore tier is **discoverable within its band** (world-gen scan), horizontal movement
-is unbounded (the #8 regression), and static conformance of the ore table + resource
-registry (index↔directory drift). Run it after any logic / world-gen / resource change:
-
-```sh
-pnpm verify          # from games/delve/ (or the workspace: pnpm --filter delve verify)
-node tools/verify.ts # equivalent, from games/delve/
-```
+> **Automated testing is separate.** The gate is `pnpm test` (Vitest — sim/world-gen fuzz,
+> the client↔server protocol e2e, and DOM). See [`docs/TESTING.md`](../docs/TESTING.md). The
+> tools below are for *inspection*, not gating; the retired `verify.ts` / `server-check.ts`
+> scripts are now Vitest suites.
 
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
@@ -40,18 +31,8 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
-## `server-check.ts` — authoritative-server gate (no browser)
-
-Spawns the **real** server (`server/src/index.ts`) against a throwaway data dir, then drives the
-WebSocket protocol the way `client/src/net.ts` does and asserts the P3 authority guarantees:
-join → `hello` with a fresh world; **determinism/authority** — a scripted input stream yields the
-SAME state on the server as the client's local prediction (same seed + inputs → same result);
-**anti-cheat** — an out-of-reach mine target is rejected server-side; reconnect hydrates the
-persisted world; and a protocol-version mismatch is rejected. Exits non-zero on any failed check.
-
-```sh
-pnpm server:check
-```
+The authoritative-server roundtrip that used to live here (`server-check.ts`) is now the
+`server/src/protocol.e2e.test.ts` Vitest suite (run by `pnpm test`).
 
 ## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
@@ -101,6 +82,6 @@ flood-fill), how occluders shadow, and how the additive cap reads. Open it in a 
 or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
 · **O** toggle occluders.
 
-**Rule of thumb:** reach for `sim.ts`/`verify.ts` first (free, text); render a crop only
+**Rule of thumb:** run `pnpm test` and reach for `sim.ts` first (free, text); render a crop only
 when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
 resort.
