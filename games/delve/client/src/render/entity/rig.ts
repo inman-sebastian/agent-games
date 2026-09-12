@@ -8,7 +8,7 @@
 // A 2D rig has no depth buffer, so paint order is authored per part (`Part.order`) rather than
 // derived. That's what puts the far arm behind the torso and the near arm in front.
 import { clamp01, type Rgb } from '../palette';
-import { rasterizeLimb, rasterizeBulb, snap, type PartCtx } from './limb';
+import { rasterizeLimb, rasterizeBulb, rasterizeStroke, snap, type PartCtx } from './limb';
 import { shadePart, partPalettes, type Part } from './part';
 
 /** Magenta, so a part that forgot to declare a coded colour is impossible to miss. */
@@ -82,7 +82,21 @@ export function drawRig(
                   pal.layers,
                 ));
 
-    if (part.shape.kind === 'limb') {
+    if (part.shape.kind === 'stroke') {
+      rasterizeStroke(
+        img,
+        {
+          ax: a.x,
+          ay: a.y,
+          bx: b.x,
+          by: b.y,
+          widths: part.shape.widths,
+          offsets: part.shape.offsets,
+        },
+        shade,
+        pal.base,
+      );
+    } else if (part.shape.kind === 'limb') {
       rasterizeLimb(
         img,
         {

@@ -29,6 +29,27 @@ reference's numbers come from unclipped layers and the arms otherwise hide the t
 silhouette never needs a dev server or a screenshot. `--png` is the one to read when a number looks
 right but the shape doesn't.
 
+## `rig-overlay.ts` / `rig-fit.ts` — the overlap measurement, and fitting against it
+
+```sh
+pnpm --filter delve exec tsx tools/rig-overlay.ts ~/pack/Idle/'Player Idle 48x48.png'
+pnpm --filter delve exec tsx tools/rig-fit.ts     ~/pack/Idle/'Player Idle 48x48.png'
+```
+
+`rig-overlay.ts` is the measurement that should have come first: intersection-over-union of our
+silhouette against the reference's own frame, plus an ASCII map of exactly where the two disagree
+(`#` both, `O` ours only, `R` reference only). Extents and even per-row profiles can agree while the
+figure is still visibly wrong; "how many of the same pixels are lit" cannot be gamed.
+
+`rig-fit.ts` runs coordinate descent on that overlap over the PLACEMENT knobs — offsets, splays,
+lean, joint leads — and prints the result. Shapes are authored profiles and are not fitted. It
+optimises a single frame, so it will trade a small part's accuracy for a large one's: it zeroed the
+far arm's angle and collapsed the foot to nothing, because neither costs many pixels. Pin whatever
+the gait needs, and re-run `pnpm test` after — the walk invariants are what catch an idle-only win.
+
+Both need the **purchased** reference pack, which is not committed (all game art is authored). They
+shell out to `python3` with Pillow to decode the PNG.
+
 The measurements themselves live in [`rig-reference.ts`](rig-reference.ts), shared with
 [`rig.test.ts`](rig.test.ts) — so the report and the gate can't disagree about what "close" means.
 For _tuning_ rather than checking, use `client/labs/rig-lab.html`, which binds every value in

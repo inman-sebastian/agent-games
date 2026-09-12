@@ -42,6 +42,16 @@ export interface PartLayer {
 
 export type PartShape =
   | {
+      /**
+       * A STROKE: a bone plus an authored per-row width profile — see `Stroke` in limb.ts. This is
+       * the default for anything limb-shaped, and for the head, because it reproduces a hand-drawn
+       * pixel silhouette exactly instead of approximating one with a radius function.
+       */
+      readonly kind: 'stroke';
+      readonly widths: readonly number[];
+      readonly offsets?: readonly number[];
+    }
+  | {
       /** A limb: a segment with a radius that may TAPER from the proximal to the distal joint. */
       readonly kind: 'limb';
       /** Radius at the `from` joint, in art px. */

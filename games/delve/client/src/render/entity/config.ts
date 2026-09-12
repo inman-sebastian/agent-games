@@ -10,6 +10,11 @@
 
 export interface HumanoidConfig {
   // ---- skeleton (art px, feet at y = 0, up is negative) ----
+  //
+  // JOINT HEIGHTS ARE DERIVED, NOT TUNED. Each one is placed so its part's bone spans exactly the
+  // number of reference rows that part's width profile was measured from (see `PROFILE` in
+  // humanoid.ts): leg 6 + 4 + 2, arm 5 + 5, torso 6 + 6, head 8. That is what lets an authored
+  // profile land on the pixels it came from, and it is why there is nothing to search here any more.
   yAnkle: number;
   yKnee: number;
   yHip: number;
@@ -20,12 +25,11 @@ export interface HumanoidConfig {
   yElbow: number;
   yHand: number;
 
-  // ---- bone lengths (POSITIVE; must sum slightly above the span they cover — see humanoid.ts) ----
+  // ---- bone lengths (POSITIVE; slack for the IK to bend into comes from `stretch`) ----
   femur: number;
   tibia: number;
   humerus: number;
   ulna: number;
-  /** Knee bend direction. Elbows take the opposite. */
   kneeBend: 1 | -1;
   elbowBend: 1 | -1;
 
@@ -66,14 +70,6 @@ export interface HumanoidConfig {
   armOffset: number;
 
   /**
-   * How far limb end caps extend past their joints, as a fraction of the radius (see `Limb.cap`).
-   *
-   * The single most load-bearing silhouette value: a capsule draws `bone + 2 * radius` long, so at
-   * 1 the legs are longer than the torso regardless of what the bone lengths say.
-   */
-  limbCap: number;
-
-  /**
    * How far each ANKLE sits outboard of its own hip — near foot forward, far foot back.
    *
    * This is the angle. The reference's idle sweeps each limb diagonally across the body: its near
@@ -83,6 +79,16 @@ export interface HumanoidConfig {
    * this at all, which is how it survived five rounds of tuning.
    */
   stanceSplay: number;
+  /**
+   * The same, for the far side — and it is NOT the mirror of the near side, on either limb pair.
+   *
+   * A standing figure is not symmetric about its own depth axis: the reference's near leg runs 4.5px
+   * forward while its far leg runs only 3.5px back, and its arms go the other way round, 2.5px on
+   * the near side against 4px on the far. Mirroring one value made the far arm's angle the single
+   * worst number on the board while every other part was already inside a pixel.
+   */
+  stanceSplayFar: number;
+  handSplayFar: number;
 
   /**
    * What share of the leg's splay the KNEE takes, and the ARM's the elbow. Both read straight off
@@ -98,17 +104,6 @@ export interface HumanoidConfig {
   elbowLead: number;
 
   /**
-   * How much narrower the far-side limbs are drawn — the reference thins them as well as darkening
-   * them, but only really the arms.
-   *
-   * Its far arm is a 1px sliver for four rows where the near arm is 2-4, because at 29px a far arm
-   * tucked behind the torso is drawn as a line. Its far LEG is a different story: full width, near
-   * enough the same as the near leg. One shared value made the far leg a 2px stick.
-   */
-  farNarrowArm: number;
-  farNarrowLeg: number;
-
-  /**
    * How far the legs sit either side of the body centreline.
    *
    * Same problem the arms had: a 10px-wide near thigh at x=0 completely covers a 9.6px-wide pelvis,
@@ -117,19 +112,16 @@ export interface HumanoidConfig {
    */
   legOffset: number;
 
-  // ---- part widths (radii, art px; every one measured off the reference — see humanoid.ts) ----
-  rHead: number;
-  /** Torso at the shoulder — its widest point. */
-  rChest: number;
-  /** Torso at its narrowest. The reference torso pinches mid-way, which is what reads as a waist. */
-  rWaist: number;
-  /** Torso at the hip. */
-  rPelvis: number;
-  rThigh: number;
-  rShin: number;
-  rUpperArm: number;
-  rForearm: number;
-  rFoot: number;
+  /**
+   * Overall thickness multiplier over the authored width profiles (see `PROFILE` in humanoid.ts).
+   *
+   * This replaced nine per-part radii plus a cap fraction and two far-narrowing factors. Those
+   * existed to make a smooth capsule approximate a hand-drawn staircase, and hand-searching that
+   * coupled space is what stalled the silhouette for five rounds. The profiles are the reference's
+   * own measured widths, so there is nothing left to fit — only one knob for building bigger or
+   * slimmer characters off the same template.
+   */
+  girth: number;
 
   /**
    * How far the hand sits outboard of the shoulder, on top of `armOffset`. Measured at 2.5 reference
@@ -187,38 +179,36 @@ export const BUILDS: Record<
 
 export const DEFAULT_CONFIG: HumanoidConfig = {
   build: 'male',
-  armOffset: 6.2,
-  limbCap: 0.4,
-  legOffset: 5,
-  stanceSplay: 6.6,
-  farNarrowArm: 0.4,
-  farNarrowLeg: 0.95,
-  kneeLead: 0.22,
-  elbowLead: 1.15,
-  handSplay: 5,
-  torsoDrop: 1,
+  armOffset: 5,
+  legOffset: 6.4,
+  stanceSplay: 5.2, // ref 4.5 forward
+  stanceSplayFar: 4, // ref 3.5 back
+  handSplayFar: 5.8, // ref 4.0 back
+  kneeLead: 0.32,
+  elbowLead: 1.52,
+  handSplay: 4, // ref 2.5 forward
+  torsoDrop: 4.5,
 
-  // Joints: the reference's own joint rows, scaled by 48/29, and nothing here is estimated. They sit
-  // INSIDE the drawn shape: a capsule's end cap overshoots its joint by cap x radius, so
-  // every one of these is the reference's measured extent pulled in by that overshoot.
-  yAnkle: -3,
-  yKnee: -10.5,
-  yHip: -18,
-  yWaist: -24,
-  yShoulder: -31,
-  yNeck: -34,
-  yHeadTop: -47.5,
-  yElbow: -25,
-  yHand: -19,
+  // Every joint here is a reference row x 48/29 — see the note on the interface. Nothing estimated.
+  yAnkle: -4.1, // ref -2.5
+  yKnee: -10.8, // ref -6.5
+  yHip: -19.9, // ref -12
+  yWaist: -24.8, // ref -15
+  yShoulder: -33.1, // ref -20
+  yNeck: -34.8, // ref -21 — one row above the shoulder, the reference's own neck gap
+  yHeadTop: -47.5, // ref -29; the span is 12 not 13.2 because a stroke draws bone + 1 rows and the
+  //                 head, unlike every other part, shares a boundary row with nothing above it
+  yElbow: -25.7, // ref -15.5
+  yHand: -18.2, // ref -11
 
-  // Each bone pair must OVERSHOOT the joint span it covers. With no slack the chain is permanently
-  // straight and the joint might as well not exist — which is exactly how the arms read when the
-  // humerus and ulna summed to the shoulder-to-hand distance, a pair of stiff diagonal bars.
-  femur: 8,
-  tibia: 8,
-  humerus: 8,
-  ulna: 7,
-  kneeBend: -1,
+  // Each bone slightly overshoots its joint span, so the chain has somewhere to bend. With no slack
+  // the joint might as well not exist, which is how the arms read when humerus + ulna summed exactly
+  // to the shoulder-to-hand distance: a pair of stiff diagonal bars.
+  femur: 9.6,
+  tibia: 7.1,
+  humerus: 7.9,
+  ulna: 7.9,
+  kneeBend: 1,
   elbowBend: 1,
 
   // Gait, also measured — with one correction that mattered. The reference's planted foot travels
@@ -233,19 +223,12 @@ export const DEFAULT_CONFIG: HumanoidConfig = {
   armSwing: 7,
   bob: 3.3,
   stretch: 1.2,
-  lean: -3.2,
+  lean: -2.8,
 
-  rHead: 6.8,
-  rChest: 6.7,
-  rWaist: 5,
-  rPelvis: 6,
-  rThigh: 4.2,
-  rShin: 2.2,
-  rUpperArm: 2.8,
-  rForearm: 2,
-  rFoot: 1.6,
-  footLen: 2,
-  footDrop: 0,
+  footLen: 2.5,
+  footDrop: 0.5,
+
+  girth: 1,
 
   rimDarken: 0.14,
   farBias: -0.28,

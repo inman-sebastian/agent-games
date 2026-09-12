@@ -311,6 +311,120 @@ export function rasterizeBulb(
   }
 }
 
+/**
+ * A STROKE: a bone plus an AUTHORED WIDTH PROFILE. This is the primitive that actually matches
+ * hand-drawn pixel art, and it replaced the tapered capsule for every limb.
+ *
+ * Why the capsule failed. A capsule is a smooth analytic shape: pixel coverage falls out of a
+ * distance test against a radius. Hand-drawn pixel art is nothing like that — a pixel artist picks
+ * a row and places N pixels, so a limb is a stack of horizontal RUNS forming a staircase. Fitting
+ * radii, tapers and cap fractions to approximate a given staircase means hand-searching a large
+ * coupled parameter space, and every value that fixes one row breaks another. The reference's leg
+ * is 2,3,5,5,5,4,4,3,3,3,3,3 pixels wide down its length; there is no radius function that produces
+ * that, but the array itself is a perfectly good description of it.
+ *
+ * So the array IS the shape. `widths` is sampled along the bone and each step gets exactly that many
+ * pixels, which reproduces the profile by construction rather than approximating it.
+ *
+ * Runs are stamped along the DOMINANT AXIS — rows for an upright limb, columns for a horizontal one
+ * — which is the standard thick-line construction and is also what a pixel artist does. It has a
+ * useful property: consecutive runs shift by at most one pixel, so a stroke can never have gaps,
+ * at any angle, without needing overdraw.
+ */
+export interface Stroke {
+  readonly ax: number;
+  readonly ay: number;
+  readonly bx: number;
+  readonly by: number;
+  /**
+   * Width in px at evenly-spaced samples from `a` to `b`, resampled onto the drawn length. Two
+   * samples give a linear taper; twelve give the reference's exact leg.
+   */
+  readonly widths: readonly number[];
+  /** Optional per-sample centre offset, perpendicular to the bone, for a part with its own curve. */
+  readonly offsets?: readonly number[];
+}
+
+/** Sample an authored profile at `t` (0..1) with linear interpolation between entries. */
+const sampleProfile = (values: readonly number[], t: number): number => {
+  if (values.length === 0) return 0;
+  if (values.length === 1) return values[0];
+  const u = clamp01(t) * (values.length - 1);
+  const lo = Math.floor(u);
+  const hi = Math.min(values.length - 1, lo + 1);
+  return values[lo] + (values[hi] - values[lo]) * (u - lo);
+};
+
+export function rasterizeStroke(
+  img: ImageData,
+  stroke: Stroke,
+  shade: PartShader,
+  colors: RockColors,
+  lightDirX = 0,
+  lightDirY = -1,
+): void {
+  const dx = stroke.bx - stroke.ax;
+  const dy = stroke.by - stroke.ay;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return;
+  // Perpendicular unit, for the across-the-run coordinate and the surface normal.
+  const perpX = -dy / len;
+  const perpY = dx / len;
+  // Ends are FLAT, exactly at the joints — no caps. The reference's parts have square ends, and a
+  // capsule's `bone + 2 * radius` drawn length was its single most misleading property.
+  const rows = Math.abs(dy) >= Math.abs(dx);
+  const span = rows ? Math.abs(dy) : Math.abs(dx);
+  // Runs are drawn INCLUSIVE of both joints, so a part spans `bone + 1` pixels and adjacent parts
+  // SHARE a boundary row. That sharing is what makes the body continuous; dropping it to make each
+  // part exactly bone-length opened a one-pixel seam at every joint and cost 8 points of silhouette
+  // overlap. A part that has no neighbour — the head — gets its bone shortened instead.
+  const steps = Math.max(1, Math.round(span));
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    // Walk from whichever end comes first along the dominant axis, so `t` still runs a → b.
+    const at = rows ? (dy >= 0 ? t : 1 - t) : dx >= 0 ? t : 1 - t;
+    const cx = stroke.ax + dx * at;
+    const cy = stroke.ay + dy * at;
+    const off = stroke.offsets ? sampleProfile(stroke.offsets, at) : 0;
+    const w = sampleProfile(stroke.widths, at);
+    const n = Math.round(w);
+    if (n <= 0) continue;
+
+    // Exactly `n` pixels on this run — that is what makes the authored profile exact.
+    const centre = (rows ? cx : cy) + off * (rows ? perpX : perpY);
+    const start = Math.round(centre - n / 2);
+    const fixed = Math.round(rows ? cy : cx);
+    for (let k = 0; k < n; k++) {
+      const px = rows ? start + k : fixed;
+      const py = rows ? fixed : start + k;
+      if (px < 0 || py < 0 || px >= img.width || py >= img.height) continue;
+      // `around` spans the run: -1 at one silhouette edge, +1 at the other.
+      const around = n === 1 ? 0 : ((k + 0.5) / n) * 2 - 1;
+      const nx = perpX * around;
+      const ny = perpY * around;
+      const nlen = Math.hypot(nx, ny) || 1;
+      const lambert = ((nx / nlen) * lightDirX + (ny / nlen) * lightDirY + 1) * 0.5;
+      const rgb = shade({
+        along: at,
+        around,
+        localX: px,
+        localY: py,
+        px,
+        py,
+        brightness: clamp01(0.18 + lambert * 0.82),
+        depth: 1 - Math.abs(around),
+        colors,
+      });
+      const idx = (py * img.width + px) * 4;
+      img.data[idx] = rgb[0];
+      img.data[idx + 1] = rgb[1];
+      img.data[idx + 2] = rgb[2];
+      img.data[idx + 3] = 255;
+    }
+  }
+}
+
 /** Clamp to -1..1 (the signed sibling of `clamp01`). */
 const clamp01Signed = (v: number): number => (v < -1 ? -1 : v > 1 ? 1 : v);
 

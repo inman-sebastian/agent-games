@@ -41,7 +41,6 @@ import { band } from './part';
 import { solveTwoBone } from './ik';
 import { BUILDS, DEFAULT_CONFIG, type HumanoidConfig } from './config';
 import type { PartShape } from './part';
-import type { Rgb } from '../palette';
 import type { Rig, Skeleton } from './rig';
 
 export const HEIGHT = 48;
@@ -75,6 +74,44 @@ export const CODED = {
 } as const satisfies Record<string, readonly [number, number, number]>;
 
 /**
+ * The reference's own per-part width profiles, in REFERENCE px, read off its layered template.
+ *
+ * These ARE the shapes — see `Stroke` in limb.ts for why the tapered capsule had to go. Each array
+ * runs from the part's `from` joint to its `to` joint, so the ones that travel up the body (chest,
+ * pelvis, head) are stored reversed from how they were measured.
+ *
+ * The row counts are load-bearing: a part's joints are placed so its bone spans exactly that many
+ * reference rows, which is what lets the profile land on the pixels it was measured from.
+ */
+const PROFILE = {
+  // Leg, hip → ground, 12 rows: thigh 6, shin 4, foot 2.
+  thighNear: [2, 3, 5, 5, 5, 4],
+  shinNear: [4, 3, 3, 3],
+  footNear: [3, 3],
+  // The far leg is full width — it is the far ARM the reference draws as a sliver, not the leg.
+  thighFar: [2, 3, 5, 6, 4, 3],
+  shinFar: [2, 2, 2, 2],
+  footFar: [3, 3],
+  // Arm, shoulder → hand, 10 rows: upper 5, fore 5.
+  upperNear: [2, 3, 4, 4, 3],
+  foreNear: [2, 2, 3, 3, 3],
+  // 1px for four rows: at 29px a bicep tucked behind the torso is drawn as a line.
+  upperFar: [1, 1, 1, 1, 2],
+  foreFar: [3, 3, 3, 4, 3],
+  // Torso, 11 rows measured shoulder → crotch, both halves stored bottom-up to match their bones.
+  chest: [5, 6, 7, 7, 7, 6],
+  pelvis: [1, 3, 5, 7, 6, 5],
+  // An octagon, which an ellipse could not be: its top row is 4px where a bulb came to a 1px point.
+  head: [4, 6, 8, 8, 8, 8, 6, 4],
+} as const;
+
+/** The reference figure is 29px tall and ours is 48 (2x3 tiles), so its widths scale by this. */
+const coded = (c: readonly [number, number, number]): [number, number, number] => [...c];
+
+const REF_HEIGHT = 29;
+export const PROFILE_SCALE = HEIGHT / REF_HEIGHT;
+
+/**
  * Build the rig for a config.
  *
  * Boots and the helmet are LAYERS rather than parts. The helmet was a part first and that failed
@@ -95,146 +132,112 @@ export function buildHumanoid(cfg: HumanoidConfig = DEFAULT_CONFIG): Rig {
   };
   const far = cfg.farBias;
   const b = BUILDS[cfg.build];
-  const cap = cfg.limbCap;
-  // Far limbs are drawn NARROWER, not just darker — measured off the reference, whose far arm is
-  // 1px wide at the shoulder against the near arm's 2.
-  // The far ARM's narrowing applies to its upper segment only — the reference's far forearm is full
-  // width, it is the bicep tucked behind the torso that gets drawn as a line.
-  const fArm = b.limb * cfg.farNarrowArm;
-  const fLeg = b.limb * cfg.farNarrowLeg;
-  const n = b.limb;
   const cloth = { ramp: CLOTH, surface: clothSurface } as const;
   const skin = { ramp: SKIN, surface: clothSurface } as const;
-  const limb = (rFrom: number, rTo: number): PartShape => ({ kind: 'limb', rFrom, rTo });
-  const coded = (c: readonly [number, number, number]): [number, number, number] => [...c];
 
-  // Every limb's two ends carry DIFFERENT radii, which is the correction that mattered. Read row by
-  // row, the reference's leg runs 5px through the thigh, narrows to 3 at the shin and stays there;
-  // its arm goes the other way, thin at the shoulder and widening toward the hand. Drawing each limb
-  // at one radius made every part a slab, and a bounding box cannot tell a slab from a tapered
-  // stroke — both have the same widest row, which is exactly how this survived five rounds of
-  // tuning. `f` also thins the far side: the reference draws its far arm narrower, not just darker.
-  // EDGE EROSION IS OFF FOR LIMBS. The noise that gives rock its hand-carved edge takes up to 0.7px
-  // per side, which on a 5px-wide limb is a fifth of the shape chosen at random per pixel — the
-  // measured width profile came back oscillating 3,5,5,4,3,4,3,4 where the reference reads a clean
-  // 5,5,5,4,4,3. The torso and head are wide enough to keep it.
-  const arm = (
-    upper: number,
-    fore: number,
-    tag: string,
-    oU: Rgb,
-    oL: Rgb,
-    order: number,
-    bias?: number,
-  ) => [
+  /** An authored profile in reference px, scaled to art px and to this build's proportions. */
+  const stroke = (widths: readonly number[], girth = 1): PartShape => ({
+    kind: 'stroke',
+    widths: widths.map((w) => w * PROFILE_SCALE * cfg.girth * girth),
+  });
+
+  const arm = (tag: 'Near' | 'Far', order: number, bias?: number) => [
     {
       id: `arm${tag}.upper`,
       from: `shoulder${tag}`,
       to: `elbow${tag}`,
-      shape: limb(cfg.rUpperArm * upper * 0.75, cfg.rUpperArm * upper),
+      shape: stroke(PROFILE[`upper${tag}`], b.limb),
       ...cloth,
       order,
       shadeBias: bias,
-      cap,
-      erode: 0,
-      coded: oU,
+      coded: coded(CODED[`arm${tag}U`]),
     },
     {
       id: `arm${tag}.fore`,
       from: `elbow${tag}`,
       to: `hand${tag}`,
-      shape: limb(cfg.rForearm * fore, cfg.rForearm * fore * 1.2),
+      shape: stroke(PROFILE[`fore${tag}`], b.limb),
       ...skin,
       order,
       shadeBias: bias,
-      cap,
-      erode: 0,
-      coded: oL,
+      coded: coded(CODED[`arm${tag}L`]),
     },
   ];
+  type Coded = readonly [number, number, number];
   const leg = (
-    side: number,
-    tag: string,
-    oT: Rgb,
-    oS: Rgb,
-    oF: Rgb,
+    tag: 'Near' | 'Far',
     order: number,
     bias?: number,
+    oT: Coded = CODED.legNearU,
+    oS: Coded = CODED.legNearL,
+    oF: Coded = CODED.foot,
   ) => [
     {
       id: `leg${tag}.thigh`,
       from: `hip${tag}`,
       to: `knee${tag}`,
-      shape: limb(cfg.rThigh * side, cfg.rShin * side * 1.15),
+      shape: stroke(PROFILE[`thigh${tag}`], b.limb),
       ...cloth,
       order,
       shadeBias: bias,
-      cap,
-      erode: 0,
-      coded: oT,
+      coded: coded(oT),
     },
     {
       id: `leg${tag}.shin`,
       from: `knee${tag}`,
       to: `ankle${tag}`,
-      shape: limb(cfg.rShin * side * 1.15, cfg.rShin * side),
+      shape: stroke(PROFILE[`shin${tag}`], b.limb),
       ...cloth,
       layers: [bootLayer],
       order,
       shadeBias: bias,
-      cap,
-      erode: 0,
-      coded: oS,
+      coded: coded(oS),
     },
     {
       id: `leg${tag}.foot`,
       from: `ankle${tag}`,
       to: `toe${tag}`,
-      shape: limb(cfg.rFoot * side, cfg.rFoot * side),
+      shape: stroke(PROFILE[`foot${tag}`], b.limb),
       ramp: BOOT,
       surface: plateSurface,
       order,
       shadeBias: bias,
-      cap,
-      erode: 0,
-      coded: oF,
+      coded: coded(oF),
     },
   ];
+
   return {
     parts: [
       // ---- far side ----
-      ...arm(fArm, b.limb, 'Far', coded(CODED.armFarU), coded(CODED.armFarL), 0, far),
-      ...leg(fLeg, 'Far', coded(CODED.legFar), coded(CODED.legFar), coded(CODED.footFar), 1, far),
+      ...arm('Far', 0, far),
+      ...leg('Far', 1, far, CODED.legFar, CODED.legFar, CODED.footFar),
 
       // ---- body ----
-      // Two capsules, crotch → waist → shoulder, so the reference's pinch reads as a waist. The
-      // chest stops at the SHOULDER and the head starts at the NECK just above it: that gap is the
-      // reference's own, not an accident, and closing it made the neck look swollen.
+      // The chest stops at the SHOULDER and the head starts at the NECK one row above it: that gap
+      // is the reference's own, not an accident, and closing it made the neck look swollen.
       {
         id: 'pelvis',
         from: 'crotch',
         to: 'waist',
-        shape: limb(cfg.rPelvis * b.pelvis, cfg.rWaist * b.pelvis),
+        shape: stroke(PROFILE.pelvis, b.pelvis),
         ...cloth,
         order: 2,
-        cap,
         coded: coded(CODED.pelvis),
       },
       {
         id: 'chest',
         from: 'waist',
         to: 'shoulder',
-        shape: limb(cfg.rWaist * b.chest, cfg.rChest * b.chest),
+        shape: stroke(PROFILE.chest, b.chest),
         ...cloth,
         order: 3,
-        cap,
         coded: coded(CODED.chest),
       },
       {
         id: 'head',
         from: 'neck',
         to: 'headTop',
-        shape: { kind: 'bulb', rAcross: cfg.rHead, alongScale: 1 },
+        shape: stroke(PROFILE.head),
         ...skin,
         layers: [helmetLayer],
         order: 4,
@@ -243,8 +246,8 @@ export function buildHumanoid(cfg: HumanoidConfig = DEFAULT_CONFIG): Rig {
       },
 
       // ---- near side ----
-      ...leg(n, 'Near', coded(CODED.legNearU), coded(CODED.legNearL), coded(CODED.foot), 5),
-      ...arm(n, n, 'Near', coded(CODED.armNearU), coded(CODED.armNearL), 6),
+      ...leg('Near', 5),
+      ...arm('Near', 6),
     ],
   };
 }
@@ -260,12 +263,15 @@ export function idlePose(cfg: HumanoidConfig = DEFAULT_CONFIG): Skeleton {
   // Hands hang wider than shoulders: the reference's back hand sits 6.5 reference px off the
   // centreline against the shoulder's 3.5, which is most of why its figure measures 18px wide.
   const hand = off + cfg.handSplay;
+  const handF = off + cfg.handSplayFar;
   // The elbow takes its proportional share of the splay, exactly as the knee does. Offsetting only
   // the hand left the upper arm hanging vertically and the forearm jogging sideways at the elbow;
   // the reference's arm drifts steadily from the shoulder down, as one angled stroke.
   const elbow = off + cfg.handSplay * cfg.elbowLead;
+  const elbowF = off + cfg.handSplayFar * cfg.elbowLead;
   const leg = cfg.legOffset;
   const splay = cfg.stanceSplay;
+  const splayF = cfg.stanceSplayFar;
   const knee = cfg.kneeLead;
   return {
     hip: { x: 0, y: cfg.yHip },
@@ -285,17 +291,17 @@ export function idlePose(cfg: HumanoidConfig = DEFAULT_CONFIG): Skeleton {
     ankleNear: { x: leg + splay, y: cfg.yAnkle },
     toeNear: { x: leg + splay + cfg.footLen, y: cfg.yAnkle + cfg.footDrop },
     hipFar: { x: -leg, y: cfg.yHip },
-    kneeFar: { x: -leg - splay * knee, y: cfg.yKnee },
-    ankleFar: { x: -leg - splay, y: cfg.yAnkle },
+    kneeFar: { x: -leg - splayF * knee, y: cfg.yKnee },
+    ankleFar: { x: -leg - splayF, y: cfg.yAnkle },
     // At rest the reference splays its feet — near toe forward, far toe back. The walk pose
     // overrides both to point along the direction of travel.
-    toeFar: { x: -leg - splay - cfg.footLen, y: cfg.yAnkle + cfg.footDrop },
+    toeFar: { x: -leg - splayF - cfg.footLen, y: cfg.yAnkle + cfg.footDrop },
     shoulderNear: { x: t(cfg.yShoulder) + off, y: cfg.yShoulder },
     elbowNear: { x: t(cfg.yElbow) + elbow, y: cfg.yElbow },
     handNear: { x: t(cfg.yHand) + hand, y: cfg.yHand },
     shoulderFar: { x: t(cfg.yShoulder) - off, y: cfg.yShoulder },
-    elbowFar: { x: t(cfg.yElbow) - elbow, y: cfg.yElbow },
-    handFar: { x: t(cfg.yHand) - hand, y: cfg.yHand },
+    elbowFar: { x: t(cfg.yElbow) - elbowF, y: cfg.yElbow },
+    handFar: { x: t(cfg.yHand) - handF, y: cfg.yHand },
   };
 }
 

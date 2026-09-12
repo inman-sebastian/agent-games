@@ -55,7 +55,6 @@ const GROUPS: Group[] = [
       ['stretch', 1, 1.5, 0.02],
       ['armOffset', 0, 10, 0.2],
       ['handSplay', 0, 10, 0.2],
-      ['limbCap', 0, 1, 0.05],
       ['legOffset', 0, 10, 0.2],
       ['stanceSplay', 0, 14, 0.2],
       ['kneeLead', -0.5, 1.5, 0.02],
@@ -63,23 +62,10 @@ const GROUPS: Group[] = [
     ],
   },
   {
-    title: 'widths',
-    keys: [
-      ['rHead', 3, 10, 0.1],
-      ['rChest', 3, 10, 0.1],
-      ['rWaist', 3, 10, 0.1],
-      ['rPelvis', 3, 10, 0.1],
-      ['torsoDrop', 0, 6, 0.5],
-      ['rThigh', 2, 8, 0.1],
-      ['rShin', 1.5, 7, 0.1],
-      ['rUpperArm', 1.5, 6, 0.1],
-      ['rForearm', 1, 5, 0.1],
-      ['rFoot', 1, 5, 0.1],
-      ['farNarrowArm', 0.2, 1, 0.05],
-      ['farNarrowLeg', 0.5, 1.2, 0.05],
-      ['footLen', 0, 9, 0.5],
-      ['footDrop', -2, 4, 0.5],
-    ],
+    // One knob, where there used to be twelve. The authored width profiles in humanoid.ts own every
+    // part's shape now, so there is nothing here to fit — only the overall thickness.
+    title: 'build',
+    keys: [['girth', 0.6, 1.6, 0.05]],
   },
   {
     title: 'shading',
@@ -96,7 +82,7 @@ const GROUPS: Group[] = [
 // Config survives a reload, because losing twenty minutes of tuning to a refresh is its own tax.
 // Versioned: `load` merges the saved object over DEFAULT_CONFIG, so a stale entry would shadow
 // every value a new default introduces. Bump this whenever the measured defaults change.
-const STORAGE = 'delve.riglab.config.v3';
+const STORAGE = 'delve.riglab.config.v4';
 const load = (): HumanoidConfig => {
   try {
     const raw = localStorage.getItem(STORAGE);

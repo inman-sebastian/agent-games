@@ -37,9 +37,10 @@ export const REFERENCE = {
   armNear: { top: -20, bottom: -11, width: 4 },
   armFar: { top: -20, bottom: -11, width: 4 },
   legNear: { top: -12, bottom: -1, width: 5 },
-  // 5, not the 6 its widest row reads: the pack's back leg hits 6 on exactly ONE row while its
-  // front leg holds 5 across three, so 6 is a drawing artifact of the simpler far-side leg.
-  legFar: { top: -12, bottom: -1, width: 5 },
+  // 6, matching the pack exactly — its back leg really does hit 6 on one row. That was written off
+  // as an artifact while the capsule primitive could not reproduce a one-row bulge; the authored
+  // width profile can, so the target is the pack's own number again.
+  legFar: { top: -12, bottom: -1, width: 6 },
   figure: { top: -29, bottom: -1, width: 18 },
 } as const;
 
