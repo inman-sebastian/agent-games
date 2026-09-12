@@ -58,20 +58,21 @@ cleanly in a square and they all read at roughly the same size. Metals are lumpy
 misshapen **nuggets** (a per-ore seeded angular wobble, never perfect spheres); gems
 are faceted/airier by design.
 
-| Ore     | Triad                     | Shape          | Band (rows) | Value |
-| ------- | ------------------------- | -------------- | ----------- | ----- |
-| Dirt    | `#48371f #6d5230 #8f6b3c` | nugget (`dim`) | 2–8         | 1     |
-| Copper  | `#7a3045 #cd683d #f79617` | nugget         | 4–24        | 5     |
-| Iron    | `#3e3546 #7f708a #c7dcd0` | nugget         | 16–52       | 12    |
-| Silver  | `#625565 #9babb2 #e8eef5` | nugget         | 40–92       | 34    |
-| Gold    | `#4c3e24 #f9c22b #fbff86` | nugget         | 76–156      | 95    |
-| Emerald | `#165a4c #1ebc73 #91db69` | prism          | 132–240     | 260   |
-| Ruby    | `#831c5d #f04f78 #f68181` | cluster        | 216–370     | 720   |
-| Diamond | `#0b8a8f #30e1b9 #8ff8e2` | gem            | 330–530     | 2100  |
-| Mythril | `#484a77 #905ea9 #a884f3` | shard          | 480+        | 6200  |
+| Ore     | Triad                     | Shape          | Band (rows) |
+| ------- | ------------------------- | -------------- | ----------- |
+| Dirt    | `#48371f #6d5230 #8f6b3c` | nugget (`dim`) | 2–8         |
+| Copper  | `#7a3045 #cd683d #f79617` | nugget         | 4–24        |
+| Iron    | `#3e3546 #7f708a #c7dcd0` | nugget         | 16–52       |
+| Silver  | `#625565 #9babb2 #e8eef5` | nugget         | 40–92       |
+| Gold    | `#4c3e24 #f9c22b #fbff86` | nugget         | 76–156      |
+| Emerald | `#165a4c #1ebc73 #91db69` | prism          | 132–240     |
+| Ruby    | `#831c5d #f04f78 #f68181` | cluster        | 216–370     |
+| Diamond | `#0b8a8f #30e1b9 #8ff8e2` | gem            | 330–530     |
+| Mythril | `#484a77 #905ea9 #a884f3` | shard          | 480+        |
 
 Metals (Dirt/Copper/Iron/Silver/Gold) all use the lumpy `nugget`; the four gems
 keep their distinct crystal shapes. **Dirt** is a `dim` ore — a plain clod with no
 glow, rendered as ordinary rock in the world (its shape is only the extracted icon).
-The authoritative bands/values/weights/art live in the per-ore **resource files** under
-`shared/src/resources/*.ts` — this table is a snapshot for art reference.
+The authoritative bands/weights/art live in the per-ore **resource files** under
+`shared/src/resources/*.ts` — this table is a snapshot for art reference (and predates
+the platinum/obsidian/quartz/stonebricks additions).

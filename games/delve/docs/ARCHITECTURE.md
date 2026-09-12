@@ -31,16 +31,17 @@ rock until you dig it (issue #1). Each cell's _static_ contents are a **pure fun
 `(seed, c, r)`**, so the world is never stored, only regenerated on demand. Only the
 **dynamic** state is held, split for multiplayer (P3, #12) into a shared **`WorldState`**
 `{ seed, dug, dmg }` — the terrain everyone digs together, tile-break damage included — and
-a per-player **`PlayerState`** (continuous position/velocity + economy: coins, inventory,
-upgrades, tech). A **`Session`** bundles one world + one player; in multiplayer many Sessions
+a per-player **`PlayerState`** (continuous position/velocity + collected-material inventory +
+upgrade levels; there is no money). A **`Session`** bundles one world + one player; in multiplayer many Sessions
 share one `WorldState`. See [`blocks.ts`](#modules) for the static query and
 `newWorld`/`newPlayer`/`newSession` in `engine.ts` for the shapes. (`WIDTH` still exists as
 the default spawn column, not a wall.)
 
 Movement is a **gravity platformer** (issue #2): you fall, jump, and run, and mining is a
-separate aim/target action (#3). The economy stays **soft-lock-free by construction** —
-digging is free and ore sells anytime, so you can never get stranded; upward-traversal
-tools are a future pass. [`tools/verify.ts`](#verification) proves the pacing holds.
+separate aim/target action (#3). There is **no economy** — everything mined goes into the
+inventory (no coins, no selling); digging is free and unconditional, so the loop can't
+strand you. Upward-traversal tools are a future pass. [`tools/verify.ts`](#verification)
+covers content/world-gen invariants.
 
 ## Modules
 
@@ -56,7 +57,7 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 | `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                         |
 | `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                 | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.) |
 | `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`           | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                            |
-| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, economy | The pure **sim** — player physics, dig resolution, economy, upgrades — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                              |
+| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount` | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                              |
 | `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types              | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                          |
 | `index.ts`    | (barrel)                                                  | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                 |
 
@@ -132,9 +133,9 @@ after research over peer-to-peer lockstep / rollback, which don't scale for many
 perfect cross-machine determinism. The rationale + decision are on issue #12.
 
 - **Clients send inputs only.** Per tick: `input { seq, input }` (movement + a mine target);
-  plus discrete `command`s for the shop (`buyUpgrade` / `buyTech` / `sellAll` / `newGame`). They
-  never send state, so **forged coins / out-of-reach mining are impossible by construction** —
-  the server computes every mutation itself, and `physicsStep` enforces mining reach.
+  plus the discrete `command` `newGame`. They never send state, so **out-of-reach mining is
+  impossible by construction** — the server computes every mutation itself, and `physicsStep`
+  enforces mining reach.
 - **The server is the single source of truth.** It owns each connection's `Session` (its shared
   world + player), applies one authoritative `physicsStep` per received input (WebSocket is
   ordered/reliable, so inputs replay in order), validates commands (can't afford → no-op), and
@@ -162,9 +163,10 @@ remote-avatar interpolation, area-of-interest culling at scale, rooms.
 
 ## Verification
 
-`tools/verify.ts` is the balance gate. Digging is free and ore sells anytime, so a hard
-soft-lock is impossible by construction; the real risk is **pacing**. It drives a greedy
-bot through the **same engine** the player uses and asserts it reaches every ore tier —
-down into Mythril — within a sane action budget, plus static invariants on the ore table,
-cost curves, world gen, and the resource registry (index↔directory drift). Run `pnpm
-verify`. The other `tools/` give cheaper, more targeted checks.
+`tools/verify.ts` is the content gate. There is no economy to pace, so it asserts the
+invariants that still hold without one: every ore tier is **discoverable within its band**
+(world-gen scan), horizontal movement is unbounded (the #8 regression), and static
+conformance of the ore table + resource registry (index↔directory drift). Run `pnpm verify`.
+The old greedy-bot balance/pacing gate was economy-coupled and was removed; a new
+progression gate will replace it once the replacement progression system lands. The other
+`tools/` give cheaper, more targeted checks.

@@ -18,9 +18,9 @@ finer grid, animation) is queued for later._
 - **Chipping rock:** fine pixel debris (mostly 1px, shaded off the source colour toward
   a bright chip / dark fleck so it reads as chipped stone, not flat chunky squares).
 - **Breaking rock:** a debris burst scaled to ore rarity. Ore drops into the inventory
-  on break — a rising `+N <ore>` floaty in the ore's colour, no travel. Selling happens
-  later (Upgrades panel); there's no hauling, so the loop never asks you to stop digging.
-- **Rich vein** (Fortune crit, 3× the ore): a gold `+N!` floaty, extra sparkle, bigger
+  on break — a rising `+N <ore>` floaty in the ore's colour, no travel. There's no selling
+  and no hauling, so the loop never asks you to stop digging.
+- **Rich vein** (3× the material): a gold `+N!` floaty, extra sparkle, bigger
   shake, bright chime — the reward beat, overspent on purpose.
 - **Ore shimmer:** exposed ore breathes — the per-tile pulse drives its actual emitted
   light (see [LIGHTING.md](LIGHTING.md)), plus an occasional bright twinkle glint, each
@@ -37,8 +37,6 @@ good, falling = bad; brighter = rarer:
 - **Dig** — short filtered-noise thud (pitch drops with depth).
 - **Break** — a noise crack.
 - **Ore** — a chime that rises with rarity.
-- **Sell** — a gold arpeggio.
-- **Buy** — a confirming blip.
 
 One mute switch gates everything; the `AudioContext` unlocks on the first user input.
 

@@ -1,6 +1,6 @@
 ---
 name: delve-verify
-description: How to verify a change in DELVE (games/delve) with the cheap headless tools FIRST — sim/balance/protocol checks, typecheck/build, and tiny cropped render screenshots — reserving Playwright/MCP as a genuine last resort. Trigger after making any DELVE change (logic, economy, world-gen, protocol, or visual) and before handing it over, or whenever asked to test/verify/check DELVE. Reading full-viewport browser screenshots is slow and burns tokens; these tools answer almost everything in text or one tiny PNG.
+description: How to verify a change in DELVE (games/delve) with the cheap headless tools FIRST — sim/balance/protocol checks, typecheck/build, and tiny cropped render screenshots — reserving Playwright/MCP as a genuine last resort. Trigger after making any DELVE change (logic, world-gen, protocol, or visual) and before handing it over, or whenever asked to test/verify/check DELVE. Reading full-viewport browser screenshots is slow and burns tokens; these tools answer almost everything in text or one tiny PNG.
 ---
 
 # DELVE — verify (cheap tools first)
@@ -14,12 +14,12 @@ something, **extend the tool** rather than defaulting to Playwright. Full refere
 
 Pick the cheapest rung that answers your question:
 
-## 1. Logic / economy / world-gen → pure Node, no browser
+## 1. Logic / world-gen → pure Node, no browser
 
-- **`pnpm verify`** — the balance gate. Drives a greedy bot through the SAME engine the player uses
-  and asserts it can reach every ore tier within a sane budget, plus static invariants (ore table,
-  cost curves, world-gen). **Run after ANY logic / economy / world-gen change** (e.g. adding/retuning
-  an ore, changing `blocks.ts`/`engine.ts`).
+- **`pnpm verify`** — the content gate. There's no economy to pace; it asserts resource conformance,
+  that every ore tier is discoverable within its band (world-gen scan), and the #8 movement
+  regression. **Run after ANY logic / world-gen / resource change** (e.g. adding/retuning an ore,
+  changing `blocks.ts`/`engine.ts`).
 - **`pnpm sim <cmd>`** (`tools/sim.ts`) — inspect the pure engine in text:
   - `pnpm sim state [--seed N] [--from save.json]` — raw state as JSON.
   - `pnpm sim probe --seed N --c C --r R` — tileInfo at one cell.

@@ -82,9 +82,9 @@ channel** (`GLOW_CAP`) on top of that — so no blown-out sunspot. The **total**
 (lamp warm + ore colour) is also capped together (`ADD_MAX`), so their overlap can't
 blow to a white sunspot.
 
-Distant **Ore-Scanner**-revealed ore shows its fleck art but does **not** emit light
-(gated on lamp reach / being mined), so it neither washes the dark nor floods the
-emitter list.
+Ore does **not** emit light — it reads only by its lit surface + baked/animated FX
+(see [RENDERING.md](RENDERING.md)), so with lamp-only vision unlit ore stays hidden in
+the void, and ore never washes the dark or floods the emitter list.
 
 ## Tuning knobs
 

@@ -7,12 +7,12 @@ tiny cropped PNG. If something isn't covered, extend a tool rather than defaulti
 Playwright. (Only genuinely live questions — input feel, real FPS — need the browser, and
 even then read the `?debug` overlay text, not screenshots.)
 
-## `verify.ts` — the balance gate
+## `verify.ts` — the content gate
 
-Drives a greedy bot through the SAME engine the player uses and asserts it reaches
-every ore tier down into Mythril within a sane action budget, plus static invariants
-on the ore table, cost curves, and world gen. Run it after any logic / economy /
-world-gen change:
+There is no economy to pace, so this asserts the invariants that hold without one:
+every ore tier is **discoverable within its band** (world-gen scan), horizontal movement
+is unbounded (the #8 regression), and static conformance of the ore table + resource
+registry (index↔directory drift). Run it after any logic / world-gen / resource change:
 
 ```sh
 pnpm verify          # from games/delve/ (or the workspace: pnpm --filter delve verify)
@@ -22,7 +22,7 @@ node tools/verify.ts # equivalent, from games/delve/
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
 Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic / world-gen
-/ economy / cluster question is answerable in text.
+/ cluster question is answerable in text.
 
 ```sh
 node tools/sim.ts state  [--seed N] [--from save.json]      # raw state as JSON
@@ -35,7 +35,8 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
   ore-coverage % and per-tier counts — ideal for eyeballing cluster shape/size/density.
 - `play` runs an action script through the platformer physics (tokens `<key><frames>`,
   key ∈ d = mine down / l = run left / r = run right / u = jump; frames are 1/60s) and
-  dumps the resulting state + a mined-ore summary — ideal for pacing/economy checks.
+  dumps the resulting state + a mined-material summary (`held` + per-type `mined`) — ideal
+  for pacing/collection checks.
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
