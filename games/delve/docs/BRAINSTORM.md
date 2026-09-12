@@ -476,9 +476,9 @@ It's where the most-visited non-mine activity already lands: **respawn** by defa
 housing** ([§9](#9-npcs--dialogue)). Making the most-visited location the least interesting one
 would be the wrong trade.
 
-If the horizontal bound lands on [hard edges](#hard-edges-vs-wrapping), the surface is a **finite
-strip with two definite ends** — far more tractable to fill than an endless one, and Terraria puts
-its Ocean biomes exactly there.
+With [hard edges](#hard-edges--but-not-a-visible-box) decided, the surface is a **finite strip with
+two definite ends** — far more tractable to fill than an endless one, and those ends are where the
+proposed ocean edge lives.
 
 #### Consequences flagged rather than assumed
 
@@ -2199,8 +2199,8 @@ recorded during the audit session itself.
 
 - **Behaviour-over-numbers** → a [guideline](#provenance-and-why-this-is-a-guideline), after being
   cited against the author's own "larger backpack" idea.
-- **Horizontal wrapping** → [reopened](#hard-edges-vs-wrapping), with hard edges leading. Never
-  landed on; only *bounded* was.
+- **Horizontal wrapping** → **rejected**; [hard edges decided](#hard-edges--but-not-a-visible-box).
+  Wrapping was never landed on; only *bounded* was.
 - **Fluid "settles on resume"** → replaced with running to completion
   ([§7](#world-lifecycle-is-now-a-required-system)). Decided without the author, and exploitable.
 
