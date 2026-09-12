@@ -69,14 +69,38 @@ const state = {
 if (!state.depth) state.depth = bandMid(matBySlug(state.mat));
 
 // ---- rendering helpers (draw at logical res into a canvas; caller sets CSS display size) ----
-function lamp(g: CanvasRenderingContext2D, lw: number, lh: number, worldX: number, worldY: number, bandLeft: number, bandTop: number, solid: (c: number, r: number) => boolean): void {
+function lamp(
+  g: CanvasRenderingContext2D,
+  lw: number,
+  lh: number,
+  worldX: number,
+  worldY: number,
+  bandLeft: number,
+  bandTop: number,
+  solid: (c: number, r: number) => boolean,
+): void {
   const lighting = createLighting();
   lighting.addLight(worldX, worldY, 0, LAMP_COLOR, 1.9);
-  lighting.render({ g, LW: lw, LH: lh, T, camX: bandLeft * T, camY: bandTop * T, SURFACE: -1, solidTile: solid });
+  lighting.render({
+    g,
+    LW: lw,
+    LH: lh,
+    T,
+    camX: bandLeft * T,
+    camY: bandTop * T,
+    SURFACE: -1,
+    solidTile: solid,
+  });
 }
 
 // the selected material as a top-lit block (row 0 open → top light), optional lamp
-function renderSurface(canvas: HTMLCanvasElement, m: Mat, cols: number, rows: number, depth: number): void {
+function renderSurface(
+  canvas: HTMLCanvasElement,
+  m: Mat,
+  cols: number,
+  rows: number,
+  depth: number,
+): void {
   canvas.width = cols * T;
   canvas.height = rows * T;
   const g = canvas.getContext('2d')!;
@@ -100,7 +124,13 @@ function caveBandLeft(m: Mat, cols: number, midRow: number): number {
   return 0;
 }
 
-function renderCave(canvas: HTMLCanvasElement, m: Mat, cols: number, rows: number, depth: number): void {
+function renderCave(
+  canvas: HTMLCanvasElement,
+  m: Mat,
+  cols: number,
+  rows: number,
+  depth: number,
+): void {
   canvas.width = cols * T;
   canvas.height = rows * T;
   const g = canvas.getContext('2d')!;
@@ -113,13 +143,22 @@ function renderCave(canvas: HTMLCanvasElement, m: Mat, cols: number, rows: numbe
   const open = (c: number, r: number): boolean =>
     r > 0 && (Math.hypot(c - cx, r - cy) < 3.5 || vnoise(c * 0.15, r * 0.15, caveSeed) > 0.58);
   const solid = (c: number, r: number): boolean => r > 0 && !open(c, r);
-  const materialAt = (c: number, r: number): Material | null => oreMaterial(oreAt(state.seed, c, r));
+  const materialAt = (c: number, r: number): Material | null =>
+    oreMaterial(oreAt(state.seed, c, r));
   composeBand(g, solid, bandLeft, depth, cols, rows, cols, -1, materialAt);
   const litRadius = Math.max(6, Math.min(cols, rows) * 0.6);
-  const litOf = (c: number, r: number): number => Math.max(0, 1 - Math.hypot(c - cx, r - cy) / litRadius);
+  const litOf = (c: number, r: number): number =>
+    Math.max(0, 1 - Math.hypot(c - cx, r - cy) / litRadius);
   if (state.lit) lamp(g, cols * T, rows * T, cx * T + 8, cy * T + 8, bandLeft, depth, solid);
   caveEdges = collectTwinkleEdges({
-    bandLeft, bandTop: depth, cols, rows, solid, materialAt, lit: litOf, seedAt: (c, r) => hashXY(c, r, 55),
+    bandLeft,
+    bandTop: depth,
+    cols,
+    rows,
+    solid,
+    materialAt,
+    lit: litOf,
+    seedAt: (c, r) => hashXY(c, r, 55),
   });
   caveBaked = g.getImageData(0, 0, cols * T, rows * T);
 }
@@ -194,7 +233,17 @@ function animateCave(canvas: HTMLCanvasElement): void {
     g.globalCompositeOperation = 'lighter';
     const time = now / 1000;
     for (const e of edges)
-      e.material.twinkle?.({ g, x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, scale: 1, time, seed: e.seed, litAt: e.litAt });
+      e.material.twinkle?.({
+        g,
+        x0: e.x0,
+        y0: e.y0,
+        x1: e.x1,
+        y1: e.y1,
+        scale: 1,
+        time,
+        seed: e.seed,
+        litAt: e.litAt,
+      });
     g.restore();
     requestAnimationFrame(frame);
   };

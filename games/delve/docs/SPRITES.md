@@ -17,25 +17,28 @@ code colours identifying body parts, so every colour the player sees is decided 
 [`client/src/render/entity/skin.ts`](../client/src/render/entity/skin.ts) on Resurrect-64. The pack
 gives silhouettes and motion; DELVE gives the art direction.
 
-## Why this instead of the procedural rig
+## Why this instead of a procedural rig
 
-The procedural rig is parked on `main` (issue #47). It built a real skeleton with two-bone IK,
-authored width-profile strokes, and three independent measurements against the pack. It reached:
+A procedural character rig was built first and is **deleted** as of this change (its ~10 commits stay
+reachable in history, and `git log --grep '#47'` finds the reasoning). It had a real skeleton with
+two-bone IK, authored width-profile strokes and three independent measurements against the pack. It
+reached 1.20 reference px of per-part shape error, 1.54 on the walk, and 73% silhouette overlap —
+and still did not read as the same character.
 
-| measure              | result                    |
-| -------------------- | ------------------------- |
-| per-part shape error | 1.20 reference px per row |
-| walk pose error      | 1.54 reference px per row |
-| silhouette overlap   | 73%                       |
+Each round fixed one measured quantity and moved another, because a parametric skeleton
+approximating hand-placed pixels is a large coupled search with no exact solution in it. Imported
+frames are exact by definition, so the frames won.
 
-And it still did not read as the same character. Each round fixed one measured quantity and moved
-another, because a parametric skeleton approximating hand-placed pixels is a large coupled search
-with no exact solution in it. The frames themselves are exact by definition, so the frames won.
+Its measurement tools went with it: they existed to compare a generated figure against the pack, and
+with no generated figure they have nothing to measure. The importer's own pixel-for-pixel diff is a
+strictly better check anyway. What survives is the part that was never about the rig — `PartCtx` and
+the band ladder, now in [`surface.ts`](../client/src/render/entity/surface.ts), so a shader authored
+against one path reads identically on the other.
 
-What survives from that work and is still worth keeping: the measurement tools
-(`tools/rig-measure.ts`, `rig-overlay.ts`, `rig-fit.ts`), which now serve as the yardstick for any
-future procedural entity, and the finding that drove this change — that bounding boxes and even
-per-row profiles can all agree while a figure is visibly wrong.
+The lesson worth keeping, because it cost the most: a metric can agree while the art is visibly
+wrong. Per-part extents matched within a pixel while the figure was a mannequin, because a bounding
+box cannot tell a tapered diagonal stroke from a vertical slab. Measuring shape row by row found it;
+measuring per-pixel overlap found more still.
 
 ## The format
 
@@ -243,6 +246,44 @@ material authored for the player's torso applies to any entity with a torso slot
 The step-by-step procedure, including how to read an import failure, is the
 `delve-import-sprites` skill.
 
+## Scale, and the player body
+
+The character is drawn at **1x**, which makes the figure 18 x 29 art px — **1.12 x 1.81 tiles** on a
+16px tile. The player hitbox is sized to it: `HW 0.45`, `HH 0.91`.
+
+Terraria's exact three tiles is not reachable. Integer sprite scaling on a 16px tile gives 1.81 or
+3.62 tiles and nothing between, so the earlier "keep Terraria's proportions" decision became a choice
+between the two, and 1.81 won: it delivers the digging cost that motivated the whole change while
+leaving the 16px material art untouched.
+
+What that size change required in the sim, none of it optional:
+
+- **A one-tile gap no longer fits**, so tunnels are two tiles tall. That is the point.
+- **Reach is measured from the body's tile span**, not its centre tile. That distinction did not
+  matter while the body fitted in one tile; measured from the centre, a 1.82-tall player could dig
+  the tile its head occupies but not the one above it, so tunnelling straight up silently became
+  impossible.
+- **Jump height is unchanged** — it is a property of velocity and gravity, not of the body, so the
+  player still clears a one-tile step. Headroom did change: a 1.82-tall body in a two-tall tunnel has
+  0.18 tiles above its head, so jumping indoors wants a three-tall tunnel.
+- **Saves are unstuck on load.** A save written at the old size can leave the body inside the ceiling
+  of its own tunnel, and a wedged player cannot move, jump or dig out. `unstick` lifts it to the
+  nearest gap that fits; with nowhere within a few tiles, a fresh spawn beats an unplayable save.
+
+Collision needed no change, which was worth checking rather than assuming: the horizontal and
+vertical sweeps already iterated the body's full tile span, using the extremes only as bounds.
+
+## What the world told us that the lab did not
+
+The shipped ramps are pitched a step lighter than the first version, and that came from putting the
+character in the world rather than judging it alone. Against lit rock — bright stone, brighter ore — a
+torso topping out at `#4d65b4` simply vanished, and the skin-tone head was the only part of the
+figure that registered.
+
+The general lesson, which cost most of this issue to learn: **a character has to hold its value
+against the brightest thing it stands next to**, and nothing but the actual game will tell you
+whether it does. Every metric in this pipeline agreed the figure was correct while it was invisible.
+
 ## What is not solved yet
 
 - **Scale.** The pack's figure is 29px tall on a 48px canvas, about 1.8 tiles. DELVE committed to
@@ -261,8 +302,12 @@ The step-by-step procedure, including how to read an import failure, is the
   a darker BAND in a dim pool, only be scrimmed darker afterwards. The rock has exactly the same
   limitation (its own brightness is geometric, from distance to the nearest open edge), so fixing
   this is one change to both or neither.
-- **Nothing reads the light position from the game yet.** `PLAYER_LAMP` is the carried lamp expressed
-  in sprite space, but the game still draws the placeholder miner; wiring it up comes with the
-  player-scale change.
+- **The game does not pass a light position yet.** `drawPlayer` defaults to `PLAYER_LAMP`, which is
+  right for the player, but nothing yet feeds it the position of a nearby ore glow or lava pool.
+- **Only five of the fifteen animations are reachable.** The sim has five miner states; crouch, roll,
+  push, pull, ledge climb and air spin wait on mechanics that do not exist. `mine` borrows the idle,
+  which is a placeholder — the honest fix is a mining animation, not a cleverer mapping.
+- **`run` plays the WALK cycle.** The pack's run is a sprint with a long airborne stride and DELVE has
+  one movement speed; swapping it belongs with a sprint mechanic.
 - **Animations the pack flattened.** Slide, Dash, Katana Walk, side Climb and running Shoot have no
   per-part layers and cannot be imported into this format as-is.

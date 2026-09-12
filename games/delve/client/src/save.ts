@@ -56,6 +56,15 @@ export function hydrate(saved: any): Session {
   s.player.grounded = false;
   s.player.digKey = null;
   s.player.digTime = 0;
+  // The player's body grew from 0.92 to 1.82 tiles (#47), so a save written before that can put it
+  // inside the ceiling of its own one-tile tunnel — and a player wedged in rock cannot move, jump or
+  // dig out. Lift it into the nearest gap that fits; if there is none within a few tiles, a fresh
+  // spawn beats leaving someone stuck in a save they cannot escape.
+  if (!engine.unstick(s.world, s.player)) {
+    const fresh = engine.newPlayer();
+    s.player.x = fresh.x;
+    s.player.y = fresh.y;
+  }
   return s;
 }
 

@@ -8,7 +8,7 @@
 // instead, which is the view to use when checking an import or reasoning about which part is which.
 //
 // No browser, no dev server, no screenshot — it feeds `drawSprite` a plain buffer and writes the PNG
-// through zlib, same as tools/rig-measure.ts. Use it to check an import, or to see an equipment
+// through zlib. Use it to check an import, or to see an equipment
 // re-skin, without leaving the terminal. `client/labs/sprite-lab.html` is the interactive version.
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';

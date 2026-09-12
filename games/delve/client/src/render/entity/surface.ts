@@ -23,8 +23,73 @@
 // from an assumed limb axis — that way a foot, a fist or a curled-up roll pose shades correctly
 // without anyone declaring which way it points.
 import { clamp01, type Rgb, type RockColors } from '../palette';
-import type { PartCtx } from './limb';
 import type { SpriteCel } from './sprite';
+
+// ---- the shader contract ------------------------------------------------------------------------
+//
+// `PartCtx` and the band ladder moved here from the procedural rig's rasterizer when that was
+// deleted (#47). They are the part of it worth keeping: the contract a part-surface shader is
+// written against, and the ladder it quantizes into. Materials for imported sprites use both, so a
+// shader authored for one path reads identically on the other.
+
+export interface PartCtx {
+  // ---- surface coordinates (author features against these) ----
+  /**
+   * Position down the part: 0 at the proximal joint (a), 1 at the distal (b).
+   *
+   * Runs slightly OUTSIDE 0..1 inside the rounded end caps, deliberately. Clamping would give every
+   * pixel in a cap the same value, collapsing the hemisphere to one band and smearing anything
+   * authored there — and the caps are the joints, which is where equipment attaches. Shaders that
+   * need a strict 0..1 should clamp at the point of use.
+   */
+  along: number;
+  /**
+   * Position across the part, -1 at one silhouette edge to +1 at the other, 0 on the spine.
+   *
+   * Read as a cylinder seen side-on, this is `sin(angle)` around the circumference — so a shader
+   * wanting true cylindrical wrap uses `asin(around)`, giving ±90°. The far half of the
+   * circumference is never rasterized (a 2D capsule only shows its front), which is the behaviour
+   * you want: a marking on the back of an arm shouldn't show from the front. Which half is visible
+   * is a property of the part's facing, not of this value.
+   */
+  around: number;
+
+  // ---- texture + shading ----
+  /** Frame-space position. Seed noise with this so texture rides the body. NOT for placing features. */
+  localX: number;
+  localY: number;
+  /** Pixel parity for the Bayer dither. Body-anchored, so the grain doesn't crawl. */
+  px: number;
+  py: number;
+  /** Geometric light 0..1 before texture: 1 = facing the lamp, 0 = facing away. */
+  brightness: number;
+  /** 0 at the capsule's surface, 1 at its spine — cheap thickness cue. */
+  depth: number;
+  colors: RockColors;
+}
+
+const bandCache = new Map<RockColors, Rgb[]>();
+/**
+ * The band ladder a part surface quantizes into, darkest first. Exported so materials calibrated
+ * for a different SCALE — a 4px-wide imported limb rather than a 16px tile — can reuse the exact
+ * same ladder instead of inventing a parallel one.
+ */
+export function bandsOf(colors: RockColors): Rgb[] {
+  let bands = bandCache.get(colors);
+  if (!bands) {
+    bands = [
+      colors.center,
+      colors.deep,
+      colors.body,
+      colors.body2,
+      colors.lit,
+      colors.rimA,
+      colors.rimB,
+    ];
+    bandCache.set(colors, bands);
+  }
+  return bands;
+}
 
 /** Per-pixel surface data for one cel, in cel-local row-major order. */
 export interface SurfaceMap {

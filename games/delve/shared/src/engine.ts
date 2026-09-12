@@ -20,15 +20,26 @@ import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from '.
 export * from './blocks';
 
 // --- platformer physics constants (tile units; time in seconds) ---
-const HALF_WIDTH = 0.36; // player AABB half-extents (fit a 1×1 dug cell)
-const HALF_HEIGHT = 0.46;
+// Player AABB half-extents, in tiles. The body is 0.9 x 1.82 tiles — TALLER THAN ONE TILE, which is
+// the whole point: a one-tile gap no longer fits, so a tunnel has to be dug two tiles tall. That
+// added digging cost was the reason for adopting these proportions (#47).
+//
+// Sized to the character art rather than chosen: the imported sprite's figure is 18 x 29 art px on a
+// 16px tile, so 1.12 x 1.81 tiles. The hitbox is the figure's height exactly and a little narrower
+// than its width, so shoulders and swinging limbs overhang rather than snagging on corners.
+const HALF_WIDTH = 0.45;
+const HALF_HEIGHT = 0.91;
 const GRAVITY = 46;
 const MAX_FALL = 30;
 const RUN_SPEED = 6;
 const RUN_ACCEL = 85;
 const AIR_ACCEL = 46;
 const FRICTION = 60;
-const JUMP_VELOCITY = 10.7; // ~1.25-tile jump (v²/2g, g=46)
+// ~1.25 tiles of rise (v²/2g, g=46), UNCHANGED by the size change: jump height in tiles is a
+// property of this and gravity, not of the body, so the player still clears a one-tile step exactly
+// as before. What did change is headroom — a 1.82-tall body in a 2-tall tunnel has 0.18 tiles above
+// its head, so jumping indoors needs a three-tall tunnel.
+const JUMP_VELOCITY = 10.7;
 const REACH = 1; // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
 const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
@@ -107,6 +118,39 @@ export function newPlayer(): PlayerState {
     up: { pick: 0, speed: 0, fortune: 0 },
     tech: { lantern: false },
   };
+}
+
+/**
+ * Lift a player out of rock they are overlapping, or return false if there is nowhere to go.
+ *
+ * Needed because the body grew (#47): a save written when the player was 0.92 tiles tall can put a
+ * 1.82-tall body inside the ceiling of its own tunnel, and a player wedged in rock cannot move,
+ * jump or dig its way out. Searches upward first — a dug tunnel's headroom is the likeliest space —
+ * then downward, then gives up so the caller can fall back to a fresh spawn rather than teleporting
+ * someone across the map.
+ */
+export function unstick(world: WorldState, player: PlayerState, maxTiles = 6): boolean {
+  const fits = (y: number): boolean => {
+    const left = Math.floor(player.x - HALF_WIDTH + EPSILON);
+    const right = Math.floor(player.x + HALF_WIDTH - EPSILON);
+    const top = Math.floor(y - HALF_HEIGHT + EPSILON);
+    const bottom = Math.floor(y + HALF_HEIGHT - EPSILON);
+    for (let row = top; row <= bottom; row++) {
+      if (anySolidInRow(world, left, right, row)) return false;
+    }
+    return true;
+  };
+  if (fits(player.y)) return true;
+  for (let step = 1; step <= maxTiles; step++) {
+    for (const y of [player.y - step, player.y + step]) {
+      if (!fits(y)) continue;
+      player.y = y;
+      player.vy = 0;
+      player.grounded = false;
+      return true;
+    }
+  }
+  return false;
 }
 
 /** A fresh single-player session (world + player) for `seed`. */
@@ -300,14 +344,23 @@ export function physicsStep(
   }
   player.y = nextY;
 
-  // --- mining: a separate aim/target action, independent of movement (#3). Reach is a tile
-  // ring (Chebyshev), so base REACH=1 = the eight adjacent tiles. ---
+  // --- mining: a separate aim/target action, independent of movement (#3). Reach is a tile ring
+  // (Chebyshev) around THE BODY, so base REACH=1 = every tile touching the player. ---
+  //
+  // Measured from the body's tile span, not from the centre tile. That distinction did not matter
+  // while the body fitted inside one tile, and it matters a lot now that it spans two: measured from
+  // the centre, a 1.82-tall player could dig the tile its head is in but not the one above it, so
+  // tunnelling straight up became impossible. For a one-tile body this reduces to the old behaviour
+  // exactly.
   if (input.mine) {
     const { column, row } = input.mine;
-    const withinReach =
-      Math.abs(column - Math.floor(player.x)) <= REACH &&
-      Math.abs(row - Math.floor(player.y)) <= REACH;
-    if (withinReach && solidCell(world, column, row)) mine(column, row);
+    const left = Math.floor(player.x - HALF_WIDTH + EPSILON);
+    const right = Math.floor(player.x + HALF_WIDTH - EPSILON);
+    const top = Math.floor(player.y - HALF_HEIGHT + EPSILON);
+    const bottom = Math.floor(player.y + HALF_HEIGHT - EPSILON);
+    const dx = Math.max(left - column, 0, column - right);
+    const dy = Math.max(top - row, 0, row - bottom);
+    if (Math.max(dx, dy) <= REACH && solidCell(world, column, row)) mine(column, row);
   }
 
   // --- jump (after ground state is known this frame) ---

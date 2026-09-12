@@ -16,7 +16,7 @@ import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './ren
 import { ORE_ART, SHAPES } from './render/ore-art';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
-import { drawMiner } from './render/sprites';
+import { drawPlayer, poseFor } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
 import { hydrate, load, save, fresh } from './save';
@@ -614,19 +614,19 @@ function render(t: number): void {
   }
   ctx.globalAlpha = 1;
 
-  // miner + lamp glow — sprite is 1 tile, centred on the player x and standing on its feet (y+HH)
+  // the player's imported sprite, standing on its feet. The bob the placeholder needed is gone: the
+  // animations carry their own, so adding more on top double-counted it.
   const halfHeight = engine.PHYS.HH;
-  // bob is chosen by the miner state: a brisk stride while running, a slow breath at idle/mining,
-  // none in the air (the jump/fall arc is the motion). Formalizes the old grounded/moving guess.
-  const bob =
-    miner.state === 'run'
-      ? Math.sin(t * 10) * 0.5
-      : miner.is('idle', 'mine')
-        ? Math.sin(t * 4) * 0.2
-        : 0;
-  const mX = Math.round(px * T - T / 2);
-  const mY = Math.round((py + halfHeight) * T - T);
-  drawMiner(ctx, mX, mY, s.player.facing, bob); // lamp bloom is part of the lighting pass
+  const footX = Math.round(px * T);
+  const footY = Math.round((py + halfHeight) * T);
+  // Frame timing follows the animation's own authored durations, scaled a little by run speed so a
+  // brisk walk does not look like it is sliding.
+  const gait =
+    miner.state === 'run' ? Math.max(0.6, Math.abs(s.player.vx) / engine.PHYS.RUN_SPEED) : 1;
+  drawPlayer(ctx, poseFor(miner.state, t * 1000, gait), footX, footY, {
+    scale: 1,
+    facing: s.player.facing,
+  }); // lamp bloom is part of the lighting pass
 
   // coin floaties
   ctx.textAlign = 'center';

@@ -37,58 +37,6 @@ palette is shared, so a skin or material authored once applies across entities.
 Full pipeline, format and the open questions: [`docs/SPRITES.md`](../docs/SPRITES.md). The
 step-by-step procedure is the `delve-import-sprites` skill.
 
-## `rig-measure.ts` — how close the humanoid is to its reference, in numbers
-
-```sh
-pnpm --filter delve exec tsx tools/rig-measure.ts                       # the comparison table
-pnpm --filter delve exec tsx tools/rig-measure.ts --parts               # + every part in isolation
-pnpm --filter delve exec tsx tools/rig-measure.ts --png /tmp/rig.png    # idle + 8 walk frames, 4x
-pnpm --filter delve exec tsx tools/rig-measure.ts --png /tmp/rig.png --shaded   # textured, not coded
-```
-
-Renders the rig in **coded mode** (each part flat-filled in its reference colour), groups pixels by
-colour, and prints each part's top, bottom and width against the measurements taken off the
-purchased reference pack — converted into _reference_ pixels, so a delta reads as "how many pixels
-of the art it was measured from". Each part is measured with nothing else drawn, because the
-reference's numbers come from unclipped layers and the arms otherwise hide the torso's edge.
-
-**No browser.** It feeds `drawRig` a plain buffer and writes PNGs through `zlib`, so judging a
-silhouette never needs a dev server or a screenshot. `--png` is the one to read when a number looks
-right but the shape doesn't.
-
-## `rig-overlay.ts` / `rig-fit.ts` — the overlap measurement, and fitting against it
-
-```sh
-pnpm --filter delve exec tsx tools/rig-overlay.ts ~/pack/Idle/'Player Idle 48x48.png'
-pnpm --filter delve exec tsx tools/rig-fit.ts     ~/pack/Idle/'Player Idle 48x48.png'
-```
-
-`rig-overlay.ts` is the measurement that should have come first: intersection-over-union of our
-silhouette against the reference's own frame, plus an ASCII map of exactly where the two disagree
-(`#` both, `O` ours only, `R` reference only). Extents and even per-row profiles can agree while the
-figure is still visibly wrong; "how many of the same pixels are lit" cannot be gamed.
-
-`rig-fit.ts` runs coordinate descent over the PLACEMENT knobs — offsets, splays, lean, joint leads,
-gait — and prints the result. Shapes are authored profiles and are not fitted.
-
-Its objective is **weighted per part** and scores the **walk** as well as the idle. Both matter.
-Fitting whole-figure overlap alone let it trade a small part for a large one: it zeroed the far arm's
-angle, collapsed the foot to nothing and opened a four-pixel neck gap, because none of those cost
-many pixels. Every part now carries equal weight regardless of area, so a 1px far bicep counts as
-much as the torso.
-
-`footLift` and `armSwing` are deliberately excluded. A width profile barely changes when a foot lifts
-or an arm swings, so the fit drives both to zero and scores it as a win — a blind spot, not a result.
-Anything else the gait needs should be pinned the same way, and `pnpm test` re-run afterwards.
-
-Both need the **purchased** reference pack, which is not committed (all game art is authored). They
-shell out to `python3` with Pillow to decode the PNG.
-
-The measurements themselves live in [`rig-reference.ts`](rig-reference.ts), shared with
-[`rig.test.ts`](rig.test.ts) — so the report and the gate can't disagree about what "close" means.
-For _tuning_ rather than checking, use `client/labs/rig-lab.html`, which binds every value in
-`render/entity/config.ts` to a live slider over an animating figure.
-
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
 Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic / world-gen

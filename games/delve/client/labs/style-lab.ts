@@ -3,7 +3,7 @@
 // tool; not part of the game bundle. See style-lab.html for the surrounding chrome.
 import { T, setStrata, composeBand, hexRgb, mulberry } from '../src/render/cave-render';
 import { ORE_ART, SHAPES, drawOreBlock } from '../src/render/ore-art';
-import { drawMiner } from '../src/render/sprites';
+import { drawPlayer, poseFor } from '../src/render/entity/player';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import { STRATA } from '@delve/shared';
 
@@ -166,7 +166,12 @@ function renderScene(): void {
       }
     }
   }
-  drawMiner(lb, miner.px * T, miner.py * T, 'right', 0);
+  // The game's character, through the game's module: the whole reason this lab exists is to judge
+  // the art against the rock, so it has to be the same art.
+  drawPlayer(lb, poseFor('idle', performance.now()), miner.px * T, (miner.py + 1) * T, {
+    scale: 1,
+    facing: 'right',
+  });
   // lighting — the exact game system: lamp + ore emitters, occlusion, fog, vignette. Emitters take
   // WORLD pixels; camX=0 / camY=top*T window the field over this sample.
   if (o.lamp) {

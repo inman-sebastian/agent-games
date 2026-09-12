@@ -5,7 +5,7 @@ import { T, setStrata, composeBand } from '../src/render/cave-render';
 import { WIDTH, SURFACE, STRATA, blockAt, oreAt } from '@delve/shared';
 import { ORE_ART, drawOreBlock } from '../src/render/ore-art';
 import { oreMaterial, drawDamage } from '../src/render/materials';
-import { drawMiner } from '../src/render/sprites';
+import { drawPlayer, poseFor } from '../src/render/entity/player';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
 const DEFAULT_SEED = 12345;
@@ -117,7 +117,17 @@ if (damage > 0) {
   }
 }
 
-if (showMiner) drawMiner(g, (centerColumn - bandLeft) * T, (centerRow - bandTop) * T, 'down', 0);
+// The same character the game draws, through the same module — a lab that draws its own would be a
+// second source of truth for what the player looks like.
+if (showMiner) {
+  drawPlayer(
+    g,
+    poseFor('idle', 0),
+    (centerColumn - bandLeft) * T + T / 2,
+    (centerRow - bandTop) * T + T,
+    { scale: 1 },
+  );
+}
 
 // lighting: camX/camY map this crop's screen pixels to world pixels
 if (applyLamp) {

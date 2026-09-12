@@ -2,6 +2,7 @@
 // are the unhappy ones: corrupt/empty storage, and OLD saves — including ones written before the
 // economy was removed, which must still load (their coins/refine/scanner fields just don't matter).
 import { describe, it, expect, beforeEach } from 'vitest';
+import * as engine from '@delve/shared';
 import { hydrate, load, save, fresh, SAVE_KEY } from './save';
 
 beforeEach(() => localStorage.clear());
@@ -11,9 +12,18 @@ describe('hydrate', () => {
     const saved = {
       world: { seed: 4242, dug: { '1,1': true }, dmg: { '2,2': 5 } },
       player: {
-        x: 10.5, y: 20.5, vx: 3, vy: -2, grounded: true, digKey: '1,1', digTime: 0.4,
-        inv: { 2: 7, 5: 3 }, log: { 2: { mined: 7, deepest: 30 } }, depth: 40,
-        up: { pick: 1, speed: 2, fortune: 3 }, tech: { lantern: true },
+        x: 10.5,
+        y: 20.5,
+        vx: 3,
+        vy: -2,
+        grounded: true,
+        digKey: '1,1',
+        digTime: 0.4,
+        inv: { 2: 7, 5: 3 },
+        log: { 2: { mined: 7, deepest: 30 } },
+        depth: 40,
+        up: { pick: 1, speed: 2, fortune: 3 },
+        tech: { lantern: true },
       },
     };
     const s = hydrate(saved);
@@ -34,9 +44,14 @@ describe('hydrate', () => {
     const oldSave = {
       world: { seed: 7, dug: {}, dmg: {} },
       player: {
-        x: 5, y: 5, inv: { 5: 12 }, log: {}, depth: 100,
+        x: 5,
+        y: 5,
+        inv: { 5: 12 },
+        log: {},
+        depth: 100,
         best: 5, // removed: the rarest-material-found stat
-        coins: 9999, earned: 50000, // removed economy fields
+        coins: 9999,
+        earned: 50000, // removed economy fields
         up: { pick: 3, speed: 1, refine: 8, fortune: 2 }, // refine removed
         tech: { lantern: true, scanner: true }, // scanner removed
       },
@@ -51,20 +66,43 @@ describe('hydrate', () => {
   });
 
   it('migrates a pre-split flat save', () => {
+    // Position is asserted separately below: hydrate now rescues a player whose body does not fit
+    // where the save left it, and these fixtures' worlds are almost entirely solid.
     const flat = { seed: 3, dug: { '0,1': true }, dmg: {}, x: 8, y: 9, inv: { 2: 1 }, depth: 12 };
     const s = hydrate(flat);
     expect(s.world.seed).toBe(3);
     expect(s.world.dug).toEqual({ '0,1': true });
-    expect(s.player.x).toBe(8);
     expect(s.player.inv).toEqual({ 2: 1 });
     expect(s.player.depth).toBe(12);
   });
 
-  it('migrates a pre-physics grid save (c/r → tile centre)', () => {
-    const grid = { seed: 5, c: 40, r: 6 };
-    const s = hydrate(grid);
+  it('keeps a saved position the body still fits', () => {
+    // Dig a two-tile-tall pocket, which is what the 1.82-tile body now needs (#47), and the save's
+    // own position must survive hydrate untouched.
+    const dug: Record<string, boolean> = {};
+    for (let c = 39; c <= 41; c++) for (let r = 8; r <= 10; r++) dug[`${c},${r}`] = true;
+    const s = hydrate({ seed: 5, dug, dmg: {}, x: 40.5, y: 9.2 });
     expect(s.player.x).toBe(40.5);
-    expect(s.player.y).toBe(6.5);
+    expect(s.player.y).toBe(9.2);
+  });
+
+  it('rescues a saved position the body no longer fits', () => {
+    // The player grew from 0.92 to 1.82 tiles, so an old save can leave it inside rock — and a
+    // wedged player cannot move, jump or dig its way out. A one-tile pocket is exactly that case:
+    // it fitted the old body and does not fit this one.
+    const dug: Record<string, boolean> = {};
+    for (let c = 39; c <= 41; c++) dug[`${c},9`] = true;
+    const s = hydrate({ seed: 5, dug, dmg: {}, x: 40.5, y: 9.5 });
+    expect(s.player.y).not.toBe(9.5);
+  });
+
+  it('falls back to a fresh spawn when there is nowhere to rescue to', () => {
+    // A pre-physics grid save records a tile the old game let the player stand in with no physics at
+    // all, so its surroundings are solid. Better a fresh spawn than a save that cannot be played.
+    const s = hydrate({ seed: 5, c: 40, r: 6 });
+    const fresh = engine.newPlayer();
+    expect(s.player.x).toBe(fresh.x);
+    expect(s.player.y).toBe(fresh.y);
   });
 });
 

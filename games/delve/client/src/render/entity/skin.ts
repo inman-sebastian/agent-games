@@ -13,8 +13,7 @@
 // Better than expected, and it corrected an assumption: each body part carries 2-5 SHADES in the
 // template, not one flat colour, so a substituted ramp can be properly shaded rather than flat.
 import { clamp01, colorsFor, quantize, type Rgb } from '../palette';
-import { bandsOf } from './limb';
-import type { PartCtx } from './limb';
+import { bandsOf, type PartCtx } from './surface';
 import { TEMPLATE_PALETTE } from './sprites/palette';
 import { vnoise } from '@delve/shared';
 import type { SpriteLight, SpriteMaterial, SpriteSkin } from './sprite';
@@ -102,10 +101,15 @@ export function buildSkin(ramps: SkinRamps): SpriteSkin {
 // giving each side its own colour code, and it is worth preserving — without it the two legs merge
 // into one shape whenever they overlap.
 
-const OVERALLS = ['#2e222f', '#323353', '#484a77', '#4d65b4'];
-const OVERALLS_FAR = ['#2e222f', '#2e222f', '#323353', '#484a77'];
-const SKIN = ['#7a3045', '#a2653e', '#c7955f', '#e6b98e'];
-const SKIN_FAR = ['#4d2b32', '#7a3045', '#a2653e', '#c7955f'];
+// Pitched a step LIGHTER than the first attempt, and that came from putting the character in the
+// world rather than from judging it on its own. Against lit rock — bright stone, brighter ore — a
+// torso topping out at #4d65b4 simply vanished, and the skin-tone head was the only part of the
+// figure that registered. A character has to hold its own value against the brightest thing it
+// stands next to, not merely look correct on a dark background.
+const OVERALLS = ['#323353', '#484a77', '#4d65b4', '#4d9be6'];
+const OVERALLS_FAR = ['#2e222f', '#323353', '#484a77', '#4d65b4'];
+const SKIN = ['#a2653e', '#c7955f', '#e6b98e', '#f5d1a5'];
+const SKIN_FAR = ['#7a3045', '#a2653e', '#c7955f', '#e6b98e'];
 
 export const MINER_RAMPS: SkinRamps = {
   head: SKIN,
