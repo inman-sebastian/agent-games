@@ -36,6 +36,7 @@ the final names, and every section should use them with these meanings until the
 | **Skill tree** | The structure through which the player *chooses* which attributes to grow. Borrowed from incremental games as much as from RPGs. |
 | **Modifier** | A contribution to a stat from a source that isn't an attribute — equipment, environment, a temporary effect. Every modifier has a **source** and a **lifetime**. |
 | **Unlock** | A binary capability gate rather than a graded value: you have it or you don't. (`tech.lantern` is an unlock, not an attribute.) |
+| **Lamp** | The player's own light **emitter** — reach and intensity. What the code currently calls `vision`. One source among many; the world has its own. |
 | **Equipment** | An item occupying a scarce [slot](#limited-slots-as-a-core-loop). Has **its own upgrade path**, and may contribute modifiers to stats. |
 | **Loadout** | The set of currently equipped items. |
 | **Progression layer** | One independent system that grows over time — attributes, equipment, unlocks. **Layers coexist by design**; they are not alternatives. |
@@ -50,6 +51,7 @@ These appear in older passages and are **actively misleading**. Replace on sight
 | **Progression spine** | Implies exactly one system owns "the player gets stronger." False by design — see [T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs) | **Progression layer**, plural |
 | **Progression channel** | Same problem: framed layers as rivals competing for one job | **Progression layer** |
 | **Enhancement** | Used loosely for attributes, modifiers and unlocks alike | Whichever of those three is meant |
+| **Vision** | Implies revealing tiles. There is no fog of war and no seen-memory — lighting is per-pixel illumination, and any world light source lights the player regardless of their own | **Lamp** (the player's emitter), or **illumination** (what's actually lit) |
 
 ---
 
@@ -404,9 +406,40 @@ costs — cheap recipes make it irrelevant, expensive ones make it a major lever
 **New, small system implied:** mining a tile can yield something **other than** that tile's
 material. That's a loot table on a block, and it's the mechanism the "unexpected item" rides on.
 
-**Still open:** whether **lantern vision** is an unlock, gear-driven, or a baseline the player can
-never trade away. Light is the game's atmosphere *and* its only current exploration cue, so a slot
-that costs you sight is either an excellent hard choice or a miserable one.
+#### Light: an untradeable floor, everything above it earned
+
+**Decided.** Light gets a **floor the player can never trade away**, with every improvement above
+it **earned and riskable**. The player always keeps enough lamp to not be lost in the dark; brighter,
+further and better light comes from equipment (the
+[companion lantern](#light-discovery--navigation) is the intended home) and can be given up for
+something else. A deep biome may suppress light without ever making the game unplayable.
+
+**"Vision" is a misnomer — retire the word.** There is **no reveal mechanic and no fog of war**.
+Lighting is per-pixel illumination on 0..1 ([LIGHTING.md](LIGHTING.md)), and the stat formerly
+called vision is simply **the player's lamp emitter** — one source among many. Anything that
+implies revealing tiles is wrong: the player walking in pitch darkness will still *see* on
+stumbling into a lit area, because the light is the world's, not theirs.
+
+Three consequences that were already true in the engine and unrecorded here:
+
+- **World light sources answer [T9](#t9-exploration-still-needs-breadcrumbs)'s residual local
+  cue.** T9 asks for "a glow past the lamp radius." Every emitter obeys the same rules and light
+  bleeds 2–3 tiles into solid rock, so a glowing mushroom cavern **announces itself through the
+  rock face** before the player reaches it. That cue is free once emissive content exists — it
+  needs *content placement*, not a signalling system.
+- **Lava telegraphs itself**, for the same reason. A molten pocket glows through the rock before
+  it's breached, which turns "don't dig into lava" into a **learnable rule** rather than a gotcha
+  — exactly what [§10](#10-chaos-floated-not-committed) demands of chaos and what
+  [T4](#t4-auto-mining-interacts-badly-or-brilliantly-with-fluid) needs to stay fair.
+- **Environmental suppression has two possible mechanisms**, and the diegetic one composes better:
+  make the *rock or air absorb light* in that biome, rather than debuffing the player's lamp stat.
+  The first is a property of the place; the second is a number applied to the player.
+
+**Cost, recorded because it's easy to miss:** there is **no persistent explored/seen memory** —
+walk away from a tunnel and it returns to the void. So a map is *not* a rendering of where you've
+been; it's a **new memory system**. That makes gating it
+([§12](#gating-which-surfaces-are-earned)) thematically strong: acquiring a map literally grants
+the player a memory the game otherwise doesn't have.
 
 ### The design rule behind both
 
@@ -1581,9 +1614,12 @@ signalling. Two residual cases:
 
 - The **optional infinite mode** reintroduces the original problem in full, and is
   the mode that most needs a signalling layer.
-- Even at good density, the player needs *local* "there's something here" cues —
-  a draft of air, a change in rock, ambient sound, a glow past the lamp radius.
-  Currently there's only a short-range Ore Scanner and the lamp.
+- Even at good density, the player needs *local* "there's something here" cues — a draft of air,
+  a change in rock, ambient sound, a glow past the lamp radius. **The glow is already free**: every
+  light source is an emitter under the same rules and light bleeds 2–3 tiles into solid rock, so
+  emissive content announces itself through the rock face
+  ([Light](#light-an-untradeable-floor-everything-above-it-earned)). This is a **content-placement**
+  job, not a signalling system. The non-visual cues (draft, sound) remain unbuilt.
 
 ### T10. The jetpack deletes the traversal problem
 
