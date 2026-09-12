@@ -912,6 +912,98 @@ This is cohesion **by construction rather than by imitation**, which is the same
 the material system already won on — and it kills all seven glyph icons on the way past.
 It's the highest-value item in this section and the least speculative.
 
+### The surface inventory
+
+**Confirmed: a healthy combination of overlays and in-game interface.** The full slate,
+which is substantially larger than what exists today:
+
+| Surface | Kind | Made of |
+| --- | --- | --- |
+| **Action bar** | Persistent | Slots + item icons |
+| **Mini map** | Persistent | **A world render** |
+| **Inventory** | Invoked | Slots + item icons, scrolling |
+| **Character / equipment slots** | Invoked | Slots + item icons |
+| **Crafting menu** | Invoked | Slots + recipe text, scrolling |
+| **Codex** | Invoked | Prose, scrolling _(exists)_ |
+| **Full map** | Invoked | **A world render** + chrome |
+
+Seven surfaces is an **architecture** decision, not a styling one. Hand-rolling each in
+turn is how the style forks, which is the exact failure the workspace rules warn about.
+
+### The slate splits on an axis that decides the technology
+
+Not overlay-vs-diegetic — **world render vs document**:
+
+- **Two are world renders.** The mini map and full map are downsampled pictures of the
+  world. That's canvas, unambiguously, and drawing them through the existing renderer at
+  a coarser scale is the obvious implementation.
+- **Five are documents with canvas icons inside them.** Scrolling, labelled, keyboard- and
+  gamepad-navigable lists and grids.
+
+This is the natural seam rather than a compromise, and it falls straight out of the hybrid
+rule above instead of being imposed on it.
+
+### Four of the seven are the same widget
+
+Action bar, inventory, equipment slots and crafting ingredients are all **one slot
+component**: an item icon, a count, and a state (empty / filled / selected / locked /
+unaffordable). Build the slot once and the icon pipeline once, and four surfaces come
+nearly free.
+
+That promotes [the shader-rendered icon](#the-one-genuinely-canvas-shaped-win) from "nice
+cohesion win" to **the load-bearing piece of the entire interface**. It's the right thing
+to build first, and the thing most likely to be duplicated badly if it isn't.
+
+The small shared vocabulary worth writing down before any surface is built: **panel frame,
+slot, item icon, label, tooltip, focus ring**. That's the UI equivalent of what the
+material system did for tiles — one compositor, many materials.
+
+### Three consequences that are already decided elsewhere
+
+**1. None of these can pause.** [§7](#7-multiplayer) committed to shared worlds, so the
+world keeps running while a panel is open. Every invoked surface must be safe to browse
+while something walks toward you. That rules out opaque full-screen panels, and it makes
+the player **deliberately vulnerable during inventory management** — a real design choice
+(Terraria makes it on purpose) rather than an oversight.
+
+**2. The map is a progression reward, not chrome.** Two threads already point here:
+wrapping removed the world's absolute reference frame
+([T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame)), and the
+scanner → cartographer arc ([§11](#light-discovery--navigation)) *ends* at "maps the
+surrounding area and marks structures and biomes." So the map can't ship as a solved
+utility. It has to be **designed degraded-first** — mostly blank, earning its detail, with
+the seam handled. That's a harder and far more interesting screen than a minimap, and it's
+also a partial answer to [T9](#t9-exploration-still-needs-breadcrumbs).
+
+**3. The action bar implies ordered, assignable slots — which the inventory doesn't have.**
+Today inventory is a count per material: no ordering, no positions, no capacity. An action
+bar needs slots the player assigns. The risk is drifting into a Terraria-style slot-limited
+grid by reflex, which would quietly reintroduce the capacity cap the pillars explicitly
+exclude. Recorded as [T12](#t12-the-action-bar-implies-a-slotted-inventory-the-pillars-exclude).
+
+### What blocks what
+
+- **Crafting menu** is blocked on the progression spine
+  ([T1](#t1-three-progression-channels-now-exist)) — there's nothing to craft until
+  something owns "the player gets stronger."
+- **Map** is blocked on the bounded world (build order step 1) and wants the cartographer
+  arc to exist before it's finished.
+- **Slot + icon pipeline** is blocked on nothing. It's buildable today against the
+  materials that already exist.
+
+### The equipment screen is the most important surface here
+
+Worth separating from the rest, because it's easy to build it as a stat sheet by default.
+[§11](#limited-slots-as-a-core-loop) made scarce slots a core loop, and the formulation was
+that **your loadout is a declaration of which constraints you're accepting for this
+expedition.** The character screen is *where that declaration is made* — the screen the
+player stares at before every descent.
+
+Design consequence: it should show **what you're giving up**, not only what you're wearing.
+A screen that surfaces the opportunity cost of each slot is the one that makes the loadout
+loop legible; a screen that lists equipped items with stat deltas is the one that turns it
+back into a tier list.
+
 ### The fork worth deciding: overlay or diegetic
 
 A mining game has an obvious in-fiction home for its HUD. Depth on a gauge, materials in a
@@ -1150,6 +1242,24 @@ survives being dimmed by a lamp radius.
 Not a reason to reject diegetic UI — it's a reason to scope it. The likely resolution is
 **diegetic for the ambient and persistent, overlay for the urgent and precise**: a lamp
 that dims as a mood signal is diegetic; the number that says how deep you are is not.
+
+
+### T12. The action bar implies a slotted inventory the pillars exclude
+
+DESIGN.md's pillar is explicit: digging is free, collecting is unconditional, **no capacity
+cap** — fuel and cargo are named as the classic soft-lock generators and kept out. The
+inventory model matches: a count per material, unordered, unbounded.
+
+An action bar needs the opposite shape — **ordered positions the player assigns**. Adding
+one is the moment a Terraria-style slot grid gets built by reflex, and a slot grid is a
+capacity cap wearing a different hat.
+
+**The clean split, and it costs nothing to commit to now:** an **unlimited stash** and
+**limited quick access**. Holding a material is never constrained; having it *ready to hand*
+is. That keeps the no-soft-lock pillar intact while still making the action bar a real
+choice, and it's the same scarcity logic the equipment slots already run on
+([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)) rather than a
+second, unrelated limit.
 
 
 ---
