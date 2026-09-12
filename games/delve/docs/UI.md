@@ -10,7 +10,7 @@ lives in [DESIGN.md](DESIGN.md); the world's look lives in [PALETTE.md](PALETTE.
 > inline `<style>` block in `client/index.html` plus `client/src/ui/inventory.ts`. Screen flow runs
 > through the **app state machine** (`title | playing | paused`, see
 > [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)) — whose `paused` state
-> [should not exist](#nothing-pauses-ever). None of the *art-direction* rules below are applied yet,
+> [should not exist](#nothing-pauses-ever). None of the _art-direction_ rules below are applied yet,
 > and the never-pause rule is currently **inverted**. Tracked by
 > [#28](https://github.com/inman-sebastian/agent-games/issues/28).
 
@@ -137,17 +137,18 @@ and the second can't use it.
 
 ## The surfaces
 
-| Surface                       | Kind        | Made of                          | Blocked on                       |
-| ----------------------------- | ----------- | -------------------------------- | -------------------------------- |
-| **Action bar**                | Persistent  | Slots + icons; assignable, paged | Equipment existing               |
-| **Mini map**                  | Persistent  | **World render**                 | Bounded world; a _memory_ system |
-| **Inventory**                 | Invoked     | Slots + icons, scrolling         | —                                |
-| **Character / equipment**     | Invoked     | Slots + icons                    | Equipment, slot progression      |
-| **Crafting menu**             | Invoked     | Slots + recipe text, scrolling   | The crafting tree                |
-| **Codex**                     | Invoked     | Prose, scrolling _(exists)_      | —                                |
-| **Full map**                  | Invoked     | **World render** + chrome        | Bounded world; a _memory_ system |
-| **Character select / create** | Pre-session | Roster + creation form           | Portable characters              |
-| **World creation**            | Pre-session | Settings form                    | Size presets                     |
+| Surface                       | Kind       | Made of                          | Blocked on                       |
+| ----------------------------- | ---------- | -------------------------------- | -------------------------------- |
+| **Action bar**                | Persistent | Slots + icons; assignable, paged | Equipment existing               |
+| **Mini map**                  | Persistent | **World render**                 | Bounded world; a _memory_ system |
+| **Inventory**                 | Invoked    | Slots + icons, scrolling         | —                                |
+| **Character / equipment**     | Invoked    | Slots + icons                    | Equipment, slot progression      |
+| **Crafting menu**             | Invoked    | Slots + recipe text, scrolling   | The crafting tree                |
+| **Codex**                     | Invoked    | Prose, scrolling _(exists)_      | —                                |
+| **Full map**                  | Invoked    | **World render** + chrome        | Bounded world; a _memory_ system |
+| **In-game menu**              | Invoked    | Settings, leave-world _(exists)_ | —                                |
+| **Character select / create** | Pre-game   | Roster + creation form           | Portable characters              |
+| **World creation**            | Pre-game   | Settings form                    | Size presets                     |
 
 **Four of these are the same widget.** Action bar, inventory, equipment slots and crafting
 ingredients are all a slot holding an item icon with a count and a state (empty / filled / selected
@@ -198,12 +199,12 @@ let the current implementation happen.
 
 The right division isn't screens-vs-panels, it's **whether you're in a world at all**:
 
-| Phase | Surfaces | The world |
-| ----- | -------- | --------- |
-| **Pre-game** | Title, character select, world creation | You aren't in one yet. Nothing to pause |
-| **In-game** | HUD, action bar, inventory, codex, crafting, character, maps, menu | **Always running** |
+| Phase        | Surfaces                                                           | The world                               |
+| ------------ | ------------------------------------------------------------------ | --------------------------------------- |
+| **Pre-game** | Title, character select, world creation                            | You aren't in one yet. Nothing to pause |
+| **In-game**  | HUD, action bar, inventory, codex, crafting, character, maps, menu | **Always running**                      |
 
-**The title screen isn't a menu and isn't part of the game** — it's *pre-game*, the step before you
+**The title screen isn't a menu and isn't part of the game** — it's _pre-game_, the step before you
 enter a world. That's why it stops nothing: there's nothing running yet.
 
 Everything in-game follows from that:
@@ -222,7 +223,7 @@ overlays both route through it, so opening either one stops the sim today. The a
 `paused` state should not exist at all; the phases are **pre-game** and **in-game**.
 
 But the deeper issue is on the server: **`physicsStep` runs on receipt of an input message, not on a
-clock** (`server/src/index.ts`). Snapshots go out on a timer; the *simulation* only advances when a
+clock** (`server/src/index.ts`). Snapshots go out on a timer; the _simulation_ only advances when a
 client sends input. So client-side pause "works" purely because **the server has no tick of its
 own** — which is the thing that actually has to change.
 
@@ -231,7 +232,6 @@ Several decisions already depend on that clock existing: a **day/night cycle** n
 nobody in it stops ticking") is only meaningful if there's a tick to stop. Once the server owns a
 fixed tick, **pause becomes impossible by construction** — the correct end state, rather than a rule
 the client has to remember to honour.
-
 
 ## Non-negotiables
 
