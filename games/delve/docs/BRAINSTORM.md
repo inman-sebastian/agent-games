@@ -77,7 +77,7 @@ together is the fastest honest summary of the target:
 | Category          | What it means here                                                          |
 | ----------------- | --------------------------------------------------------------------------- |
 | **Exploration**   | The primary driver. Digging is how you travel; finding is the reward.       |
-| **Open world**    | Large and bounded. **Not** infinite. Edge behaviour reopened, hard edges leading — see [§4](#hard-edges-vs-wrapping). |
+| **Open world**    | Large and bounded, with **hard edges** — not infinite, not wrapping. See [§4](#hard-edges--but-not-a-visible-box). |
 | **Incremental**   | Continuous, compounding growth in player capability.                        |
 | **Survival**      | Enemies + player health + situational breath. **No attrition meters.**      |
 | **Crafting**      | Tools, weapons, equipment are made, not just bought.                        |
@@ -280,10 +280,11 @@ Three things follow immediately, without waiting for the full roster:
   something that exists. Pockets are the thing that requires
   [placement beyond depth](#both-of-these-need-a-placement-system-that-main-has-already-named)
   (noise regions, proximity, features).
-- **Single-instance biomes are an answer to
-  [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame).** Wrapping removed the world's
-  absolute reference frame; a unique biome *is* a fixed landmark, so landmark-scarcity does
-  navigation work on top of its discovery value.
+- **Single-instance biomes are landmarks.** A unique biome is a fixed point players navigate by,
+  so landmark-scarcity does navigation work on top of its discovery value. _(This was originally
+  justified as compensation for wrapping removing the reference frame; with
+  [hard edges decided](#hard-edges--but-not-a-visible-box) the compensation isn't needed, but the
+  landmark value stands on its own.)_
 
 #### Parked for a dedicated biome session
 
@@ -366,11 +367,9 @@ Costs and consequences are real and tracked in [T2](#t2-fluid-simulation-is-the-
 **The world is finite, not infinite.** This reverses the "infinite in all
 directions" direction currently in DESIGN.md.
 
-- **Horizontally: large but bounded.** **How the horizontal bound behaves is REOPENED.** Wrapping
-  (leftmost edge joining seamlessly to the rightmost) was thrown out as a *possibility* and a
-  previous session inflated it into settled direction. It was never landed on.
-  **Leading candidate: hard edges**, which the author is open to and suspects is easier to design
-  around. See [Hard edges vs wrapping](#hard-edges-vs-wrapping).
+- **Horizontally: large but bounded, with hard edges.** Wrapping was thrown out as a
+  *possibility*, inflated by a previous session into settled direction, and has now been
+  **rejected**. See [Hard edges — but not a visible box](#hard-edges--but-not-a-visible-box).
 - **Vertically: bounded**, and the bound is **bedrock** — unbreakable rock at the deepest row.
   There's a defined maximum depth, tuned as needed; depth doesn't need to be infinite to feel
   deep. Bedrock is the *only* indestructible material in the game
@@ -378,11 +377,34 @@ directions" direction currently in DESIGN.md.
   **top** is still [Q4](#open-questions).)_
 - **Large enough** that it never reads as repetitive or obviously constrained.
 
-### Hard edges vs wrapping
+### Hard edges — but not a visible box
 
-**Open, with hard edges leading.** Only *bounded* is settled; the edge behaviour is not.
+**Decided.** The world has **hard horizontal edges**, not wrapping. **With an explicit constraint:
+the world must not read as a literal box.** Bedrock is contextually right for the *bottom* — deep
+underground, impassable rock is what you'd expect — but bedrock *side walls* visible at the surface
+would read as odd and cheap.
 
-The case for **hard edges**, which is strong enough that it's the recommendation:
+#### The resolution: the two halves are different problems
+
+**Bedrock walls are fine underground and unacceptable on the surface.** Deep in the rock, an
+impassable wall reads as "the rock continues and you can't get through," which is exactly what the
+floor already says. At the surface, the same wall is a box.
+
+> **_Guideline (agent proposal, not ratified)._** **Ocean at the surface ends, bedrock below the
+> waterline.** This is Terraria's answer, and the [factual note](#why-bounded-solves-the-empty-digging-problem)
+> below already records why it works — their edges are landmarks and a distinct biome rather than a
+> boundary. Why it fits DELVE specifically:
+>
+> - **The edge becomes a _place_, not a limit** — content, which a bounded world needs anyway.
+> - **Water is already a committed system**, so the edge costs no new mechanic.
+> - **The stop is enforced by breath, not geometry.** You can swim out; it deepens, there's nothing
+>   there, and you run out of air before you run out of world. A survival mechanic doing a wall's
+>   job is the opposite of cheap — and it makes
+>   [breath load-bearing](#survival-scoped) rather than situational.
+> - **The hard stop sits far out past anything worth reaching**, so the player experiences the
+>   ocean and never the boundary.
+
+The case for hard edges over wrapping:
 
 - **Edges are landmarks**, which restores the absolute reference frame that
   [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame) exists to mourn. The factual note
@@ -413,9 +435,9 @@ an infinite world, density is a probability and long empty stretches are inevita
 This is a much stronger answer to [T9](#t9-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
-_(Wrapping was additionally argued to mean "you can never be permanently lost." With the edge
-behaviour [reopened](#hard-edges-vs-wrapping), hard edges deliver that too — you hit an
-identifiable boundary rather than reappearing elsewhere.)_
+_(Wrapping was additionally argued to mean "you can never be permanently lost."
+[Hard edges](#hard-edges--but-not-a-visible-box) deliver that too — you reach an identifiable,
+named boundary rather than reappearing elsewhere.)_
 
 > **Factual note, since it's load-bearing:** Terraria worlds are finite, but they do
 > **not** wrap — they have hard edges with Ocean biomes at both ends. The finite
@@ -1973,9 +1995,10 @@ large one isn't empty.
 
 ### T8. Wrapping removes the world's absolute reference frame
 
-> **Largely moot if hard edges win**, which is the current leaning
-> ([§4](#hard-edges-vs-wrapping)). Hard edges *restore* the reference frame this tension is about,
-> and they dissolve the map seam. Kept because the decision isn't final.
+> **Resolved — moot.** [Hard edges are decided](#hard-edges--but-not-a-visible-box), and they
+> *restore* the absolute reference frame this tension was about: there is a real "far west" again,
+> distance from an edge is meaningful, and the map has **no seam**. Kept as a record of why
+> wrapping was attractive and what it would have cost.
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
