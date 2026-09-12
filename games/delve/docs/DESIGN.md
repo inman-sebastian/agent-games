@@ -64,10 +64,9 @@ shallow → deep:
 > constructed material that belongs in ruins rather than random veins — see
 > [BIOMES.md](BIOMES.md).)_
 
-Each tier is a first-class **item**: name, depth band, rarity (registry order — **currently
-buggy**, see [#46](https://github.com/inman-sebastian/agent-games/issues/46): the newer ores were
-appended, so rarity no longer tracks depth, which mis-ranks "deepest find" and the break FX),
-bonus hp
+Each tier is a first-class **item**: name, depth band, rarity (registry order — see
+[#46](https://github.com/inman-sebastian/agent-games/issues/46): the newer ores were appended, so
+rarity no longer tracks depth, which mis-scales the **break FX**), bonus hp
 and a codex blurb, each defined in its own **resource file** under
 `shared/src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
 which also carries the ore's art (shape + colour triad). Deeper tiers are tougher and
@@ -76,7 +75,12 @@ tier. **Dirt** is common surface filler; **Mythril** is the deep-end find.
 
 Mined ore is held in the inventory as these items (with their icons), viewable in the
 **▣ Inventory** panel, and every tier you've ever mined is recorded in the **Collection**
-codex — lifetime count, deepest find, and blurb, with undiscovered tiers shown locked.
+codex — lifetime count, the deepest row you found it at, and its blurb, with undiscovered tiers
+shown locked.
+
+> **Removed:** the HUD's "rarest material found" stat (`player.best`). It was prototype leftover
+> from the dig-down game, it ranked by registry order so it was wrong anyway, and it isn't relevant
+> to the direction below. Per-material "deepest row" in the codex is a different thing and stays.
 
 ## Upgradable stats
 
@@ -459,7 +463,9 @@ content density possible.
   tick.** `physicsStep` is input-driven rather than clocked, which blocks day/night, fluid, entities
   and hibernation, and is why client-side pause currently works at all.
 - **[#46](https://github.com/inman-sebastian/agent-games/issues/46) — `rarityOf` is registration
-  order**, so "deepest find" and the break FX rank the wrong ores.
+  order**, so the break FX (pitch, particles, shake) scale by the wrong number: quartz outshines
+  mythril and stone bricks outshines everything. Rarity wants to be **authored** on the resource
+  rather than a side effect of import order.
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
   mineable**, so dirt, clay and stone become collectible too and share the shader/surface-class

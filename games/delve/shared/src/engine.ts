@@ -13,7 +13,7 @@
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
-import { blockAt, solidAt, rockHp, rarityOf, WIDTH, SURFACE } from './blocks';
+import { blockAt, solidAt, rockHp, WIDTH, SURFACE } from './blocks';
 import { tileRand } from './rng';
 import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from './types';
 
@@ -104,7 +104,6 @@ export function newPlayer(): PlayerState {
     inv: {},
     log: {},
     depth: 0,
-    best: 0,
     up: { pick: 0, speed: 0, fortune: 0 },
     tech: { lantern: false },
   };
@@ -147,7 +146,7 @@ export const invCount = (player: PlayerState): number =>
 // Chip/break one target cell over `dt` while the player pushes into it. Damage is dealt in
 // discrete hits paced by dig speed, so it reads as chipping and the sound/juice stay punchy.
 // Tile-break progress (`world.dmg`) lives on the shared world; the hit timer (`player.digKey/
-// digTime`) and the collected materials (inv/log/best) are the acting player's. Returns true if
+// digTime`) and the collected materials (inv/log) are the acting player's. Returns true if
 // the cell broke.
 export function mineTile(
   session: Session,
@@ -197,8 +196,6 @@ export function mineTile(
       const record = (player.log[block.ore] ??= { mined: 0, deepest: 0 });
       record.mined += quantity;
       if (row > record.deepest) record.deepest = row;
-      const rarity = rarityOf(block.ore);
-      if (rarity > player.best) player.best = rarity;
     }
     events.push({
       type: 'break',

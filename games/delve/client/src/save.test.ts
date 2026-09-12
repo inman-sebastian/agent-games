@@ -12,7 +12,7 @@ describe('hydrate', () => {
       world: { seed: 4242, dug: { '1,1': true }, dmg: { '2,2': 5 } },
       player: {
         x: 10.5, y: 20.5, vx: 3, vy: -2, grounded: true, digKey: '1,1', digTime: 0.4,
-        inv: { 2: 7, 5: 3 }, log: { 2: { mined: 7, deepest: 30 } }, depth: 40, best: 4,
+        inv: { 2: 7, 5: 3 }, log: { 2: { mined: 7, deepest: 30 } }, depth: 40,
         up: { pick: 1, speed: 2, fortune: 3 }, tech: { lantern: true },
       },
     };
@@ -21,7 +21,6 @@ describe('hydrate', () => {
     expect(s.world.dug).toEqual({ '1,1': true });
     expect(s.player.inv).toEqual({ 2: 7, 5: 3 });
     expect(s.player.depth).toBe(40);
-    expect(s.player.best).toBe(4);
     expect(s.player.up).toEqual({ pick: 1, speed: 2, fortune: 3 });
     // transient physics reset regardless of what was saved
     expect(s.player.vx).toBe(0);
@@ -31,11 +30,12 @@ describe('hydrate', () => {
     expect(s.player.digTime).toBe(0);
   });
 
-  it('loads a pre-economy-removal save without crashing (stray coins/refine/scanner ignored)', () => {
+  it('loads an older save without crashing (stray coins/refine/scanner/best ignored)', () => {
     const oldSave = {
       world: { seed: 7, dug: {}, dmg: {} },
       player: {
-        x: 5, y: 5, inv: { 5: 12 }, log: {}, depth: 100, best: 5,
+        x: 5, y: 5, inv: { 5: 12 }, log: {}, depth: 100,
+        best: 5, // removed: the rarest-material-found stat
         coins: 9999, earned: 50000, // removed economy fields
         up: { pick: 3, speed: 1, refine: 8, fortune: 2 }, // refine removed
         tech: { lantern: true, scanner: true }, // scanner removed

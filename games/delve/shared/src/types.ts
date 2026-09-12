@@ -127,7 +127,6 @@ export interface PlayerState {
   inv: Record<number, number>;
   log: OreLog;
   depth: number;
-  best: number;
   up: UpgradeLevels;
   tech: TechOwned;
 }

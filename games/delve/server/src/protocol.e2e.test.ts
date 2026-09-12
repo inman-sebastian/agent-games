@@ -127,7 +127,6 @@ describe('P3 authoritative server', () => {
     expect(snap.player.x, 'server x == prediction').toBe(local.player.x);
     expect(snap.player.y, 'server y == prediction').toBe(local.player.y);
     expect(snap.player.depth, 'server depth == prediction').toBe(local.player.depth);
-    expect(snap.player.best, 'server best-ore == prediction').toBe(local.player.best);
     expect(
       setsEqual(c1.serverDug, new Set(Object.keys(local.world.dug))),
       'server dug tiles == prediction',

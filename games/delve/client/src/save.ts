@@ -43,7 +43,6 @@ export function hydrate(saved: any): Session {
             inv: saved.inv ?? {},
             log: saved.log ?? {},
             depth: saved.depth ?? 0,
-            best: saved.best ?? 0,
             up: { ...base.player.up, ...(saved.up ?? {}) },
             tech: { ...base.player.tech, ...(saved.tech ?? {}) },
           },

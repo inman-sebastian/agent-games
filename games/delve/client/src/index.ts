@@ -1017,13 +1017,12 @@ for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
 function updateDebug(): void {
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
-  const ore = engine.ORES[s.player.best];
   const netInfo = net.netStatus();
   dbgText.textContent =
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
     `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
-    `depth ${s.player.depth}m  best ${ore ? ore.name : '—'}\n` +
+    `depth ${s.player.depth}m\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
     `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
@@ -1063,10 +1062,6 @@ function resume(): void {
 function updateHUD(): void {
   el('depth').textContent = String(s.player.depth);
   el('held').textContent = engine.invCount(s.player).toLocaleString();
-  const found = el('found');
-  const ore = engine.ORES[s.player.best];
-  found.textContent = ore ? ore.name : '—';
-  found.style.color = ore && s.player.best > 0 ? ore.color : 'var(--dim)';
 }
 
 // The inventory panel: every material the player is holding, as icon + name + count rows.
