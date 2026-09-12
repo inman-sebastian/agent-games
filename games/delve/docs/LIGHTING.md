@@ -5,8 +5,13 @@ hacks. It lives in `client/src/render/lighting.ts` (`create` / `LAMP_COLOR`) and
 and the style lab's cave sample so the two light identically. It knows nothing about
 game state.
 
-**Every** light source — the miner's lamp, glowing ore, anything added later — is an
-_emitter_ pushed via `addLight()` and obeys the **same** rules.
+**Every** light source — the miner's lamp, anything added later — is an _emitter_ pushed via
+`addLight()` and obeys the **same** rules. That generality is the system's main asset, and the
+design leans on it (see [What the design gets for free](#what-the-design-gets-for-free)).
+
+> **One change is decided and not yet built:** above-ground ambient becomes **time-varying** with
+> the [day/night cycle](#daylight-and-the-daynight-cycle), where today it's simply switched off.
+> Everything else below is current.
 
 ## API
 
@@ -58,20 +63,38 @@ Keeper), not a thin bright rim snapping to black. Two knobs set it together: the
 edge. The wide band both looks better and gives surface-level FX (e.g. mining **damage**) a
 real canvas — damage FX lives in `client/src/render/materials/fx.ts` (`drawDamage`).
 
-### Lamp-only vision (the void)
+### Lamp-only visibility (the void)
 
-Underground, **you see only what your lamp currently reaches** — exploration and
-discovery are core, so unexplored space is a true **void**, not a dimly-previewed map.
-This falls out of the same field: the ambient floor is **zero** (`AMB = [0,0,0]`) and the
-scrim reaches **full** on a wholly-unlit pixel (`MAX_DARKNESS = 1`), so a tile no light
-touches fades all the way to the near-black `SCRIM` colour — ore included. Above the
-surface the scrim is forced off (`aboveSky`), so daylight is unaffected. There is **no
-persistent explored/“seen” memory** — walk away from a tunnel and it returns to the void
-(a remembered-map fog would be a separate feature layered on top).
+> **Terminology: "vision" is retired.** It implies *revealing tiles*, and there is **no fog of war
+> and no seen-memory** here — only per-pixel illumination. The player's own light source is the
+> **lamp**; what's actually lit is **illumination**. _(The code still names the stat `vision`
+> (`stats()`, `LAMP_VISION_GAIN`); that rename is pending.)_
 
-## Gem glow
+Underground, **you see only what light currently reaches** — exploration and discovery are core, so
+unexplored space is a true **void**, not a dimly-previewed map. This falls out of the same field:
+the ambient floor is **zero** (`AMB = [0,0,0]`) and the scrim reaches **full** on a wholly-unlit
+pixel (`MAX_DARKNESS = 1`), so a tile no light touches fades all the way to the near-black `SCRIM`
+colour — ore included. Above the surface the scrim is currently forced off (`aboveSky`), so daylight
+is unaffected — see [below](#daylight-and-the-daynight-cycle), which changes that.
 
-Ore light obeys the same occlusion rules as the lamp, in its **own colour field**
+**Crucially, the light isn't the player's — it's the world's.** A player walking in pitch darkness
+still *sees* the moment they stumble into a lit area, because any emitter lights them regardless of
+their own lamp. This is the difference between an illumination model and a reveal radius, and the
+design depends on it.
+
+There is **no persistent explored/"seen" memory** — walk away from a tunnel and it returns to the
+void. So a **map is a memory system**, not a rendering of where you've been (a remembered-map fog
+would be a separate feature layered on top).
+
+## Coloured emitters (the ore-glow field)
+
+> **Nothing uses this today.** The **only emitter in the game is the miner's lamp.** Ore emission
+> was deliberately removed — veins read purely by their baked surface plus sparkle/twinkle, lit like
+> any other rock, so with lamp-only visibility unlit ore stays hidden in the void and never washes
+> the dark. The coloured-emitter path below is **built, proven and idle**, waiting for the first
+> world light source. That's a *feature*: the hook the design needs already exists.
+
+Coloured light obeys the same occlusion rules as the lamp, in its **own colour field**
 (`ogR/ogG/ogB`) so the lamp doesn't swamp it. Ore only emits when **exposed**
 (bordering an open tile), so its colour has somewhere to flood: the caller seeds it at
 the exposed face, and the field spills through into the shaft and dies in rock, exactly
@@ -82,9 +105,62 @@ channel** (`GLOW_CAP`) on top of that — so no blown-out sunspot. The **total**
 (lamp warm + ore colour) is also capped together (`ADD_MAX`), so their overlap can't
 blow to a white sunspot.
 
-Ore does **not** emit light — it reads only by its lit surface + baked/animated FX
-(see [RENDERING.md](RENDERING.md)), so with lamp-only vision unlit ore stays hidden in
-the void, and ore never washes the dark or floods the emitter list.
+Historical note: this field was built for **ore** glow, and ore no longer uses it (see the callout
+above). The mechanism is unchanged and material-agnostic.
+
+## Daylight and the day/night cycle
+
+> **Decided, not built.** See [DESIGN.md](DESIGN.md#the-world).
+
+Today above-ground is a **special case**: the scrim is forced off entirely (`aboveSky`), so daylight
+is simply "no darkness". With a **day/night cycle** that stops working — above-ground dark becomes a
+real state.
+
+**The fix simplifies the model rather than complicating it.** Make the sun an **ambient term that
+varies with time** and reaches **zero at night**:
+
+| | Ambient |
+| --- | --- |
+| **Above ground** | Time-varying — full at midday, zero at night |
+| **Below ground** | Always zero |
+
+Then there is **one model everywhere**, and the special case disappears. `AMB` stops being a
+constant and becomes a function of time and depth. The lamp matters on the surface at night by
+exactly the same rule it matters underground, with no extra code path — which is the property worth
+protecting if this gets implemented differently.
+
+## The light floor
+
+> **Decided, not built.** See [DESIGN.md](DESIGN.md#light).
+
+Light is the game's atmosphere *and* its only real exploration cue, so it gets a **floor the player
+can never trade away**: always enough lamp to not be lost in the dark. Everything above the floor is
+**earned and riskable** — it comes from equipment, and equipment occupies scarce slots.
+
+**Environmental suppression is a property of the place, not a debuff on the player.** A biome that
+eats light (the Nullshade — see [BIOMES.md](BIOMES.md)) does it by **absorbing** light, i.e. a
+higher local attenuation, not by reducing the player's lamp stat. The first composes with this
+system's existing propagation; the second is a number applied elsewhere that this system would know
+nothing about.
+
+## What the design gets for free
+
+The generality of the emitter model is doing real design work, so it's worth naming what falls out
+of it rather than discovering it twice. **All of this needs world light sources to exist** — today
+the lamp is the only emitter — but none of it needs new lighting code:
+
+- **Emissive content announces itself through rock.** Light bleeds ~2–3 tiles into solid rock
+  (`ROCK_ATTEN`), so a glowing cavern **blooms on the rock face before you break through**. That is
+  the "there's something here" cue exploration needs, with no HUD marker and no map.
+- **Lava telegraphs itself.** A molten pocket is an emitter, so its glow shows through the rock
+  before it's breached — which turns *"don't dig into lava"* from a gotcha into a **learnable rule**.
+  Any hazard that emits gets this property automatically.
+- **The dropped bag is findable.** On death the inventory drops as a light-emitting, bobbing object,
+  so it blooms on the rock face from outside line of sight — recovery without a marker, in a game
+  with no seen-memory.
+
+**Consequence for implementers:** anything the design wants the player to *notice from a distance*
+should be an emitter. That's the cheapest signalling layer available here, and it's already built.
 
 ## Tuning knobs
 
@@ -96,14 +172,15 @@ All constants live at the top of `client/src/render/lighting.ts`:
 | `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                |
 | `ADD`                       | How strongly the light field shows as additive glow.                              |
 | `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                  |
-| `AMB`                       | Ambient floor — `[0,0,0]` for lamp-only vision (unlit → the void). Raise to preview the map. |
+| `AMB`                       | Ambient floor — `[0,0,0]` for lamp-only visibility (unlit → the void). Raise to preview the map. _Becomes time-and-depth-varying with [day/night](#daylight-and-the-daynight-cycle)._ |
 | `MAX_DARKNESS`              | How fully the scrim hides a wholly-unlit pixel — `1` = true void; lower reveals more.        |
 | `SCRIM`                     | The deep cool colour the darkness fades toward (the void's tint).                 |
-| `ORE_GLOW` / `GLOW_CAP`     | Gem halo seed strength and its per-channel anti-bloom ceiling.                    |
+| `ORE_GLOW` / `GLOW_CAP`     | Coloured-emitter seed strength and its per-channel anti-bloom ceiling. _(Idle — nothing emits yet.)_ |
 | `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
 
-The lamp's seed brightness scales gently with the player's `vision` stat, so the
-**Deep Lantern** reaches further down the tunnel.
+The lamp's seed brightness scales gently with the player's lamp stat (`LAMP_VISION_GAIN` × the
+stat the code still calls `vision`), so the **Deep Lantern** unlock reaches further down the tunnel.
+The same stat also widens the dig-reach falloff in `cave-render`.
 
 ## Grounding
 
