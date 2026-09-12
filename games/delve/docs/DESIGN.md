@@ -26,7 +26,7 @@ delving deeper, where the rock is tougher and the materials are rarer.
 3. **Descend** — deeper rock has more hp and rarer materials.
 
 > **No economy.** There is no currency and nothing to buy. The old coins/selling/shop
-> loop was removed; what a player *does* with collected materials, and how progression
+> loop was removed; what a player _does_ with collected materials, and how progression
 > is earned, is being rebuilt — see [Direction & roadmap](#direction--roadmap).
 
 ## Controls
@@ -40,6 +40,9 @@ from movement, so you can mine while running, jumping, or standing still:
 - **Mine (keyboard):** hold **J/K** to mine in the aim direction — S/↓ aims down, A/D or
   ←/→ aim to that side, otherwise the way you're facing.
 - **Touch:** on-screen ◄ ► / jump buttons to move; tap or hold a tile to mine it.
+- **Start / pause:** the game opens on a **title screen** (Descend to play); **Esc** pauses and
+  opens the pause menu (Esc again resumes). Opening Inventory / Collection pauses too — the whole
+  screen flow is a small state machine (see [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)).
 
 ## Ore tiers
 
@@ -131,7 +134,7 @@ into them as it ships. Tracked as an epic in
   [#5](https://github.com/inman-sebastian/agent-games/issues/5)
 - **Economy removed** _(shipped)_ — coins, selling, and the coin-bought upgrade/tech shop
   are gone; the only surviving loop is mine → collect into inventory. Ore `value` and the
-  `stats()` refine multiplier were deleted; upgrade *levels* stay as plumbing (nothing
+  `stats()` refine multiplier were deleted; upgrade _levels_ stay as plumbing (nothing
   raises them yet). [#4](https://github.com/inman-sebastian/agent-games/issues/4)
 - **New progression system** _(planned)_ — a non-monetary way to earn the upgrade levels
   (dig power/speed, fortune, vision) and give collected materials a purpose, replacing the
@@ -147,7 +150,7 @@ into them as it ships. Tracked as an epic in
   through the shared system; (3) merge the resource types + make the background rock
   collectible (pairs with the new progression system).
 - **Placement beyond depth** _(planned)_ — depth (`band` / strata `top`) is currently
-  the *only* factor deciding where a material spawns, and that's a **placeholder**.
+  the _only_ factor deciding where a material spawns, and that's a **placeholder**.
   Future placement will layer in more signals (noise regions / biomes, proximity,
   features) so material distribution isn't a pure function of row.
 
@@ -162,4 +165,4 @@ The earlier "horizontal camera" and "economy retune" passes are folded into
 [#1](https://github.com/inman-sebastian/agent-games/issues/1) and
 [#6](https://github.com/inman-sebastian/agent-games/issues/6) respectively — and the
 economy that #6 would have retuned has since been removed outright (above), so #6 is now
-the *new* progression system rather than a retune.
+the _new_ progression system rather than a retune.

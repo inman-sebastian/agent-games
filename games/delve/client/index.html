@@ -323,6 +323,48 @@
         width: 26px;
         height: 26px;
       }
+
+      /* app-state chrome (driven by <body data-app>, set by the app state machine in index.ts):
+         the HUD and touch controls only exist once you've descended; the title screen shows only
+         on the title state. The pause/inventory/collection panels use the manual .overlay.on toggle. */
+      body[data-app='title'] .topbar,
+      body[data-app='title'] #touch {
+        display: none !important;
+      }
+      #titleOverlay {
+        display: none;
+      }
+      body[data-app='title'] #titleOverlay {
+        display: flex;
+      }
+      .titlepanel {
+        max-width: 380px;
+        text-align: center;
+      }
+      .wordmark {
+        font-size: 44px;
+        letter-spacing: 0.32em;
+        padding-left: 0.32em; /* re-centre the tracked letters */
+        font-weight: 700;
+        margin: 4px 0 2px;
+        color: var(--ink);
+        text-shadow: 0 2px 12px #000;
+      }
+      .wordmark b {
+        color: var(--gold);
+      }
+      .tag {
+        color: var(--dim);
+        font-size: 13px;
+        letter-spacing: 0.1em;
+        margin-bottom: 20px;
+      }
+      .bigbtn {
+        width: 100%;
+        padding: 12px;
+        font-size: 15px;
+        letter-spacing: 0.1em;
+      }
     </style>
   </head>
   <body>
@@ -347,7 +389,10 @@
       </div>
     </div>
 
-    <div id="dbg"><div id="dbgtext"></div><div id="dbgtoggles"></div></div>
+    <div id="dbg">
+      <div id="dbgtext"></div>
+      <div id="dbgtoggles"></div>
+    </div>
 
     <div id="touch">
       <div class="tpad">
@@ -372,6 +417,23 @@
         <div class="sub">Ores discovered on your descent</div>
         <div id="codexList"></div>
         <button class="close" id="codexClose">Back to the mine</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="titleOverlay">
+      <div class="panel titlepanel">
+        <div class="wordmark">DE<b>L</b>VE</div>
+        <div class="tag">A descent into the dark. Dig deeper.</div>
+        <button class="bigbtn" id="startBtn">Descend ▾</button>
+      </div>
+    </div>
+
+    <div class="overlay" id="pauseOverlay">
+      <div class="panel titlepanel">
+        <h2>Paused</h2>
+        <div class="sub">The mine waits.</div>
+        <button class="bigbtn" id="resumeBtn">Resume</button>
+        <button class="close" id="pauseNewBtn">Abandon &amp; start a new mine</button>
       </div>
     </div>
 

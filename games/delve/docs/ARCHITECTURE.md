@@ -51,15 +51,17 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 
 ### Shared ruleset — `@delve/shared` (`shared/src/`)
 
-| Module        | Key exports                                               | Responsibility                                                                                                                                                                                                                                                              |
-| ------------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`    | domain types                                              | Shared type definitions incl. WorldState / PlayerState / Session (the shared-world + per-player split), resources, and the sim + wire I/O. Pure types.                                                                                                                      |
-| `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                         |
-| `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                 | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.) |
-| `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`           | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                            |
-| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount` | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                              |
-| `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types              | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                          |
-| `index.ts`    | (barrel)                                                  | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                 |
+| Module        | Key exports                                                        | Responsibility                                                                                                                                                                                                                                                                              |
+| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`    | domain types                                                       | Shared type definitions incl. WorldState / PlayerState / Session (the shared-world + per-player split), resources, and the sim + wire I/O. Pure types.                                                                                                                                      |
+| `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                         | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                                         |
+| `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                          | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.)                 |
+| `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`                    | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                                            |
+| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount`       | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                     |
+| `fsm.ts`      | `StateMachine`                                                     | A tiny, generic, table-driven **finite state machine** — the reusable primitive under DELVE's state machines (see [State machines](#state-machines)). `send(event)` for constrained flows (rejects illegal transitions), `set(state)` for derived ones; both fire enter/exit hooks. No DOM. |
+| `miner.ts`    | `MinerState`, `desiredMinerState`, `newMinerMachine`, `driveMiner` | The **miner's animation/behaviour state** (idle/run/jump/fall/mine) as a state machine over the physics — a pure derivation each tick, `set()` into a `StateMachine` so the client can hook transition juice (landing squash, etc.).                                                        |
+| `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types                       | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                                          |
+| `index.ts`    | (barrel)                                                           | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                                 |
 
 ### Client renderers — `@delve/client` (`client/src/render/`)
 
@@ -70,6 +72,29 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 | `sprites.ts`      | `drawMiner`                                      | The **miner** sprite (and future entities).                                                                                              |
 | `lighting.ts`     | `create`, `LAMP_COLOR`                           | The geometry-aware **lighting system**: `create()` → push emitters via `addLight()`, then `render(cfg)`. See [LIGHTING.md](LIGHTING.md). |
 | `chunk-worker.ts` | (module worker)                                  | Off-thread rock-chunk generator; imports `composeBand`/`setStrata` from `cave-render`. See [the pipeline](#the-rock-chunk-pipeline).     |
+
+## State machines
+
+DELVE has one reusable FSM primitive — `StateMachine<S,E>` in `shared/src/fsm.ts` — and drives its
+two stateful flows through it, so the pattern is shared, not re-invented:
+
+- **Generic machine (`fsm.ts`).** Table-driven and typed. Two ways to advance it, for DELVE's two
+  shapes of state: `send(event)` follows a declared transition table and **rejects** any transition
+  not in it (illegal transitions are bugs to catch — e.g. `title` can't jump to `paused`);
+  `set(state)` jumps straight to a computed state with no table (for state that's a pure function of
+  something else). Both fire optional `onEnter`/`onExit` hooks and no-op on a self-transition. Pure,
+  DOM-free, fuzz-tested (`fsm.test.ts`).
+- **Miner state (`miner.ts`).** `idle / run / jump / fall / mine`, **derived** from the physics
+  snapshot each tick (`desiredMinerState`) and `set()` into a machine — locomotion is freely
+  interruptible, so a transition table would be busywork, but the machine still earns its keep: the
+  client hooks its `onEnter` to fire landing juice on the air→ground edge. The client reads `.state`
+  to pick the walk/idle bob. Tested against real `physicsStep` playthroughs (`miner.test.ts`).
+- **App / screen flow (client `index.ts`).** `title → playing ⇄ paused`, a `send()`-driven machine
+  and the single source of truth for "is the sim running" — it ticks only in `playing`. There is
+  deliberately **no blocking `loading` state**: the client renders from `localStorage` instantly and
+  plays offline, connecting in the background, so gating play on the network would regress that. CSS
+  keys the visible chrome off `<body data-app>`; the pause menu and the inventory/collection panels
+  all route through the one `pause`/`resume` pair. (Client-only — screen flow isn't a shared rule.)
 
 ## Entity resources
 
