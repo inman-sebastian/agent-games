@@ -975,11 +975,13 @@ utility. It has to be **designed degraded-first** — mostly blank, earning its 
 the seam handled. That's a harder and far more interesting screen than a minimap, and it's
 also a partial answer to [T9](#t9-exploration-still-needs-breadcrumbs).
 
-**3. The action bar implies ordered, assignable slots — which the inventory doesn't have.**
-Today inventory is a count per material: no ordering, no positions, no capacity. An action
-bar needs slots the player assigns. The risk is drifting into a Terraria-style slot-limited
-grid by reflex, which would quietly reintroduce the capacity cap the pillars explicitly
-exclude. Recorded as [T12](#t12-the-action-bar-implies-a-slotted-inventory-the-pillars-exclude).
+**3. The inventory becomes slotted, and its capacity is itself a progression axis.**
+Today inventory is a count per material: no ordering, no positions, no capacity. Both the
+action bar and the decision below need the opposite — **ordered slots the player assigns**,
+with a finite number of them. See
+[T12](#t12-capacity-as-progression-taxes-the-discovery-pillar) for the cost this carries
+and [T13](#t13-larger-backpack-is-a-number-upgrade-in-a-design-committed-to-behaviour-upgrades)
+for the rule it collides with.
 
 ### What blocks what
 
@@ -1003,6 +1005,38 @@ Design consequence: it should show **what you're giving up**, not only what you'
 A screen that surfaces the opportunity cost of each slot is the one that makes the loadout
 loop legible; a screen that lists equipped items with stat deltas is the one that turns it
 back into a tier list.
+
+### Gating: which surfaces are earned
+
+**Resolved.** Availability and *capability* are gated separately:
+
+| Surface | Available | Notes |
+| --- | --- | --- |
+| **Inventory** | Immediately | The panel is never locked; its **capacity** grows — see below |
+| **Action bar** | Immediately | Not gated at all |
+| **Mini map** | **Earned** | A progression reward, per the cartographer arc above |
+
+**Inventory capacity is a progression axis.** A "larger backpack" grants more slots, so how
+much you can carry out is something you invest in rather than something you're handed. This
+is a deliberate reversal of DESIGN.md's no-capacity-cap pillar, and the reversal is sound
+for a reason worth recording precisely:
+
+> **Capacity is not a soft-lock generator here, because digging never requires inventory
+> space.** A full bag stops you *collecting*; it can't stop you *mining*, and mining is the
+> traversal verb. Fuel genuinely can strand a player (no fuel → no digging → no movement).
+> Cargo can't. DESIGN.md's pillar lumps the two together as one category, and **that
+> conflation is the error** — the pillar needs amending, not this idea.
+
+#### What capacity buys, which is more than it costs
+
+- **It creates expedition structure, and DELVE has none today.** Descend, fill, return. That
+  gives a trip a natural beginning and end, which the game currently lacks entirely. It's the
+  loop Deep Rock Galactic, Valheim and Subnautica all run, and it's load-bearing in each.
+- **It gives a base a job, which unblocks [Q2](#open-questions) without needing NPCs.**
+  Somewhere to put the overflow is a concrete function, and a cleaner one than housing
+  because it doesn't depend on a system that isn't designed yet.
+- **It makes the traversal items matter more.** The return trip becomes a real problem rather
+  than a hypothetical one, which is exactly what the jetpack and grapple exist to solve.
 
 ### The fork worth deciding: overlay or diegetic
 
@@ -1244,22 +1278,63 @@ Not a reason to reject diegetic UI — it's a reason to scope it. The likely res
 that dims as a mood signal is diegetic; the number that says how deep you are is not.
 
 
-### T12. The action bar implies a slotted inventory the pillars exclude
+### T12. Capacity as progression taxes the discovery pillar
 
-DESIGN.md's pillar is explicit: digging is free, collecting is unconditional, **no capacity
-cap** — fuel and cargo are named as the classic soft-lock generators and kept out. The
-inventory model matches: a count per material, unordered, unbounded.
+**Supersedes an earlier, wrong version of this tension**, which claimed a capacity cap would
+reintroduce soft-locks. It won't — see the
+[correction](#gating-which-surfaces-are-earned): digging never consumes inventory space, so a
+full bag can't strand anyone. The real conflict is elsewhere and it's sharper.
 
-An action bar needs the opposite shape — **ordered positions the player assigns**. Adding
-one is the moment a Terraria-style slot grid gets built by reflex, and a slot grid is a
-capacity cap wearing a different hat.
+**[§2](#2-discovery--the-unexpected) is the headline pillar: the world interrupts your intent
+with something worth abandoning it for.** A finite bag inverts that. Finding a rare vein with
+no space left turns the game's best moment into bad news, and the player learns to *hope they
+don't find anything* on the way out. That's the exact opposite of the feel target, and no
+amount of tuning the slot count removes it — it's structural.
 
-**The clean split, and it costs nothing to commit to now:** an **unlimited stash** and
-**limited quick access**. Holding a material is never constrained; having it *ready to hand*
-is. That keeps the no-soft-lock pillar intact while still making the action bar a real
-choice, and it's the same scarcity logic the equipment slots already run on
-([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)) rather than a
-second, unrelated limit.
+Things that reduce the tax, roughly in order of how much they cost to build:
+
+- **Let the player choose what to drop, always.** The decision "is this worth a slot?" is the
+  loadout logic applied to loot, which is a *good* decision. The failure mode is a bag that
+  silently refuses a pickup, which reads as the game confiscating a discovery.
+- **Never cap the thing being explored *for*.** If structures yield equipment and equipment
+  doesn't consume material slots, the discovery pillar is insulated from the cargo loop.
+- **Compaction as an upgrade** (below) shrinks the problem without removing the loop.
+- **The collector/magnet item** ([§11](#combat--survival)) becomes near-mandatory rather than
+  optional, because inventory chores are precisely what
+  [automate the chore, never the choice](#the-rules-that-make-automation-safe-here) says to
+  remove.
+
+Unresolved, and worth deciding deliberately: **does a full bag block the pickup, or auto-drop
+the least valuable thing?** The first is honest and annoying; the second is convenient and
+occasionally throws away something you wanted.
+
+### T13. "Larger backpack" is a number upgrade in a design committed to behaviour upgrades
+
+Two rules already adopted say an item should
+[remove a constraint](#6-the-incremental-loop-rebuilt) and
+[upgrade the behaviour, not the number](#the-rules-that-make-automation-safe-here). **A
+bigger backpack is the purest possible counterexample: it is literally a larger integer.**
+The rule applies here whether or not that's convenient, and slot count is also specifically
+called out as a poor progression reward in
+[T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension).
+
+**The resolution is the same trick the drone got.** Keep capacity growth as the *baseline*,
+but make the interesting upgrades change how the bag works:
+
+- **Compaction** — a pile of ore becomes a single ingot slot. Changes the shape of the
+  problem rather than the size of the container.
+- **Filtering** — auto-discard what the player has marked as junk. Removes the chore, not
+  the choice.
+- **Sorting** — the bag organizes itself, so browsing it stops being work.
+- **Remote deposit** — overflow goes to base storage from wherever you are.
+
+The early bag is small *and* dumb; the late bag is smart. Same investment arc as
+[§11](#the-investment-arc), same reason it's memorable.
+
+**Caution on that last one.** Remote deposit removes the return trip, which deletes the
+expedition loop capacity was introduced to create. That's
+[T10](#t10-the-jetpack-deletes-the-traversal-problem) in a different costume, and it wants
+the same treatment: decide *where in the arc* it lands, and whether it's absolute or metered.
 
 
 ---
@@ -1284,8 +1359,10 @@ second, unrelated limit.
   Multiplayer sharpens this: is a base **shared** (one party camp everyone builds and
   benefits from) or **per-player** (everyone keeps their own)? Shared bases need
   griefing/permission answers; per-player bases need the world to hold many of them.
-  **Partially unblocked by [§9](#9-npcs--dialogue):** NPCs exist, and housing them is
-  a proven answer to what a base is for.
+  **Partially unblocked twice over.** [§9](#9-npcs--dialogue): NPCs exist, and housing them
+  is a proven answer. And [§12](#gating-which-surfaces-are-earned): finite inventory makes
+  **storage** a job for a base — arguably the cleaner unblock, since it doesn't depend on the
+  NPC system existing first.
 
 - **Q3. Does the coin economy survive?** **Answered: no — and already shipped.** Coins,
   selling, ore `value`, the Refinery multiplier and the Upgrades panel are deleted from main,
