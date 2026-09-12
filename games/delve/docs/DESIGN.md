@@ -50,9 +50,17 @@ Ore forms Terraria-style **clusters (nodes)**, not embedded veins — see
 [RENDERING.md](RENDERING.md) for how a pocket reads as one crystalline mass. Tiers,
 shallow → deep:
 
-> Dirt · Copper · Iron · Silver · Gold · Emerald · Ruby · Diamond · Mythril
+> Dirt · Copper · Iron · Silver · Gold · Quartz · Emerald · Platinum · Ruby · Diamond ·
+> Obsidian · Mythril
+>
+> _(Plus **Stone Bricks**, registered as an ore so it flows through the whole pipeline, but a
+> constructed material that belongs in ruins rather than random veins — see
+> [BIOMES.md](BIOMES.md).)_
 
-Each tier is a first-class **item**: name, depth band, rarity (array order), bonus hp
+Each tier is a first-class **item**: name, depth band, rarity (registry order — **currently
+buggy**, see [#46](https://github.com/inman-sebastian/agent-games/issues/46): the newer ores were
+appended, so rarity no longer tracks depth, which mis-ranks "deepest find" and the break FX),
+bonus hp
 and a codex blurb, each defined in its own **resource file** under
 `shared/src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
 which also carries the ore's art (shape + colour triad). Deeper tiers are tougher and
@@ -91,15 +99,26 @@ then they sit at their base values, so dig power/speed/vision are effectively co
 
 ## Design pillars
 
-- **Platformer traversal; no fuel, no cargo.** Movement is real 2D platforming —
-  gravity, running, jumping. Digging is free and collecting is unconditional (no
-  hauling, no capacity cap), so the moment-to-moment loop never strands you. (Fuel and
-  cargo — the classic soft-lock generators — stay out.) Climbing back up a sheer shaft
-  isn't possible yet; dedicated upward traversal (ropes / platforms / ladders) is a
-  future pass.
-- **Deterministic, infinite world.** Every cell's static contents are a pure
-  `f(seed, c, r)` (see [ARCHITECTURE.md](ARCHITECTURE.md)); the same seed always
-  generates the same mine, and only what you've changed is saved.
+- **Platformer traversal; no fuel.** Movement is real 2D platforming — gravity, running,
+  jumping. **Digging is always free**, so the moment-to-moment loop can never strand you.
+  Climbing back up a sheer shaft isn't possible yet; dedicated upward traversal (ropes /
+  platforms / ladders / a jetpack) is a future pass.
+
+  **Fuel is a soft-lock generator and stays out; cargo is not.** This pillar used to exclude
+  both, and that conflation was wrong: with no fuel you cannot dig, so you cannot move, so
+  you are stranded — but a full bag only stops you *collecting*, never *mining*, and mining
+  is the traversal verb. So **inventory capacity is finite**, and it's a progression axis: one
+  material occupies one slot, stacked without limit, with no weight — capacity caps how many
+  *kinds* of thing you carry, never how much. See [Direction & roadmap](#direction--roadmap).
+- **Deterministic world.** Every cell's static contents are a pure `f(seed, c, r)` (see
+  [ARCHITECTURE.md](ARCHITECTURE.md)); the same seed always generates the same mine, and only
+  what you've changed is saved. **Determinism is load-bearing** — it's what makes content
+  verifiable at all (see [TESTING.md](TESTING.md)), so nothing may make generation depend on
+  who is looking at it.
+
+  _The world is currently **infinite** horizontally, which is being reversed: it becomes large
+  but **bounded**, with hard edges and a bedrock floor. Only infinity is dropped; determinism
+  stays. See [Direction & roadmap](#direction--roadmap)._
 - **One saturated element.** Ore is the only vivid colour against deliberately muted
   rock, and depth reads by palette (see [PALETTE.md](PALETTE.md)).
 
