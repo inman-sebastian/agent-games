@@ -176,16 +176,92 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
   mispredict is a self-correcting nudge, not a lockstep desync. Offline, it just predicts with no
   server — the network is additive, and `localStorage` is the offline cache.
 
-**Fixed tick:** both sides step the sim at `TICK_DT` (`TICK_HZ` = 60), so a replayed input on the
-client reproduces the server's result. **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
+**Fixed timestep — but only the client has a fixed _tick_.** Both sides step the sim with the same
+`TICK_DT` (`TICK_HZ` = 60), which is what makes a replayed input on the client reproduce the
+server's result. The **client** runs a real clock; the **server steps once per received input**
+(`physicsStep(session, …, TICK_DT)` on message receipt) and only its *snapshot broadcast* is on a
+timer. So the server's effective sim rate is the client's send rate, and **the world stops
+advancing when nobody sends input** — which is why client-side pause currently works at all.
+That's [#45](https://github.com/inman-sebastian/agent-games/issues/45), and it blocks day/night,
+fluid, entities and world hibernation, all of which need time to pass unprompted. **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
 WS-only) via `concurrently`; Vite proxies `/ws`. **Prod:** `pnpm build` → dist, then `pnpm start`
 serves the built client (`sirv`) + the WebSocket from one process. `server/src/protocol.e2e.test.ts`
 is the authority gate — it spawns the real server and proves its state equals the client's
 prediction for a scripted input stream, that out-of-reach mining is rejected, and that reconnect
 hydrates the persisted world.
 
-Deferred to **P4** (real multiplayer): multiple concurrent players sharing one `WorldState`,
-remote-avatar interpolation, area-of-interest culling at scale, rooms.
+### What real multiplayer needs (decided shape)
+
+The port was deliberately thin — a single-player game in multiplayer-shaped plumbing, kept
+malleable. The *architecture* is right and the hardest call (server authority) is already made; the
+**feature set** is unbuilt. The gap is concrete:
+
+| Needed | Why |
+| --- | --- |
+| **World lifetime decoupled from connection lifetime** | Today each connection owns its **own private world** (`server/src/index.ts` holds one `Session` per socket). Many players must join *one* world, and worlds must outlive their creators. |
+| **Player roster + join/leave** | The `state` message carries **one** player and no roster — there is no representation of a second player anywhere in the protocol. |
+| **Entity replication** | Enemies, NPCs, dropped loot and projectiles are all server-owned entities. **The protocol has no entity concept at all** — the wire model is tiles plus one player. |
+| **Interest management** | The client currently receives the world's **entire** dug-tile set, which doesn't scale with world size or player count. |
+| **Three-scope persistence** | See below. A single JSON per player can't hold a shared world. |
+
+**Keep replication area-of-interest-shaped from the start**, even behind a naive radius check. What
+forecloses scale isn't a naive implementation — it's baking **send-everything-to-everyone** into the
+wire format, which is the current shape and is cheap to fix now and expensive later.
+
+Tracked in [#13](https://github.com/inman-sebastian/agent-games/issues/13); entity replication
+itself sits in [#29](https://github.com/inman-sebastian/agent-games/issues/29).
+
+## Persistence: three scopes
+
+> **Decided, not built.** See [DESIGN.md](DESIGN.md#characters-worlds-and-multiplayer).
+
+**A character belongs to the player, not the world** — attributes, equipment, inventory and unlocks
+travel into any world you join, and starting a fresh character is easy. That splits saved state into
+**three scopes with different owners and lifetimes**:
+
+| Scope | Holds | Lifetime |
+| --- | --- | --- |
+| **Account** | The discovery codex, settings | Forever; shared across *all* of a player's characters |
+| **Character** | Attributes, equipment, inventory, unlocks | Per character; travels between worlds |
+| **World** | Terrain mutations (`dug`/`dmg`), fluid, entities, NPCs, time of day | Per world; outlives whoever made it |
+
+**What exists today:** one whole-file JSON per `playerId` under `server/data/`
+(`server/src/store.ts`, which says so itself — fine for single-player, a real store is a later
+concern). It conflates all three scopes into one document.
+
+**What changes:**
+
+- The player store holds a **collection**, not a save — one player → many characters.
+- `WorldState` becomes **world-scoped and shared**, not a field of one player's `Session`. The type
+  comments already anticipate this ("in multiplayer one `WorldState` is shared across all players").
+- **Whole-file writes stop working.** Fluid alone touches many cells per tick, where the current
+  model assumes the player mutates one tile at a time.
+
+### World lifecycle
+
+With worlds outliving their players, two policies become real — both **unratified** proposals rather
+than decisions (see the brainstorm's provenance appendix):
+
+- **Hibernation** — a world with nobody in it stops ticking entirely. It's the lever that keeps cost
+  proportional to *active* worlds rather than *created* ones. Fluid mid-flow **runs to completion on
+  resume**, treating downtime as owing time rather than having stopped; resuming from the paused
+  state would make logging out a way to freeze a disaster.
+- **Retention** — created worlds accumulate forever unless something evicts them.
+
+Note hibernation presupposes a server tick to stop
+([#45](https://github.com/inman-sebastian/agent-games/issues/45)).
+
+## `stats()` needs world context
+
+> **Decided, not built.** See [DESIGN.md](DESIGN.md#progression).
+
+`stats(player)` resolves derived capability from the player alone. Progression adds
+**environmental modifiers** — contextual effects that apply based on *where the player is* — so
+capability stops being a pure function of the player and needs the world too.
+
+This is a **shared-ruleset signature change**, so it lands on both sides at once: the client
+predicts with it and the server is authoritative with it, and they must agree. Worth doing
+deliberately rather than by passing extra arguments at one call site.
 
 ## Verification
 
