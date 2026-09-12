@@ -1,11 +1,14 @@
 {
   "//": "Root config for the delve orchestrator package — covers the CLI tools/ (verify, sim,",
   "//2": "server-check). The client/server/shared packages each have their own tsconfig.",
+  "//3": "DOM is in `lib` because tools/rig-measure.ts drives the entity rasterizer headlessly: it",
+  "//4": "feeds drawRig a plain buffer, but the render modules type that parameter as ImageData.",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "types": ["node"],
-    "noEmit": true,    "paths": {
+    "noEmit": true,
+    "paths": {
       "@delve/shared": ["./shared/src/index.ts"]
     }
   },

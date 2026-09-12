@@ -47,14 +47,16 @@ const GROUPS: Group[] = [
   {
     title: 'gait',
     keys: [
-      ['stride', 0, 24, 1],
+      ['stride', 0, 30, 1],
       ['footLift', 0, 12, 0.5],
       ['armSwing', 0, 24, 1],
       ['bob', 0, 5, 0.25],
       ['lean', -6, 8, 0.5],
-      ['armOffset', 0, 8, 0.5],
+      ['stretch', 1, 1.5, 0.02],
+      ['armOffset', 0, 10, 0.2],
+      ['handSplay', 0, 10, 0.2],
       ['limbCap', 0, 1, 0.05],
-      ['legOffset', 0, 6, 0.5],
+      ['legOffset', 0, 10, 0.2],
     ],
   },
   {
@@ -62,11 +64,16 @@ const GROUPS: Group[] = [
     keys: [
       ['rHead', 3, 10, 0.1],
       ['rChest', 3, 10, 0.1],
+      ['rWaist', 3, 10, 0.1],
       ['rPelvis', 3, 10, 0.1],
+      ['torsoDrop', 0, 6, 0.5],
       ['rThigh', 2, 8, 0.1],
       ['rShin', 1.5, 7, 0.1],
       ['rUpperArm', 1.5, 6, 0.1],
       ['rForearm', 1, 5, 0.1],
+      ['rFoot', 1, 5, 0.1],
+      ['footLen', 0, 9, 0.5],
+      ['footDrop', -2, 4, 0.5],
     ],
   },
   {
@@ -82,7 +89,9 @@ const GROUPS: Group[] = [
 ];
 
 // Config survives a reload, because losing twenty minutes of tuning to a refresh is its own tax.
-const STORAGE = 'delve.riglab.config';
+// Versioned: `load` merges the saved object over DEFAULT_CONFIG, so a stale entry would shadow
+// every value a new default introduces. Bump this whenever the measured defaults change.
+const STORAGE = 'delve.riglab.config.v2';
 const load = (): HumanoidConfig => {
   try {
     const raw = localStorage.getItem(STORAGE);
@@ -269,7 +278,17 @@ function drawGhost(ctx: CanvasRenderingContext2D, frame: number, w: number, h: n
   ctx.save();
   ctx.globalAlpha = 0.3;
   // The reference's figure sits low in its padded frame; align its bottom with ours.
-  ctx.drawImage(ghost, (frame % ghostFrames) * fw, 0, fw, ghost.height, (w - fw) / 2, h - ghost.height, fw, ghost.height);
+  ctx.drawImage(
+    ghost,
+    (frame % ghostFrames) * fw,
+    0,
+    fw,
+    ghost.height,
+    (w - fw) / 2,
+    h - ghost.height,
+    fw,
+    ghost.height,
+  );
   ctx.restore();
 }
 
@@ -281,7 +300,16 @@ function drawFrame(
   idle: boolean,
 ): void {
   const img = ctx.createImageData(FRAME_W, FRAME_H);
-  drawRig(img, rig, idle ? idlePose(cfg) : walkPose(phase, cfg), palettes, FRAME_W / 2, oy, undefined, coded);
+  drawRig(
+    img,
+    rig,
+    idle ? idlePose(cfg) : walkPose(phase, cfg),
+    palettes,
+    FRAME_W / 2,
+    oy,
+    undefined,
+    coded,
+  );
   // Composite so the ghost underlay stays visible through uncovered pixels.
   const scene = ctx.getImageData(ox, 0, FRAME_W, FRAME_H);
   for (let i = 3; i < img.data.length; i += 4) {
@@ -314,10 +342,16 @@ function rebuild(): void {
   // comparison against it inverts. Same class of sign error as the negative bone lengths.
   const span = cfg.yAnkle - cfg.yHip;
   const reach = cfg.femur + cfg.tibia;
+  // The worst thing a stride can do is ask for an ankle the leg can't reach on every frame, because
+  // the solver then straightens the leg and the whole gait reads as stiff splits.
+  const worstChord = Math.hypot(cfg.stride / 2, span);
   readout.textContent =
     `figure ${Math.abs(cfg.yHeadTop)}px tall · leg span ${span}px vs bone reach ${reach}px` +
     (reach <= span ? '  ⚠ no slack — the knee cannot bend' : '') +
     (reach > span + 3 ? '  ⚠ too much slack — reads as a crouch' : '') +
+    (worstChord > reach * cfg.stretch
+      ? `  ⚠ stride needs ${worstChord.toFixed(1)}px of reach, budget is ${(reach * cfg.stretch).toFixed(1)}px`
+      : '') +
     silhouetteReport();
 }
 
@@ -339,13 +373,19 @@ function silhouetteReport(): string {
   const refData = pc.getImageData(0, 0, fw, ghost.height).data;
 
   // Reference mask + its bbox.
-  let rMinX = 1e9, rMaxX = -1, rMinY = 1e9, rMaxY = -1, rCount = 0;
+  let rMinX = 1e9,
+    rMaxX = -1,
+    rMinY = 1e9,
+    rMaxY = -1,
+    rCount = 0;
   for (let y = 0; y < ghost.height; y++) {
     for (let x = 0; x < fw; x++) {
       if (refData[(y * fw + x) * 4 + 3] < 8) continue;
       rCount++;
-      rMinX = Math.min(rMinX, x); rMaxX = Math.max(rMaxX, x);
-      rMinY = Math.min(rMinY, y); rMaxY = Math.max(rMaxY, y);
+      rMinX = Math.min(rMinX, x);
+      rMaxX = Math.max(rMaxX, x);
+      rMinY = Math.min(rMinY, y);
+      rMaxY = Math.max(rMaxY, y);
     }
   }
   if (rCount === 0) return '  ·  reference frame is empty';
@@ -353,13 +393,19 @@ function silhouetteReport(): string {
   // Ours, at idle, measured the same way.
   const mine = stripCtx.createImageData(FRAME_W, FRAME_H);
   drawRig(mine, rig, idlePose(cfg), palettes, FRAME_W / 2, FRAME_H - 2, undefined, coded);
-  let mMinX = 1e9, mMaxX = -1, mMinY = 1e9, mMaxY = -1, mCount = 0;
+  let mMinX = 1e9,
+    mMaxX = -1,
+    mMinY = 1e9,
+    mMaxY = -1,
+    mCount = 0;
   for (let y = 0; y < FRAME_H; y++) {
     for (let x = 0; x < FRAME_W; x++) {
       if (mine.data[(y * FRAME_W + x) * 4 + 3] < 8) continue;
       mCount++;
-      mMinX = Math.min(mMinX, x); mMaxX = Math.max(mMaxX, x);
-      mMinY = Math.min(mMinY, y); mMaxY = Math.max(mMaxY, y);
+      mMinX = Math.min(mMinX, x);
+      mMaxX = Math.max(mMaxX, x);
+      mMinY = Math.min(mMinY, y);
+      mMaxY = Math.max(mMaxY, y);
     }
   }
   if (mCount === 0) return '  ·  nothing drawn';

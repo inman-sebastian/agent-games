@@ -34,7 +34,17 @@ export interface HumanoidConfig {
   footLift: number;
   armSwing: number;
   bob: number;
-  /** Forward lean of the whole upper body, in px at the head. */
+  /** How far a limb may stretch past its bone length to reach an end effector (1 = not at all). */
+  stretch: number;
+
+  /**
+   * Tilt of the whole upper body, in px of x travel at the head, interpolated down to 0 at the hip.
+   *
+   * NEGATIVE leans BACK, which is what the reference does: its head sits 2.5 reference px behind its
+   * hip and its shoulders 1.5 behind. Reading that off the art as a FORWARD lean was wrong, and only
+   * measuring settled it. The value is set so the HEAD'S CENTRE lands 2.5px back, not its crown —
+   * measuring at the crown put the head visibly off the shoulders.
+   */
   lean: number;
 
   /**
@@ -72,14 +82,37 @@ export interface HumanoidConfig {
    */
   legOffset: number;
 
-  // ---- part widths (radii, art px) ----
+  // ---- part widths (radii, art px; every one measured off the reference — see humanoid.ts) ----
   rHead: number;
+  /** Torso at the shoulder — its widest point. */
   rChest: number;
+  /** Torso at its narrowest. The reference torso pinches mid-way, which is what reads as a waist. */
+  rWaist: number;
+  /** Torso at the hip. */
   rPelvis: number;
   rThigh: number;
   rShin: number;
   rUpperArm: number;
   rForearm: number;
+  rFoot: number;
+
+  /**
+   * How far the hand sits outboard of the shoulder, on top of `armOffset`. Measured at 2.5 reference
+   * px on the reference's idle.
+   *
+   * It also caps how bent the arm can be: push the hand far enough out and the shoulder-to-hand
+   * distance meets the bone reach, at which point the elbow straightens and the arm reads as a
+   * diagonal bar rather than a limb.
+   */
+  handSplay: number;
+  /** How far the pelvis hangs below the hip joint, so the torso overlaps the legs as the reference's does. */
+  torsoDrop: number;
+
+  // ---- foot ----
+  /** How far the toe sits ahead of the ankle. The reference's foot is a small nub, offset forward. */
+  footLen: number;
+  /** How far the toe sits below the ankle, so the sole reads flat rather than pointed. */
+  footDrop: number;
 
   // ---- shading ----
   /** How far a part's rim darkens toward its silhouette. Small parts need this small. */
@@ -112,39 +145,60 @@ export const BUILDS: Record<
 
 export const DEFAULT_CONFIG: HumanoidConfig = {
   build: 'male',
-  armOffset: 3,
-  limbCap: 0.3,
-  legOffset: 2.5,
-  yAnkle: -2,
-  yKnee: -10,
-  yHip: -17,
+  armOffset: 6.2,
+  limbCap: 0.25,
+  legOffset: 5.8,
+  handSplay: 4,
+  torsoDrop: 1,
+
+  // Joints: the reference's own joint rows, scaled by 48/29, and nothing here is estimated. They sit
+  // INSIDE the drawn shape: a capsule's end cap overshoots its joint by cap x radius, so
+  // every one of these is the reference's measured extent pulled in by that overshoot.
+  yAnkle: -3,
+  yKnee: -10.5,
+  yHip: -18,
   yWaist: -24,
   yShoulder: -31,
-  yNeck: -33,
-  yHeadTop: -46,
-  yElbow: -24,
-  yHand: -17,
+  yNeck: -34,
+  yHeadTop: -47.5,
+  yElbow: -25,
+  yHand: -19,
 
+  // Each bone pair must OVERSHOOT the joint span it covers. With no slack the chain is permanently
+  // straight and the joint might as well not exist — which is exactly how the arms read when the
+  // humerus and ulna summed to the shoulder-to-hand distance, a pair of stiff diagonal bars.
   femur: 8,
   tibia: 8,
   humerus: 8,
-  ulna: 8,
+  ulna: 7,
   kneeBend: -1,
   elbowBend: 1,
 
-  stride: 10,
-  footLift: 5,
-  armSwing: 10,
-  bob: 1.5,
-  lean: 0,
+  // Gait, also measured — with one correction that mattered. The reference's planted foot travels
+  // 13px across the 8-frame walk, but that is travel across the FRAME: 7 of those 13 are the static
+  // hip offset (the hips sit 3.5px either side of the centreline) and more comes from its foot
+  // ROTATING through toe-off. The ankle's own swing about its own hip is about +-4px, so a stride
+  // read straight off the foot travel is roughly double what it should be — which is what turned our
+  // walk into a pair of straight-legged splits, the IK straightening because the target was out of
+  // reach on every frame.
+  stride: 22,
+  footLift: 3.3,
+  armSwing: 7,
+  bob: 3.3,
+  stretch: 1.2,
+  lean: -3.2,
 
-  rHead: 6.4,
-  rChest: 5.6,
-  rPelvis: 5.2,
-  rThigh: 5,
-  rShin: 2.8,
-  rUpperArm: 3.3,
-  rForearm: 2.5,
+  rHead: 6.8,
+  rChest: 6.7,
+  rWaist: 5,
+  rPelvis: 6,
+  rThigh: 4.6,
+  rShin: 3.3,
+  rUpperArm: 3.2,
+  rForearm: 2.8,
+  rFoot: 3,
+  footLen: 5,
+  footDrop: 0,
 
   rimDarken: 0.14,
   farBias: -0.28,

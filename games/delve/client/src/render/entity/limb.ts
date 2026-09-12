@@ -351,7 +351,15 @@ const bandCache = new Map<RockColors, Rgb[]>();
 function bandsOf(colors: RockColors): Rgb[] {
   let bands = bandCache.get(colors);
   if (!bands) {
-    bands = [colors.center, colors.deep, colors.body, colors.body2, colors.lit, colors.rimA, colors.rimB];
+    bands = [
+      colors.center,
+      colors.deep,
+      colors.body,
+      colors.body2,
+      colors.lit,
+      colors.rimA,
+      colors.rimB,
+    ];
     bandCache.set(colors, bands);
   }
   return bands;

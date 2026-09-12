@@ -76,7 +76,11 @@ export function drawRig(
         : (ctx: PartCtx): Rgb =>
             bias === 0
               ? shadePart(part, ctx, pal.layers)
-              : shadePart(part, { ...ctx, brightness: clamp01(ctx.brightness + bias) }, pal.layers));
+              : shadePart(
+                  part,
+                  { ...ctx, brightness: clamp01(ctx.brightness + bias) },
+                  pal.layers,
+                ));
 
     if (part.shape.kind === 'limb') {
       rasterizeLimb(
@@ -95,7 +99,16 @@ export function drawRig(
         pal.base,
       );
     } else {
-      rasterizeBulb(img, a, b, part.shape.rAcross, part.shape.alongScale, shade, pal.base, part.erode);
+      rasterizeBulb(
+        img,
+        a,
+        b,
+        part.shape.rAcross,
+        part.shape.alongScale,
+        shade,
+        pal.base,
+        part.erode,
+      );
     }
   }
 }

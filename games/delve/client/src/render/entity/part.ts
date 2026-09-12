@@ -113,7 +113,11 @@ export interface Part {
  * the base surface. Each layer is evaluated with ITS OWN palette, so armour reads as metal over
  * cloth rather than as a recolour of the same ramp.
  */
-export function shadePart(part: Part, ctx: PartCtx, layerColors: readonly (typeof ctx.colors)[]): Rgb {
+export function shadePart(
+  part: Part,
+  ctx: PartCtx,
+  layerColors: readonly (typeof ctx.colors)[],
+): Rgb {
   const layers = part.layers;
   if (layers) {
     for (let i = 0; i < layers.length; i++) {
@@ -147,12 +151,7 @@ export function partPalettes(part: Part): {
  * limb without wrapping all the way round. Because both are surface coordinates, the band stays
  * put under any pose — which is the whole point of the coordinate system.
  */
-export function band(
-  from: number,
-  to: number,
-  shade: PartShader,
-  wrap = 1,
-): LayerShader {
+export function band(from: number, to: number, shade: PartShader, wrap = 1): LayerShader {
   return (ctx) =>
     ctx.along >= from && ctx.along <= to && Math.abs(ctx.around) <= wrap ? shade(ctx) : null;
 }

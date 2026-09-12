@@ -7,8 +7,32 @@ every question in text or a tiny cropped PNG.
 
 > **Automated testing is separate.** The gate is `pnpm test` (Vitest — sim/world-gen fuzz,
 > the client↔server protocol e2e, and DOM). See [`docs/TESTING.md`](../docs/TESTING.md). The
-> tools below are for *inspection*, not gating; the retired `verify.ts` / `server-check.ts`
+> tools below are for _inspection_, not gating; the retired `verify.ts` / `server-check.ts`
 > scripts are now Vitest suites.
+
+## `rig-measure.ts` — how close the humanoid is to its reference, in numbers
+
+```sh
+pnpm --filter delve exec tsx tools/rig-measure.ts                       # the comparison table
+pnpm --filter delve exec tsx tools/rig-measure.ts --parts               # + every part in isolation
+pnpm --filter delve exec tsx tools/rig-measure.ts --png /tmp/rig.png    # idle + 8 walk frames, 4x
+pnpm --filter delve exec tsx tools/rig-measure.ts --png /tmp/rig.png --shaded   # textured, not coded
+```
+
+Renders the rig in **coded mode** (each part flat-filled in its reference colour), groups pixels by
+colour, and prints each part's top, bottom and width against the measurements taken off the
+purchased reference pack — converted into _reference_ pixels, so a delta reads as "how many pixels
+of the art it was measured from". Each part is measured with nothing else drawn, because the
+reference's numbers come from unclipped layers and the arms otherwise hide the torso's edge.
+
+**No browser.** It feeds `drawRig` a plain buffer and writes PNGs through `zlib`, so judging a
+silhouette never needs a dev server or a screenshot. `--png` is the one to read when a number looks
+right but the shape doesn't.
+
+The measurements themselves live in [`rig-reference.ts`](rig-reference.ts), shared with
+[`rig.test.ts`](rig.test.ts) — so the report and the gate can't disagree about what "close" means.
+For _tuning_ rather than checking, use `client/labs/rig-lab.html`, which binds every value in
+`render/entity/config.ts` to a live slider over an animating figure.
 
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
@@ -70,7 +94,7 @@ where several materials feather into rock and each other, lamp-lit with twinkle 
 dedicated harness for authoring/tuning a material without driving Playwright. Fully URL-driven:
 `mat=<slug>` (lowercased name, no spaces), `view=surface|cave|both`, `depth=<row>`, `scale`
 (defaults to 2×, the game's scale), `lit=0|1`, `seed` (the **↻ seed** button randomises the cave
-shape *and* ore), `w`/`h`. `ui=0` renders one bare preview at the top-left framed by shot.sh's
+shape _and_ ore), `w`/`h`. `ui=0` renders one bare preview at the top-left framed by shot.sh's
 `w`/`h`/`scale`, and the cave view auto-centres on a vein of the selected material — so a single
 `shot.sh` shows any material in situ. See the `delve-new-material` skill for the authoring loop.
 

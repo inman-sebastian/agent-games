@@ -24,8 +24,12 @@ export interface Vec2 {
  * `bend` picks which of the two mirror solutions to use: +1 and -1 bend opposite ways. A knee bends
  * backward and an elbow forward, so the sign is per-limb and per-facing, not global.
  *
- * If the target is out of reach the chain is straightened toward it rather than snapping or
- * refusing — a limb that can't reach should stretch out, not pop.
+ * If the target is out of reach the chain straightens toward it and, up to `maxStretch`, both bones
+ * scale PROPORTIONALLY so the limb actually arrives. That is not a fudge — it is what the reference
+ * art does. Measured off its walk, the ankle sits up to 11px from the hip horizontally while
+ * dropping 15px, a 19px chord on a 16px leg: hand-drawn animation stretches limbs at the extremes
+ * and always has. Scaling both bones keeps the knee at its proportional place along the limb;
+ * stretching only the far bone is what makes a leg look broken.
  */
 export function solveTwoBone(
   root: Vec2,
@@ -33,6 +37,7 @@ export function solveTwoBone(
   lenA: number,
   lenB: number,
   bend: 1 | -1,
+  maxStretch = 1,
 ): Vec2 {
   const dx = target.x - root.x;
   const dy = target.y - root.y;
@@ -45,7 +50,10 @@ export function solveTwoBone(
   // Out of reach (or folded past the inner limit): straighten along the line to the target.
   const reach = lenA + lenB;
   const inner = Math.abs(lenA - lenB);
-  if (dist >= reach) return { x: root.x + ux * lenA, y: root.y + uy * lenA };
+  if (dist >= reach) {
+    const scale = Math.min(dist / reach, maxStretch);
+    return { x: root.x + ux * lenA * scale, y: root.y + uy * lenA * scale };
+  }
   if (dist <= inner) return { x: root.x + ux * lenA, y: root.y + uy * lenA };
 
   // Standard circle-circle intersection: `a` along the chord, `h` perpendicular to it.
