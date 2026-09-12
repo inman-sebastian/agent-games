@@ -60,7 +60,7 @@ Deliberately thin — the mine is the primary play space.
 
 | Biome             | Hazard                      | Wants              | Role                                               |
 | ----------------- | --------------------------- | ------------------ | -------------------------------------------------- |
-| **Ocean**         | Drowning, increasing depth  | Diving gear        | **Toll.** The world's horizontal edge              |
+| **Ocean**         | Drowning, increasing depth  | Underwater gear    | **Toll.** The world's horizontal edge              |
 | **The Mine Head** | None — **safe at any hour** | —                  | **Hub.** Spawn, base, NPC housing                  |
 | **Woodland**      | Enemies at night            | Light              | Default surface. Wood, fibre                       |
 | **Crags**         | Falling                     | Vertical traversal | **Reward.** Surface-exposed veins that tease depth |
@@ -78,8 +78,8 @@ they inherit the existing strata palettes so that tuning isn't thrown away.
 | **Root Zone**    | None                      | —                | Dirt, clay, copper. The safe teaching layer |
 | **Stonework**    | None intrinsic            | —                | Iron, silver, quartz                        |
 | **The Deeps**    | Absolute dark, long falls | Light, traversal | Gold, emerald, platinum                     |
-| **Basalt Reach** | Heat, tougher rock        | Heat gear        | Ruby, diamond                               |
-| **Molten Core**  | The static lava ocean     | Heat gear        | Obsidian, mythril                           |
+| **Basalt Reach** | Heat, tougher rock        | Heat protection  | Ruby, diamond                               |
+| **Molten Core**  | The static lava ocean     | Heat protection  | Obsidian, mythril                           |
 
 **Every ore that ships today lands in a band**, so no existing material is at soft-lock risk. The
 Molten Core is the bottom-most band and holds the **static** lava ocean, penned by the
@@ -92,17 +92,20 @@ Guaranteed to exist, but found rather than reached.
 | Biome                       | Hazard                              | Wants                          | Role                                                |
 | --------------------------- | ----------------------------------- | ------------------------------ | --------------------------------------------------- |
 | **Glowing Mushroom Cavern** | Low — a haven                       | —                              | **Reward.** Visible _through rock_ by its own light |
-| **Flooded Warren**          | Drowning                            | Diving gear, or the pump       | Makes the fluid tool matter                         |
+| **Flooded Warren**          | Drowning                            | Underwater gear, or a fluid tool | Makes a fluid tool matter                         |
 | **Rime Hollow**             | Slipping; ice floors that break     | Careful traversal              | Hazard is **movement**, not damage                  |
-| **Deadfall**                | Cave-ins, load-bearing rock         | The shoring tool               | Makes shoring matter                                |
+| **Deadfall**                | Cave-ins, load-bearing rock         | A structural / shoring tool    | Makes structural gear matter                        |
 | **The Works**               | Enemies, traps                      | The tool that breaks the shell | Ruins at scale. Home for **Stone Bricks**           |
 | **Crystal Vault**           | None — **sealed**                   | The tool that breaks the shell | **The jackpot.** Gems in abundance                  |
-| **Nullshade**               | **Absorbs the player's lamp light** | Better light, or nerve         | Makes light-as-equipment matter                     |
+| **Nullshade**               | **Absorbs the player's lamp light** | A light source worth a slot    | Makes light-as-equipment matter                     |
 
-**Six of the seven exist to give an equipment axis a reason to be packed.** The pump is dead weight
-until the Flooded Warren exists, shoring is pointless without Deadfall, and light is never worth a
-scarce slot without Nullshade. This is what keeps the loadout decision real rather than theoretical
-— so cutting a pocket means cutting the item that depends on it.
+**Six of the seven exist to give an equipment _need_ a reason to be packed.** A fluid tool is dead
+weight until the Flooded Warren exists, a structural tool is pointless without Deadfall, and light is
+never worth a scarce slot without Nullshade. This is what keeps the loadout decision real rather than
+theoretical — so cutting a pocket also removes the reason for the gear that answers it.
+
+**The _needs_ are ratified; the items that fill them are not.** Specific designs (a pump, a shoring
+tool, a companion lantern) are candidates — see [DESIGN.md](DESIGN.md#equipment--the-loadout).
 
 **Nullshade suppresses light by absorbing it** — a property of the _place_, not a debuff applied to
 the player's lamp. The diegetic mechanism composes with the existing lighting model; a stat penalty
@@ -123,9 +126,19 @@ Vault an event, and it's the same reason one dungeon works in Terraria.
 texture — and they need to be common, because that's what makes the pump and the shoring tool worth
 _carrying_ rather than curiosities.
 
-Counts for the scaling tiers follow the **content-per-expected-player** target rather than
-content-per-area, so a Large world gets **more of each** pocket rather than more kinds. The roster
-is fixed across presets.
+### Density scales with players, not area
+
+**Decided.** The tuning target is **content per _expected player_**, not content per unit of area.
+A world's player cap rises with its size, and content rises with the cap — so a Large world at
+sixteen players holds roughly four times what a Small one at four does.
+
+The point is that **every preset feels the same to play**: nobody's world is sparse and nobody's is
+stripped bare in an hour. Size becomes a neutral preference (intimate and dense vs. sprawling and
+social) rather than a difficulty setting.
+
+For pockets specifically: a Large world gets **more of each** pocket, not more *kinds* — the roster
+is fixed across presets. Unique pockets don't scale at all, which is why they're
+[placed by rule](#placement).
 
 ## Placement
 

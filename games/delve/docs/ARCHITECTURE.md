@@ -239,8 +239,10 @@ concern). It conflates all three scopes into one document.
 
 ### World lifecycle
 
-With worlds outliving their players, two policies become real — both **unratified** proposals rather
-than decisions (see the brainstorm's provenance appendix):
+With worlds outliving their players, two policies become real. **Both are open questions, explicitly
+conditional on committing to hosted multiplayer** — they're cost controls for running many worlds,
+and that hosting model is planned-around rather than committed. Recorded so the shape is known, not
+so it's assumed:
 
 - **Hibernation** — a world with nobody in it stops ticking entirely. It's the lever that keeps cost
   proportional to *active* worlds rather than *created* ones. Fluid mid-flow **runs to completion on

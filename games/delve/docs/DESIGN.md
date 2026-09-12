@@ -342,9 +342,65 @@ thing — so the choice is hardest when the player has the fewest options.
 Gain slots faster than specialized items and "equip the best set" wins and the loop dies; let the
 roster outrun the slots and every new slot is a new *interesting* decision.
 
+### Equipment needs the world creates
+
+**Decided: these needs exist**, because [biomes](BIOMES.md) are built around them and a biome
+without an answer is just a wall. **The items that fill them are candidates, not decisions.**
+
+| Need | Created by |
+| --- | --- |
+| **Underwater gear** | The Ocean, the Flooded Warren |
+| **A fluid tool** | The Flooded Warren |
+| **A structural / shoring tool** | Deadfall's cave-ins and load-bearing rock |
+| **A light source worth a scarce slot** | Nullshade, which absorbs lamplight |
+| **Heat protection** | Basalt Reach, the Molten Core |
+| **A tool that breaks gated shells** | The Works, the Crystal Vault |
+| **Vertical traversal** | Deep shafts; the jetpack is the named answer |
+
+Candidate designs — a pump, a shoring tool, a companion lantern, a grapple, shaped charges, a
+collector, a combat drone — are **proposals**, not a roster.
+
+### Two guidelines for judging equipment
+
+Both are **guidelines**, not rules: useful lenses, overrulable without argument, and neither may
+block an idea on its own.
+
+- **Prefer removing a constraint over adding a number.** Reach removes "I must be adjacent"; the
+  jetpack removes "I must dig my way out". Note the two aren't opposites — a bigger backpack
+  removes *"I must turn back when full"*.
+- **Prefer one item per axis.** Vertical traversal, horizontal traversal, bulk excavation, fluid
+  control, light, navigation, combat support, environmental survival. A loadout decision is only
+  real if the options aren't substitutes; three mining tools produce a tier list.
+
 **Irreplaceable is scoped to a purpose, never to the game.** A fully-upgraded excavation item is
 indispensable for bulk digging and dead weight in a fight. Done that way the choice gets *more*
 interesting at max level, not less.
+
+## Automation
+
+**A direction, not a plan.** Mining drones are the illustrative case: small autonomous helpers that
+**follow the player** and mine alongside them, with **intelligence as the upgrade axis** rather than
+power — an early drone is genuinely stupid and will dig into a lava pocket, and it earns its way to
+competence. That inverts the usual incremental axis (behaviour rather than magnitude) and turns a
+bug-shaped experience into designed content, provided the drone reads as **a character with visible
+intent** rather than an invisible effect that silently deletes tiles.
+
+**Two rules govern any automation here.**
+
+> **Automate the chore, never the choice.** Automation may remove repetition and execution. It must
+> never remove the decision of *where to go* or *what's worth looking at.*
+
+That's a formalisation of the stated identity constraint: **nothing may take away from the core
+identity of the game, which is exploration.** Removing the boring, mundane and repetitive parts of
+exploring does more good than harm; removing the exploring does not.
+
+> **Drones follow the player.** Parked somewhere and left to mine unattended, they'd make DELVE an
+> idle game where the player's optimal move is to stop playing. Tethered, the same drones are pure
+> upside.
+
+That second one is a *consequence* of the first, not an independent law — if a future design
+genuinely satisfies "automate the chore, never the choice" some other way, this follows rather than
+forbids.
 
 ## Combat
 
