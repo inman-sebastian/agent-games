@@ -25,6 +25,8 @@ import type { Pen } from '@delve/shared';
 import { drawMiner } from './render/sprites';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
+import { hydrate, load, save, fresh } from './save';
+import { buildInventoryRows } from './ui/inventory';
 
 // ---- display + world-view geometry ------------------------------------------------------
 // Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
@@ -57,84 +59,14 @@ const lb = fieldBuf.getContext('2d')!;
 lb.imageSmoothingEnabled = false;
 
 // ---- state / persistence ----------------------------------------------------------------
-const SAVE_KEY = 'delve.save.v1';
+// hydrate/load/save + save-format migration live in ./save (extracted so they're testable
+// without the game loop). `save(s)` takes the current session since it's no longer a closure.
 const SAVE_INTERVAL_MS = 2500;
 
-function fresh(): Session {
-  return engine.newSession((Math.random() * 2 ** 31) >>> 0);
-}
-// Reconstruct a Session from a saved object over a fresh one (fills fields added since it was
-// written) and reset transient physics. Handles three formats: the current split save
-// ({ world, player }), the pre-split flat save, and the pre-physics grid save. Used by both
-// the localStorage load and the server hydrate (src/net.ts). `saved` is deserialized external
-// data, so it's genuinely untyped here.
-function hydrate(saved: any): Session {
-  const seed = saved.world?.seed ?? saved.seed;
-  const base = engine.newSession(seed);
-  const s: Session =
-    saved.world && saved.player
-      ? {
-          world: { ...base.world, ...saved.world },
-          player: {
-            ...base.player,
-            ...saved.player,
-            up: { ...base.player.up, ...saved.player.up },
-            tech: { ...base.player.tech, ...saved.player.tech },
-          },
-        }
-      : {
-          // migrate a pre-split flat save: peel world fields off, the rest is the player
-          world: { ...base.world, dug: saved.dug ?? {}, dmg: saved.dmg ?? {} },
-          player: {
-            ...base.player,
-            x: saved.x ?? base.player.x,
-            y: saved.y ?? base.player.y,
-            facing: saved.facing ?? base.player.facing,
-            inv: saved.inv ?? {},
-            log: saved.log ?? {},
-            depth: saved.depth ?? 0,
-            best: saved.best ?? 0,
-            up: { ...base.player.up, ...(saved.up ?? {}) },
-            tech: { ...base.player.tech, ...(saved.tech ?? {}) },
-          },
-        };
-  if (saved.world === undefined && saved.x === undefined && saved.c !== undefined) {
-    s.player.x = saved.c + 0.5; // pre-physics grid save
-    s.player.y = saved.r + 0.5;
-  }
-  s.player.vx = 0; // reset transient physics fields
-  s.player.vy = 0;
-  s.player.grounded = false;
-  s.player.digKey = null;
-  s.player.digTime = 0;
-  return s;
-}
-function load(): Session | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const saved = JSON.parse(raw);
-    if (!saved || !(saved.seed || saved.world?.seed)) return null;
-    return hydrate(saved);
-  } catch {
-    return null;
-  }
-}
-// Persist locally as the OFFLINE fallback. When online the server is authoritative and persists
-// the session itself (the client streams inputs, never state), so this is just a local cache used
-// before the first hello / when the server is unreachable.
-function save(): void {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(s));
-  } catch {
-    /* storage full or unavailable — the game stays playable, just not persisted */
-  }
-}
-
 let s: Session = load() || fresh();
-setInterval(save, SAVE_INTERVAL_MS);
+setInterval(() => save(s), SAVE_INTERVAL_MS);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) save();
+  if (document.hidden) save(s);
 });
 
 // 2-axis camera (keeps the miner centred). The sim position (s.player.x, s.player.y) is continuous and smooth
@@ -1069,33 +1001,8 @@ function refreshInventory(): void {
   el('invTotal').textContent = engine.invCount(s.player).toLocaleString();
   const listEl = el('invList');
   listEl.innerHTML = '';
-  const ids = Object.keys(s.player.inv)
-    .map(Number)
-    .filter((id) => s.player.inv[id] > 0)
-    .sort((a, b) => a - b);
-  if (!ids.length) {
-    const empty = document.createElement('div');
-    empty.className = 'sub';
-    empty.textContent = 'Nothing yet — dig to collect materials.';
-    listEl.appendChild(empty);
-    return;
-  }
-  for (const id of ids) {
-    const ore = engine.ORE_BY_ID[id];
-    const row = document.createElement('div');
-    row.className = 'row';
-    const icon = document.createElement('div');
-    icon.style.cssText = 'width:30px; text-align:center; flex:0 0 auto';
-    icon.appendChild(oreIcon(id, 22));
-    const info = document.createElement('div');
-    info.className = 'info';
-    info.innerHTML = `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>`;
-    const count = document.createElement('div');
-    count.className = 'lv';
-    count.textContent = `×${s.player.inv[id].toLocaleString()}`;
-    row.append(icon, info, count);
+  for (const row of buildInventoryRows(s.player.inv, engine.ORE_BY_ID, oreIcon))
     listEl.appendChild(row);
-  }
 }
 function openInventory(): void {
   audio();
@@ -1175,7 +1082,7 @@ el('newBtn').onclick = function () {
   chunks.clear();
   pending.clear();
   syncWorkerWorld();
-  save();
+  save(s);
   refreshInventory();
 };
 

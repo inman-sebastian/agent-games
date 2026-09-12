@@ -1,0 +1,6 @@
+{
+  "//": "Build-only config: emits declarations for the package but excludes co-located tests,",
+  "//2": "so *.test.ts never lands in dist. `typecheck` (tsconfig.json) still covers the tests.",
+  "extends": "./tsconfig.json",
+  "exclude": ["**/*.test.ts"]
+}
