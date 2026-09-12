@@ -12,22 +12,36 @@ import type { Rig, Skeleton } from './rig';
 
 // ---- proportions (art px, feet at y = 0, up is negative) --------------------------------------
 //
-// Taken off the reference asset pack rather than invented. The first pass was wrong in three ways
-// the reference makes obvious: legs ran to ~46% of height (leggy and unbalanced), the torso was
-// 14px wide on a 48px figure (a blob that read as fat), and the near/far limbs were offset ±2px in
-// x, which produced an accidental three-quarter view instead of the flat, head-on read a platformer
-// needs. Corrected: a big round head, a narrow torso, shorter legs, and NO x offset.
+// MEASURED off the reference asset pack's colour-coded template, not estimated. Its idle frame is
+// 48x48 but the FIGURE is only 29px tall (y 11..39) and 18px wide — the rest of the frame is
+// headroom for animation overshoot, which is a thing worth knowing before matching a "48px
+// character".
 //
-// Roughly a third each — head ~27%, torso ~25%, legs ~38%.
+// Per-part extents from that frame, feet at 0 (the template segments each body part by colour):
+//   head       8px tall,  8px wide, y -28..-21
+//   torso      two segments: chest y -19..-14, pelvis y -14..-9, 7-8px wide
+//   shoulder  -19    hip  -11    knee  -6    ankle  -1
+//   upper arm  4px wide   forearm 3px   thigh 6px   shin 3px
+//
+// Those are scaled by 48/29 onto our decided figure height. NOTE THE TENSION: the reference figure
+// is ~1.8 tiles tall, while DELVE committed to Terraria's 2x3 tiles (a 48px figure). We keep the
+// committed scale and borrow the reference's PROPORTIONS — so this is the reference's shape at
+// Terraria's size.
+//
+// What the measurements corrected, and it was the opposite of what the previous pass guessed:
+// vertically it was already within 1-3px, but every part was too NARROW. The reference head and
+// torso are the SAME width (8px each), and its thighs are 6px where ours were 4.3. "Blob" was never
+// a width problem — it was the single-bulb torso having no waist.
 export const HEIGHT = 48;
 const Y_ANKLE = -2;
 const Y_KNEE = -10;
-const Y_HIP = -19;
-const Y_SHOULDER = -29;
-const Y_NECK = -32;
-const Y_HEAD_TOP = -44;
-const Y_ELBOW = -23;
-const Y_HAND = -16;
+const Y_HIP = -17;
+const Y_WAIST = -24;
+const Y_SHOULDER = -31;
+const Y_NECK = -33;
+const Y_HEAD_TOP = -46;
+const Y_ELBOW = -24;
+const Y_HAND = -17;
 // NO near/far x offset: the view is flat side-on, and depth is carried by VALUE (`shadeBias`), the
 // way the reference distinguishes its near and far limbs by colour rather than by position.
 const X_NEAR = 0;
@@ -58,22 +72,24 @@ export const HUMANOID: Rig = {
   parts: [
     // far side — behind the torso, and DARKER. That bias is what stops the near arm merging into
     // the torso now that there's no x offset to separate them.
-    { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: 2.6, rTo: 2.2 }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: -0.3 },
-    { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: 2.2, rTo: 1.8 }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: -0.3 },
-    { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: 3.4, rTo: 2.9 }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: -0.26 },
-    { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: 2.9, rTo: 2.4 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: -0.26 },
+    { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: 3.3, rTo: 2.8 }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: -0.3 },
+    { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: 2.6, rTo: 2.2 }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: -0.3 },
+    { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: 5, rTo: 4.2 }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: -0.26 },
+    { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: 4.2, rTo: 3 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: -0.26 },
 
-    // body — narrow torso, round head carrying the helmet as a layer
-    { id: 'torso', from: 'hip', to: 'neck', shape: { kind: 'bulb', rAcross: 5, alongScale: 1.0 }, ramp: CLOTH, surface: clothSurface, order: 2 },
-    // shadeBias lifts the head: a big round bulb has a lot of rim, and the surface's depth
-    // darkening was dragging the whole face into shadow.
-    { id: 'head', from: 'neck', to: 'headTop', shape: { kind: 'bulb', rAcross: 5.4, alongScale: 0.95 }, ramp: SKIN, surface: clothSurface, layers: [helmetLayer], order: 4, shadeBias: 0.14 },
+    // body — TWO torso segments, because the reference has a distinct chest and pelvis. One bulb
+    // had no waist, which is what actually read as "fat"; the width was never the problem.
+    { id: 'pelvis', from: 'hip', to: 'waist', shape: { kind: 'bulb', rAcross: 5.4, alongScale: 1.15 }, ramp: CLOTH, surface: clothSurface, order: 2 },
+    { id: 'chest', from: 'waist', to: 'shoulder', shape: { kind: 'bulb', rAcross: 6.5, alongScale: 1.1 }, ramp: CLOTH, surface: clothSurface, order: 3 },
+    // Head as wide as the chest — measured, not stylised. shadeBias lifts it because a big round
+    // bulb has a lot of rim and the surface's depth darkening drags the face into shadow.
+    { id: 'head', from: 'neck', to: 'headTop', shape: { kind: 'bulb', rAcross: 6.5, alongScale: 1.0 }, ramp: SKIN, surface: clothSurface, layers: [helmetLayer], order: 4, shadeBias: 0.16 },
 
     // near side — in front, full brightness
-    { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: 3.6, rTo: 3 }, ramp: CLOTH, surface: clothSurface, order: 5 },
-    { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: 3, rTo: 2.5 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5 },
-    { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: 2.8, rTo: 2.3 }, ramp: CLOTH, surface: clothSurface, order: 6 },
-    { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: 2.3, rTo: 1.9 }, ramp: SKIN, surface: clothSurface, order: 6 },
+    { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: 5.2, rTo: 4.4 }, ramp: CLOTH, surface: clothSurface, order: 5 },
+    { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: 4.4, rTo: 3.2 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5 },
+    { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: 3.4, rTo: 2.9 }, ramp: CLOTH, surface: clothSurface, order: 6 },
+    { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: 2.7, rTo: 2.3 }, ramp: SKIN, surface: clothSurface, order: 6 },
   ],
 };
 
@@ -81,6 +97,8 @@ export const HUMANOID: Rig = {
 export function idlePose(): Skeleton {
   return {
     hip: { x: 0, y: Y_HIP },
+    waist: { x: 0, y: Y_WAIST },
+    shoulder: { x: 0, y: Y_SHOULDER },
     neck: { x: 0, y: Y_NECK },
     headTop: { x: 0, y: Y_HEAD_TOP },
     hipNear: { x: X_NEAR, y: Y_HIP },
@@ -111,7 +129,7 @@ export function walkPose(p: number): Skeleton {
   const lift = Math.cos(p * Math.PI * 2);
   const bob = Math.abs(Math.sin(p * Math.PI * 2)) * 1.5;
 
-  for (const joint of ['hip', 'neck', 'headTop', 'shoulderNear', 'shoulderFar'] as const) {
+  for (const joint of ['hip', 'waist', 'shoulder', 'neck', 'headTop', 'shoulderNear', 'shoulderFar'] as const) {
     pose[joint].y += bob;
   }
 
