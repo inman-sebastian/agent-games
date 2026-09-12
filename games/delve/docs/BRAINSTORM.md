@@ -1228,7 +1228,7 @@ which is substantially larger than what exists today:
 
 | Surface | Kind | Made of |
 | --- | --- | --- |
-| **Action bar** | Persistent | Slots + item icons |
+| **Action bar** | Persistent | Slots + item icons; **assignable, paged** — see below |
 | **Mini map** | Persistent | **A world render** |
 | **Inventory** | Invoked | Slots + item icons, scrolling |
 | **Character / equipment slots** | Invoked | Slots + item icons |
@@ -1239,6 +1239,38 @@ which is substantially larger than what exists today:
 
 Seven surfaces is an **architecture** decision, not a styling one. Hand-rolling each in
 turn is how the style forks, which is the exact failure the workspace rules warn about.
+
+### The action bar: a Satisfactory-style assignable bar
+
+**Decided.** One action bar with a **fixed UI footprint** and **multiple pages** the player can
+toggle through, to which **almost anything can be assigned** — the Satisfactory model.
+
+**The key property is that it's an _access_ layer, not a _capability_ layer.** Slots hold
+**references**, not the items themselves, so assigning something neither moves nor consumes it.
+Two things follow, and both protect decisions already made:
+
+- **It doesn't touch inventory capacity.** Shortcuts cost no slots, so the bar stays out of the
+  [variety-limited capacity](#capacity-limits-variety-not-volume) system entirely.
+- **Unlimited pages don't undermine scarce equipment slots.** The scarcity that matters is what
+  you *can* do ([§11](#limited-slots-as-a-core-loop)), not how fast you reach it. Stated
+  explicitly because someone will eventually be tempted to "balance" the game by limiting pages —
+  that would be balancing the wrong layer.
+
+Three things it needs:
+
+- **An enumerated assignable set**, because the slot widget has to know what it renders. The
+  obvious four: **equipped-gear abilities**, **tools**, **placeable materials**, **consumables**.
+  Mining stays *off* the bar — it's the core verb and the player always has it. (Placeable
+  materials only become meaningful once placement/building exists, which is [Q2](#open-questions),
+  so that entry is ordering rather than a blocker.)
+- **Ability icons are a new art category.** The
+  [icon pipeline](#the-one-genuinely-canvas-shaped-win) renders materials with their real shaders,
+  which is what makes it cohesive — but a grapple or a jetpack burst has no material to render.
+  Those need **authored glyphs drawn in code**, a different job from the shader path, and worth
+  knowing before the pipeline is built.
+- **Paging must work on touch and gamepad**, not just number keys and a scroll wheel. Swipe across
+  the bar and shoulder buttons are the natural mappings; the workspace rules require both to be
+  real rather than afterthoughts.
 
 ### The slate splits on an axis that decides the technology
 
