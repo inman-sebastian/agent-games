@@ -823,6 +823,159 @@ conflict unless *irreplaceable* is scoped to a purpose rather than to the game.
 
 ---
 
+## 12. UI & interface art
+
+**Status: diagnosed, with a recommended direction. Nothing built, and the diegetic
+fork below is genuinely open.**
+
+The UI today is entirely HTML and CSS floating over the game canvas — a top bar, a HUD,
+two overlay panels (Inventory, Collection), and a touch pad. That was the right call to
+get here and none of it is wasted. But it reads as a web page laid over a game rather
+than part of one, and it's worth understanding precisely *why* before reaching for a
+rewrite, because the obvious fix is the wrong one.
+
+### The clash is measurable, not a matter of taste
+
+| Evidence | Value |
+| --- | --- |
+| Colours defined in the UI stylesheet | 7 |
+| Of those, present in the render palette (`client/src/render/palette.ts`) | **0** |
+| Glyph characters standing in as button icons (`▣ ✦ ♪ ↺ ◄ ► ⤒`) | 7 |
+| Pixel grids on screen at once (16px art upscaled 2×, vs. the browser's own) | 2 |
+
+The UI has its own private palette that shares nothing with the game's. It also uses
+three materials the world's renderer cannot produce at all: antialiased corner radii, a
+backdrop blur, and smooth eased transitions. Nothing in a Resurrect-64 pixel scene can
+make a gaussian blur or a subpixel-antialiased curve.
+
+The glyph icons deserve their own callout: those are **found assets**, which the art
+direction forbids outright, and they are the loudest "this is a web page" signal on the
+screen.
+
+### The diagnosis: a second art direction, not a second technology
+
+**None of the above is caused by HTML.** It's caused by CSS defaults that nobody
+overrode. Every single tell in that table is reachable from a stylesheet. That matters,
+because it means moving the UI to canvas would fix the clash only incidentally — by
+forcing a rewrite that happens to discard the defaults — while charging full price for
+it.
+
+### What a full-canvas UI would actually cost
+
+Worth stating plainly, because the cost is concentrated in exactly the surfaces DELVE
+already has:
+
+- **Text stops being text.** No reflow, no user font size, no selection, no find-in-page,
+  no screen reader output, no input-method support for anyone typing a non-Latin script.
+- **Layout and interaction become ours.** Scroll containers, focus management, keyboard
+  navigation, and hit testing are all reimplemented by hand.
+- **The Inventory and Collection panels are the worst case.** They're scrollable lists of
+  labelled items — the single most expensive thing to rebuild in canvas and the single
+  cheapest thing the DOM already does well.
+- **It contradicts a workspace rule.** The root `CLAUDE.md` says HTML and CSS are for
+  chrome while canvas is the play area. Going full-canvas would need to be a deliberate
+  amendment to that rule, not a drift past it.
+
+Full-canvas UI *does* ship on the web, but overwhelmingly from engines exporting to it
+(Unity, Godot, Bevy). Those builds are exactly the ones known for unreadable text on
+high-density displays and broken assistive technology. That's the company this choice
+keeps.
+
+### Recommended shape: keep the DOM, force it onto the art's rules
+
+The standard 2026 practice is **hybrid, split by what a thing _is_** rather than by how
+it should look: canvas owns anything in world space or needing the art's pixel grid; the
+DOM owns anything that is fundamentally a document. Concretely, for DELVE:
+
+- **One shared pixel unit.** Export the art's upscale factor as a CSS custom property and
+  express every padding, border, radius and icon size as a multiple of it. This alone puts
+  the UI on the game's grid instead of the browser's.
+- **Import the palette.** UI colour should come from `palette.ts`, not from seven private
+  hexes in a `<style>` block. Two palettes in one game is a one-fact-one-home violation
+  waiting to drift, and it's already drifted.
+- **Delete the impossible materials.** No blur, no smooth gradients, no antialiased radii.
+  Hard-offset shadows and hard-stop gradients read as pixel art; quantise transitions with
+  a `steps()` timing function so motion lands on pixel boundaries rather than between them.
+- **Nine-slice panel frames via `border-image`.** The standard technique for stylised
+  panels in the DOM: draw the frame in code at startup, hand it to CSS as a data URL, and
+  it tiles to any panel size without blur. Authored in code, so it satisfies the
+  create-every-asset rule, and it needs no build step.
+
+### The one genuinely canvas-shaped win
+
+**Render icons and material swatches with the real material shaders**, into small canvases
+embedded in the DOM panels. The shader registry already exists and already draws these
+materials in the world, so an inventory slot can show the *actual* material rather than an
+imitation of it.
+
+This is cohesion **by construction rather than by imitation**, which is the same principle
+the material system already won on — and it kills all seven glyph icons on the way past.
+It's the highest-value item in this section and the least speculative.
+
+### The fork worth deciding: overlay or diegetic
+
+A mining game has an obvious in-fiction home for its HUD. Depth on a gauge, materials in a
+satchel, vision already tied to a lamp the game simulates. **If the UI becomes part of the
+character's equipment it lives in world space, and that is the one argument that
+legitimately moves it onto the canvas.**
+
+This is a design question, not a technical one, and it's the real fork here — everything
+above assumes the UI stays an overlay. Recorded as [Q6](#open-questions), and it pulls
+against readability ([T11](#t11-diegetic-ui-trades-legibility-for-cohesion)).
+
+### Typography is the biggest remaining tell
+
+After colour, the font is what gives the UI away. A pixel face would close most of the
+remaining gap, but **every pixel font available to download is a found asset**, which the
+art direction forbids. Authoring one means drawing a glyph atlas in code: cheap for
+uppercase and digits, expensive for real prose.
+
+A defensible middle path is **two registers, chosen deliberately rather than by accident**:
+an authored bitmap face for HUD numbers and labels, with codex blurbs staying vector as the
+"field notes" voice. Worth deciding rather than defaulting into.
+
+### HTML-in-Canvas: real, early, and aimed at a different problem
+
+Status as of **2026-09-11**, checked rather than recalled:
+
+| | |
+| --- | --- |
+| Chrome | Origin trial, **M148–M150**, behind `chrome://flags/#canvas-draw-element` |
+| Safari / WebKit | No implementation announced |
+| Firefox | No implementation, no flag; Mozilla's standards position undecided, with technical concerns |
+| Spec | WICG incubation — **not in the HTML standard** |
+| Baseline | **No**, and not close |
+
+The shipped-behind-a-flag surface is `drawElementImage()` for 2D, with
+`texElementImage2D()` (WebGL) and `copyElementImageToTexture()` (WebGPU) for texture
+upload. The richer `placeElement()` — a *live, interactive, accessibility-preserving*
+element inside canvas — is a separate and much earlier proposal (Intent to Prototype).
+
+**It is the wrong tool for the problem in this section.** It composites the DOM into
+canvas; it does nothing about how that DOM *looks*. Drawing today's panels through it
+yields the same too-clean panels, just in a different buffer.
+
+**It is, however, exactly the tool the diegetic fork would want.** If UI becomes an object
+in the world — lit by the lamp, occluded by rock, quantised to the palette — then you need
+real text layout rendered into a texture you can then shade yourself. `drawElementImage()`
+into an offscreen canvas, then push those pixels through the same dither-and-light
+treatment as everything else, is precisely that pipeline. Two caveats even then, and both
+bite here specifically:
+
+1. **The snapshot API has no interaction or hit testing.** The live version is the one
+   that's further out.
+2. **Scrolling and animation inside canvas can't update independently of JS.** The
+   Inventory and Collection panels are scrolling lists, so the surface we'd most want it
+   for is the surface it handles worst.
+
+**Verdict: watch it, don't plan on it.** Baseline requires all four of Chrome, Edge,
+Firefox and Safari; two engines have no implementation and one has open objections. An
+origin trial is not a ship commitment. Treat it as a progressive enhancement to revisit if
+the diegetic fork is ever taken, never as something the UI depends on.
+
+
+---
+
 ## Tensions
 
 Conflicts between ideas in this doc, or between an idea and something it quietly
@@ -983,6 +1136,22 @@ Not a reason to cut it. A reason to decide **when** in the arc it lands, and whe
 it's absolute (free flight) or metered (fuel, charge, cooldown) so it changes the
 traversal problem rather than ending it.
 
+### T11. Diegetic UI trades legibility for cohesion
+
+A UI that lives in the world is maximally cohesive and *minimally readable*. Lamp-lit,
+palette-quantised, occluded text is the same design that makes the world atmospheric, and
+atmosphere is the enemy of a glanceable depth readout. The moody, low-contrast look that
+[PALETTE.md](PALETTE.md) commits to is working directly against the HUD's job.
+
+It also collides with the readability rule the workspace treats as non-negotiable: state
+should be legible without reading text, contrast must survive any display, and none of that
+survives being dimmed by a lamp radius.
+
+Not a reason to reject diegetic UI — it's a reason to scope it. The likely resolution is
+**diegetic for the ambient and persistent, overlay for the urgent and precise**: a lamp
+that dims as a mood signal is diegetic; the number that says how deep you are is not.
+
+
 ---
 
 ## Open questions
@@ -1027,6 +1196,15 @@ traversal problem rather than ending it.
   headless load harness (N scripted clients against one world) would turn the
   blue-sky question from a guess into a measurement, and would say early whether
   "dozens" is a stretch or a fantasy.
+
+- **Q6. Is the UI an overlay or is it diegetic?** The fork from
+  [§12](#12-ui--interface-art). An overlay keeps the DOM, keeps accessibility, and is
+  fixed by CSS discipline alone. A diegetic UI puts the interface in the world — lit,
+  occluded, part of the character's equipment — which is far more distinctive and far
+  more expensive, costs the readability the workspace rules require
+  ([T11](#t11-diegetic-ui-trades-legibility-for-cohesion)), and is the only thing that
+  would justify moving UI onto the canvas. A split answer is available and probably
+  right: diegetic for ambient state, overlay for anything urgent or precise.
 
 ---
 
