@@ -200,59 +200,67 @@ Every candidate here is openly licensed (OFL or CC0). A licensed typeface is chr
 game asset — the art direction's ban is on emoji, clip art and stock images standing in for art the
 agent should author, and it is satisfied by a font the way it is by a system sans.
 
-### Panel frames and surfaces — built
+### Panel frames — built, and one rejected approach
 
-**The stylesheet discipline was necessary and not sufficient**, and this is the more useful lesson of
-the two. Putting the UI on the art's grid and the art's palette left it *geometrically* pixel-correct
-and *materially flat*: two solid fills and a hairline border, beside rock that has a six-step ramp,
-4×4 ordered dithering, hash-noise texture, accent flecks, a lit rim and a dark centre. **Sharing a
-palette is not sharing an art direction.** Flat colour is what CSS gives you for free, and "for
-free" is precisely what made the interface read as CSS.
+Nine-slice `border-image`, the standard way to get a stylised panel in the DOM: a small source is cut
+into a 3×3 grid, the corners are placed as-is, the edges tile, the middle fills. One 7×7 source
+dresses a panel of any size, and with `image-rendering: pixelated` it scales without a blurred pixel.
 
-So the surfaces are **drawn**, in `client/src/ui/surface.ts`, generated at startup — canvas → data
-URL → custom property. No asset file to keep in sync, no build step, and no second home for the
-palette, since the colours are read back out of the stylesheet's own roles.
+**Drawn in code** (`client/src/ui/surface.ts`), generated at startup — canvas → data URL → custom
+property. No asset file to keep in sync, no build step, and no second home for the palette, since
+the colours are read back out of the stylesheet's own roles.
 
-**The import that matters is `BAYER` from `render/palette.ts`** — the identical matrix every material
-shader quantises with. A dithered panel and a dithered rock face interleave on the *same threshold
-grid* rather than merely resembling each other. Same argument the material system already won.
+Three rings and a face:
 
-| Surface | Technique |
+| Ring | What |
 | --- | --- |
-| Panel frame | nine-slice `border-image`, 16px source, 3px slice |
-| Panel face | hash-noise mottle over three ramp steps, tiling from the middle slice |
-| Row recess | the same frame with the bevel reversed and a darker fill |
-| Button | a raised frame one ramp step lighter, so a control reads as sitting *on* a panel |
-| Button pressed | the **inset** frame — a press is the bevel flipping, not a colour change |
-| Modal scrim | a 4×4 dither at 75% coverage, not an alpha wash |
-| Top-bar fade | a dithered vertical ramp, replacing a four-stop hard-banded gradient |
+| 0 | the hard outline — what separates a panel from the rock behind it |
+| 1 | the bevel lip, lit top-left and shaded bottom-right |
+| 2 | the same lip **inverted**, turning the content area into a shallow well |
+| middle | the face — **flat**, tiling across the panel |
 
-**The frame's third ring is the whole point.** A hard lip against a flat face is a *line*; the same
-lip dithering into the face is a *material*, and it is how the rock's lit rim resolves into its body.
-Without it a panel is a rectangle with an edge drawn on it.
+**Ring 2 is where a panel gets its substance.** A single bevel reads as a raised rectangle; a bevel
+with an opposed inner lip reads as a frame *around* something, which is what a panel is. One pixel,
+no texture. Variants are on the bench in `client/labs/panel-lab.html` — flat-and-outline, single
+bevel, this one, corner rivets, and the rejected textured version as a counter-example.
 
-Four things learned by looking, each of which a test now holds:
+Three things learned by looking, each now held by a test: the bevel's shade must be **darker than the
+face** (the first version used the mid grey, which is lighter, so the plate looked swollen); the
+inner lip must **oppose** the outer bevel or the frame just looks thicker; and a control's face is
+one ramp step **lighter** than a panel's, or three pixels of bevel has to do all the work of saying
+"this is a button".
 
-1. **The bevel's shade must be darker than the face.** The first version used the mid grey, which is
-   *lighter* than the panel, so the bottom and right read as lit too and the plate looked swollen.
-2. **A 2×2 tiling middle is a screen door, not stone.** At that size an ordered dither *is* a regular
-   grid. The face needs a domain big enough to look unplanned, and hash noise rather than Bayer —
-   which wraps for free, since the tile *is* the coordinate domain.
-3. **Texture behind text is paid for in contrast.** At a tenth per fleck colour the ore descriptions
-   fought the surface. Prose moved off `--c-dim` (≈2.5:1 on the panel face, already under par) onto
-   `--c-mute` (≈4.9:1).
-4. **A button is almost entirely text**, so it gets half the fleck, in adjacent ramp steps rather
-   than a bright one. The first attempt put the light grey right behind the label.
+#### Why there is no texture in the interface
 
-`client/src/ui/surface.test.ts` asserts the patterns rather than the images — the pure functions
-decide every pixel and the canvas only paints them, which is also what makes them testable under
-happy-dom. It checks that the dither is the rock's own threshold grid, that tiles wrap seamlessly,
-that a bevel is lit from the right direction, that the transition ring carries both the lip and the
-face, that the face is not one flat colour, and that no colour is invented.
+Worth recording, because it was shipped and reverted.
 
-One property there started out wrong and is worth keeping in mind: the fade's coverage is **not**
-monotonic row by row, because the Bayer threshold varies with `y`. That oscillation is what makes it
-read as a dither instead of a stack of bands. The guarantee holds over one full matrix period.
+A version gave every surface a uniform hash-noise mottle and dithered the frame's inner ring, on the
+reasoning that the UI should share the rock's *materials* and not merely its palette. It read as a
+mistake — "the small repeating background pattern looks distracting and looks like a mistake, the
+hashing pattern around the edges looks weird too." The research is unanimous about why:
+
+- **"Keep it off small sprites, moving regions, and UI."** ([Pixnote, dithering](https://pixnote.net/en/learn/dithering/))
+- Under roughly 8–10px of run, **"skip the dithering and use a solid colour or a single-pixel shade
+  shift instead"** (ibid). The frame's transition ring was **one** pixel wide.
+- At small sizes **"there's no room for a pattern to read; it just looks noisy"**
+  ([Spearite](https://spearite.com/blog/pixel-art-dithering-guide)).
+- **"Generally you want to avoid mechanical dithering and opt for a pattern based effect instead"**
+  ([alain.xyz](https://alain.xyz/blog/pixel-art-design-for-game-dev)).
+- **"A dark outline reads at any size and is the safe default"**
+  ([Pixnote, game assets](https://pixnote.net/en/learn/game-assets/)).
+
+**The through-line: in pixel art UI, texture comes from deliberate, placed detail** — a corner rivet,
+an inner line, a header band — **not from uniform noise.** Dithering belongs to large areas and
+gradients (skies, metal, lighting falloff), and a panel is neither, because a panel has text on it.
+
+So **sharing an art direction means sharing the palette, the grid, the hard edges and the light
+direction.** It does not mean running the rock's shader over the chrome. That distinction is the
+correction to the reasoning in the stylesheet section above, which was right about the diagnosis and
+wrong about the remedy.
+
+Reference for browsing real examples: [Game UI Database](https://www.gameuidatabase.com/) (1,300+
+games, 55,000+ screenshots, filterable by style and colour) and
+[Interface In Game](https://interfaceingame.com/).
 
 ## Icons
 

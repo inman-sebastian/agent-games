@@ -28,6 +28,7 @@ export default defineConfig({
         spriteLab: resolve(__dirname, 'labs/sprite-lab.html'),
         uiLab: resolve(__dirname, 'labs/ui-lab.html'),
         fontLab: resolve(__dirname, 'labs/font-lab.html'),
+        panelLab: resolve(__dirname, 'labs/panel-lab.html'),
       },
     },
   },

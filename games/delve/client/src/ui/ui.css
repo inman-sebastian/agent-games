@@ -166,15 +166,18 @@ button,
   flex-direction: column;
   gap: var(--s2);
   pointer-events: none;
-  /* A DITHERED FADE, drawn by ui/surface.ts on the rock's own Bayer matrix. This was a four-stop
-     hard-stop gradient, which is the best CSS can manage and still read as CSS: four visible steps
-     is a banding artefact, where an ordered dither is a technique the rock already uses everywhere.
-     Falls back to a flat wash before script runs. */
-  background: #2e222fe6;
-  background-image: var(--tex-fade, none);
-  background-repeat: repeat-x;
-  background-size: calc(var(--px) * 4) var(--fade-h, 100%);
-  background-position: top left;
+  /* Hard-stopped bands rather than a blend, which is the pixel-art read CSS can actually manage.
+     A dithered version of this fade was tried; see the note on the overlay scrim. */
+  background: linear-gradient(
+    180deg,
+    #2e222fe6 0%,
+    #2e222fe6 42%,
+    #2e222f99 42%,
+    #2e222f99 68%,
+    #2e222f4d 68%,
+    #2e222f4d 86%,
+    #2e222f00 86%
+  );
   image-rendering: pixelated;
 }
 header {
@@ -257,14 +260,10 @@ button:disabled {
 .overlay {
   position: fixed;
   inset: 0;
-  /* A DITHERED SCRIM rather than an alpha wash: three of every four pixels are the darkest step and
-     the fourth is the world showing through, which is how a pixel-art game has always done a modal
-     dim. Alpha blending invents colours between the palette's steps; a dither never does. */
+  /* A plain wash. A dithered scrim was tried and rejected: at the density a modal dim needs, a 4x4
+     pattern across the whole screen reads as a repeating artefact rather than as a technique. The
+     places dithering earns its keep are large gradients, not flat washes. */
   background: #2e222fd9;
-  background-image: var(--tex-scrim, none);
-  background-repeat: repeat;
-  background-size: calc(var(--px) * 4) calc(var(--px) * 4);
-  image-rendering: pixelated;
   display: none;
   align-items: center;
   justify-content: center;

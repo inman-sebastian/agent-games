@@ -14,7 +14,7 @@ import type { Material, ShadeCtx } from './materials/types';
 
 // Low-level colour/texture primitives now live in palette.ts (shared with the material shaders);
 // re-export the ones existing importers pull from cave-render so nothing else has to change.
-export { T, TEX, clamp01, hexRgb, rgbHex, mix, desat } from './palette';
+export { T, TEX, UPSCALE, clamp01, hexRgb, rgbHex, mix, desat } from './palette';
 export type { Rgb } from './palette';
 
 const makeCanvas = (w: number, h: number): OffscreenCanvas | HTMLCanvasElement =>
