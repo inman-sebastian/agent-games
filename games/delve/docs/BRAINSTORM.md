@@ -1,7 +1,8 @@
 # DELVE — brainstorm scratchpad
 
-> **Temporary.** Raw idea capture from a design session, living on the
-> `delve/design-brainstorm` branch only. Nothing here is decided or implemented.
+> **Temporary, and no longer just idea capture.** Lives on the `delve/design-brainstorm` branch
+> only, and **nothing here is implemented**. But plenty is now *decided* — see the provenance
+> markers below, and mind the difference between a decision and a proposal.
 >
 > **DESIGN.md is provisional, not authoritative.** Where an idea below contradicts
 > the shipped design, assume the shipped design is what changes. Ideas that survive
@@ -765,6 +766,19 @@ With worlds outliving their players, two things need explicit answers:
   Abandoned-world cleanup, storage caps, or explicit deletion — not urgent, but it's a
   real cost curve and better decided than discovered.
 
+### World size is fixed at generation
+
+**Decided.** A world's **size preset — and therefore its
+[player cap](#player-cap-scales-with-world-size) — is chosen at creation and never changes.**
+
+- **Accepted social friction:** a fifth friend can't join a Small world. They make a new one.
+  That's the cost of the decision, not a problem to engineer around.
+- **It reinforces verifiability.** A fixed size means a fixed content budget, decided once at
+  generation, so the content gate can assert a world's contents without modelling growth.
+- **World creation is a one-shot, permanent decision**, which makes the creation screen a real
+  surface with real stakes — a second pre-session surface alongside
+  [character select](#characters-are-portable).
+
 ### Characters are portable
 
 **Decided.** A character belongs to the **player**, not to the world. Attributes, equipment,
@@ -1454,11 +1468,24 @@ material system did for tiles — one compositor, many materials.
 
 ### Three consequences that are already decided elsewhere
 
-**1. None of these can pause.** [§7](#7-multiplayer) committed to shared worlds, so the
-world keeps running while a panel is open. Every invoked surface must be safe to browse
-while something walks toward you. That rules out opaque full-screen panels, and it makes
-the player **deliberately vulnerable during inventory management** — a real design choice
-(Terraria makes it on purpose) rather than an oversight.
+**1. Panels do not and cannot pause. _Decided._** This is a **first-class design decision**, not
+a consequence of multiplayer — an earlier pass justified it via shared worlds, which are
+[not committed](#status-pinned-planned-around), so the justification was weaker than the rule.
+The world keeps running while any panel is open.
+
+- Every invoked surface must be **safe to browse while something walks toward you**, which rules
+  out opaque full-screen panels.
+- The player is **deliberately vulnerable during inventory management**. Terraria makes exactly
+  this choice on purpose.
+- Combined with [finite capacity](#capacity-limits-variety-not-volume), the full-bag decision now
+  gets made *under threat* rather than at leisure.
+- **Reading the map is itself risky**, which is a good property for a surface that's a
+  [progression reward](#gating-which-surfaces-are-earned).
+- **Implementation consequence:** the sim keeps stepping, so no panel may block the frame loop,
+  and input routing has to decide per-key whether the UI or the game receives it.
+- **It gives a base another job.** If panels can't pause, "somewhere safe to open your inventory"
+  becomes a real need — a third functional answer to [Q2](#open-questions), alongside NPC housing
+  and storage.
 
 **2. The map is a progression reward, not chrome.** Two threads already point here:
 wrapping removed the world's absolute reference frame
@@ -1765,12 +1792,21 @@ because every option is now excellent at its niche and the opportunity cost of
 leaving it behind is high. This is the proven pattern — Monster Hunter, Deep Rock
 Galactic's overclocks, and most loadout-driven games work exactly this way.
 
-Corollary, **_speculative (unratified)_** — and note it **conflicts with a decision already
-made**, since [inventory slots *are* a progression reward](#capacity-limits-variety-not-volume).
-If it survives at all it applies to *equipment* slots only: **slot count should not be a
-progression reward**, or at
-most a very rare one. Handing out slots dissolves the tension that makes the system
-work. The scarcity *is* the mechanic.
+~~Corollary: slot count should not be a progression reward.~~ **Overruled by the author.**
+**Equipment slots ARE an upgradable feature: start with a single slot in the early game and unlock
+more as you progress.** (This was unratified agent synthesis, and it also contradicted inventory
+slots being a reward.)
+
+**What that changes, and it's mostly for the better.** One slot early makes the loadout decision
+*maximally* sharp — you pick exactly one thing — so the choice is hardest when the player has the
+fewest options, which is an unusual and good shape. The usual worry is the late game, where more
+slots soften the choice.
+
+**The invariant that keeps it alive:** *slot count must grow more slowly than the item roster.* If
+the player gains slots faster than they gain specialized items, "equip the best set" wins and the
+loop dies; if the roster outruns the slots, every new slot is a new *interesting* decision rather
+than a relaxation of an old one. That's concrete enough to **assert in the content gate**, which
+is a better guarantee than a design principle.
 
 ### T7. Player count and world size interact
 
@@ -1976,7 +2012,7 @@ recorded during the audit session itself.
 | 3 | World **lifecycle is required**; hibernation + retention policies | [§7](#world-lifecycle-is-now-a-required-system) |
 | 4 | The **nine-item equipment slate** | [§11](#candidate-equipment-slate) |
 | 5 | **One item per axis** | [§11](#design-the-slate-by-axis-not-by-item) |
-| 6 | **Slot count is not a progression reward** (conflicts with a decision already made) | [T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension) |
+| ~~6~~ | ~~Slot count is not a progression reward~~ — **overruled**: equipment slots start at one and are unlocked as progression | [T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension) |
 | 7 | **Removes a constraint** as a game-wide rule | [§6](#the-design-rule-behind-both) |
 | 8 | **Follow-the-player is load-bearing** and permanent | [§8](#the-rules-that-make-automation-safe-here) |
 | 9 | Late-game drone **obedience modes** | [§8](#synthesis-progression-unlocks-the-toggles) |
@@ -1994,7 +2030,9 @@ recorded during the audit session itself.
 ### Could not determine
 
 - Whether the **four-player hard cap** was the author's before it was attached to size presets.
-- Whether **scarce equipment slots as a core loop** was the author's or the agent's.
+- ~~Whether scarce equipment slots as a core loop was the author's or the agent's.~~ **Moot** —
+  the author has since ruled that equipment slots **start at one and grow**, so scarcity is real
+  *and* progression touches it.
 
 ### Note on the tensions
 
@@ -2134,6 +2172,24 @@ Invariants worth asserting once it's property-based, over N seeds:
   seed**, which is reproducible by construction and therefore debuggable.
 
 ### Build order
+
+> **Author direction: UI work comes soon.** The material **art direction is largely landed**, so
+> the thing that blocked interface work is gone. Note the split, because it decides *what* to build
+> first: the **UI foundation** is ready now, while the individual **surfaces** stay blocked on
+> their own systems.
+>
+> | Ready now | Blocked on |
+> | --- | --- |
+> | The **slot widget** + **shader-rendered icon pipeline** ([§12](#the-one-genuinely-canvas-shaped-win)) | — nothing |
+> | **Panel frame** (nine-slice, drawn in code) + the CSS discipline: shared pixel unit, palette imported from `palette.ts`, hard-edged materials ([§12](#recommended-shape-keep-the-dom-force-it-onto-the-arts-rules)) | — nothing |
+> | Inventory + Codex panels | — nothing (both exist in some form) |
+> | **Action bar** | the assignable set, which needs equipment to exist |
+> | **Crafting menu** | the equipment/crafting tree |
+> | **Mini map / full map** | the bounded world, and the map is a new *memory* system ([§6](#light-an-untradeable-floor-everything-above-it-earned)) |
+> | **Character / equipment screen** | equipment, and now slot progression |
+>
+> The numbered order below is **[unratified](#appendix-provenance-audit)** agent synthesis; this
+> note is the author's direction about UI within it, not a ratification of the rest.
 
 1. **Bound the world and guarantee content density.** *(Small preset only.)*
    Wrapping horizontal bounds, a max depth, and generation that places a known number
