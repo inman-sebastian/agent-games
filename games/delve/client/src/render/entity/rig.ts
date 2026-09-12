@@ -89,6 +89,7 @@ export function drawRig(
           radius: part.shape.rFrom,
           radiusTo: part.shape.rTo,
           erode: part.erode,
+          cap: part.cap,
         },
         shade,
         pal.base,

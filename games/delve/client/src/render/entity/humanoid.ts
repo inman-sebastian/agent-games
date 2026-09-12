@@ -21,7 +21,7 @@
 import { clothSurface, plateSurface } from './limb';
 import { band } from './part';
 import { solveTwoBone } from './ik';
-import { DEFAULT_CONFIG, type HumanoidConfig } from './config';
+import { BUILDS, DEFAULT_CONFIG, type HumanoidConfig } from './config';
 import type { Rig, Skeleton } from './rig';
 
 export const HEIGHT = 48;
@@ -69,24 +69,32 @@ export function buildHumanoid(cfg: HumanoidConfig = DEFAULT_CONFIG): Rig {
   const helmetLayer = { id: 'helmet', ramp: HELMET, shade: band(cfg.helmetFrom, 1.1, plateSurface) };
   const far = cfg.farBias;
   const taper = 0.85;
+  const b = BUILDS[cfg.build];
+  // Torso segments are TALLER THAN WIDE on purpose. A bulb is an ellipse, so a segment that is
+  // wider than it is tall reads unmistakably as a bust — the chest was 13px wide by 8px tall. The
+  // reference's torso is blocky and uniform, which is why it reads as a torso; the closest thing
+  // this shape vocabulary has is an ellipse elongated along the body.
+  const torsoAlong = 1.5;
   return {
     parts: [
       // far side
-      { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: far, coded: [...CODED.armFarU] as [number, number, number] },
-      { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: far, coded: [...CODED.armFarL] as [number, number, number] },
-      { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: far, coded: [...CODED.legFar] as [number, number, number] },
-      { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: far, coded: [...CODED.legFar] as [number, number, number] },
+      { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: cfg.rUpperArm * b.limb, rTo: cfg.rUpperArm * b.limb * taper }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: far, cap: cfg.limbCap, coded: [...CODED.armFarU] as [number, number, number] },
+      { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: cfg.rForearm * b.limb, rTo: cfg.rForearm * b.limb * taper }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: far, cap: cfg.limbCap, coded: [...CODED.armFarL] as [number, number, number] },
+      { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: cfg.rThigh * b.limb, rTo: cfg.rThigh * b.limb * taper }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: far, cap: cfg.limbCap, coded: [...CODED.legFar] as [number, number, number] },
+      { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: cfg.rShin * b.limb, rTo: cfg.rShin * b.limb * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: far, cap: cfg.limbCap, coded: [...CODED.legFar] as [number, number, number] },
 
-      // body — two torso segments, because one bulb has no waist and that is what read as "fat"
-      { id: 'pelvis', from: 'hip', to: 'waist', shape: { kind: 'bulb', rAcross: cfg.rPelvis, alongScale: 1.15 }, ramp: CLOTH, surface: clothSurface, order: 2, coded: [...CODED.pelvis] as [number, number, number] },
-      { id: 'chest', from: 'waist', to: 'shoulder', shape: { kind: 'bulb', rAcross: cfg.rChest, alongScale: 1.1 }, ramp: CLOTH, surface: clothSurface, order: 3, coded: [...CODED.chest] as [number, number, number] },
+      // body — two torso segments, because one bulb has no waist and that is what read as "fat".
+      // The chest runs waist→NECK rather than waist→shoulder: ending at the shoulder left a visible
+      // gap between the torso and the head, which the coded view made obvious.
+      { id: 'pelvis', from: 'hip', to: 'waist', shape: { kind: 'bulb', rAcross: cfg.rPelvis * b.pelvis, alongScale: torsoAlong }, ramp: CLOTH, surface: clothSurface, order: 2, coded: [...CODED.pelvis] as [number, number, number] },
+      { id: 'chest', from: 'waist', to: 'neck', shape: { kind: 'bulb', rAcross: cfg.rChest * b.chest, alongScale: torsoAlong }, ramp: CLOTH, surface: clothSurface, order: 3, coded: [...CODED.chest] as [number, number, number] },
       { id: 'head', from: 'neck', to: 'headTop', shape: { kind: 'bulb', rAcross: cfg.rHead, alongScale: 1.0 }, ramp: SKIN, surface: clothSurface, layers: [helmetLayer], order: 4, shadeBias: cfg.headBias, coded: [...CODED.head] as [number, number, number] },
 
       // near side
-      { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 5, coded: [...CODED.legNearU] as [number, number, number] },
-      { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5, coded: [...CODED.legNearL] as [number, number, number] },
-      { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 6, coded: [...CODED.armNearU] as [number, number, number] },
-      { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 6, coded: [...CODED.armNearL] as [number, number, number] },
+      { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: cfg.rThigh * b.limb, rTo: cfg.rThigh * b.limb * taper }, ramp: CLOTH, surface: clothSurface, order: 5, cap: cfg.limbCap, coded: [...CODED.legNearU] as [number, number, number] },
+      { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: cfg.rShin * b.limb, rTo: cfg.rShin * b.limb * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5, cap: cfg.limbCap, coded: [...CODED.legNearL] as [number, number, number] },
+      { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: cfg.rUpperArm * b.limb, rTo: cfg.rUpperArm * b.limb * taper }, ramp: CLOTH, surface: clothSurface, order: 6, cap: cfg.limbCap, coded: [...CODED.armNearU] as [number, number, number] },
+      { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: cfg.rForearm * b.limb, rTo: cfg.rForearm * b.limb * taper }, ramp: SKIN, surface: clothSurface, order: 6, cap: cfg.limbCap, coded: [...CODED.armNearL] as [number, number, number] },
     ],
   };
 }
@@ -98,24 +106,30 @@ export function idlePose(cfg: HumanoidConfig = DEFAULT_CONFIG): Skeleton {
   // of what reads as lifeless.
   const t = (y: number): number =>
     cfg.lean === 0 ? 0 : (cfg.lean * (cfg.yHip - y)) / (cfg.yHip - cfg.yHeadTop);
+  const off = cfg.armOffset * BUILDS[cfg.build].shoulder;
+  const leg = cfg.legOffset;
   return {
     hip: { x: 0, y: cfg.yHip },
     waist: { x: t(cfg.yWaist), y: cfg.yWaist },
     shoulder: { x: t(cfg.yShoulder), y: cfg.yShoulder },
     neck: { x: t(cfg.yNeck), y: cfg.yNeck },
     headTop: { x: t(cfg.yHeadTop), y: cfg.yHeadTop },
-    hipNear: { x: 0, y: cfg.yHip },
-    kneeNear: { x: 0, y: cfg.yKnee },
-    ankleNear: { x: 0, y: cfg.yAnkle },
-    hipFar: { x: 0, y: cfg.yHip },
-    kneeFar: { x: 0, y: cfg.yKnee },
-    ankleFar: { x: 0, y: cfg.yAnkle },
-    shoulderNear: { x: t(cfg.yShoulder), y: cfg.yShoulder },
-    elbowNear: { x: t(cfg.yElbow) + 1, y: cfg.yElbow },
-    handNear: { x: t(cfg.yHand) + 2, y: cfg.yHand },
-    shoulderFar: { x: t(cfg.yShoulder), y: cfg.yShoulder },
-    elbowFar: { x: t(cfg.yElbow) - 1, y: cfg.yElbow },
-    handFar: { x: t(cfg.yHand) - 2, y: cfg.yHand },
+    // Legs sit either side of centre for the same reason the arms do — stacked on the centreline,
+    // the near thigh completely hides the pelvis behind it.
+    hipNear: { x: leg, y: cfg.yHip },
+    kneeNear: { x: leg, y: cfg.yKnee },
+    ankleNear: { x: leg, y: cfg.yAnkle },
+    hipFar: { x: -leg, y: cfg.yHip },
+    kneeFar: { x: -leg, y: cfg.yKnee },
+    ankleFar: { x: -leg, y: cfg.yAnkle },
+    // Arms hang OUTBOARD. At x≈0 they sit inside a 13px-wide torso, which is why the coded view
+    // showed the near arm covering the whole chest. `build.shoulder` narrows the stance slightly.
+    shoulderNear: { x: t(cfg.yShoulder) + off, y: cfg.yShoulder },
+    elbowNear: { x: t(cfg.yElbow) + off, y: cfg.yElbow },
+    handNear: { x: t(cfg.yHand) + off, y: cfg.yHand },
+    shoulderFar: { x: t(cfg.yShoulder) - off, y: cfg.yShoulder },
+    elbowFar: { x: t(cfg.yElbow) - off, y: cfg.yElbow },
+    handFar: { x: t(cfg.yHand) - off, y: cfg.yHand },
   };
 }
 

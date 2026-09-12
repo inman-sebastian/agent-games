@@ -22,6 +22,9 @@ const TEX_BODY = 5171; // fixed seed for body-space texture noise (cf. TEX for w
 // body-space noise, and how coarse that nibble is. Small — enough to kill the machine-perfect arc
 // without eating the anatomy.
 const DEFAULT_ERODE = 0.7;
+// Default cap extension. Well below 1 (a true capsule) because blocky limbs are what read as a
+// character at this scale — see `Limb.cap`.
+const DEFAULT_CAP = 0.35;
 
 // Rim darkening, shared by the part surfaces. Module-level so the rig lab can drive it live without
 // threading a config through every per-pixel call — this is read once per pixel, so an extra
@@ -50,6 +53,17 @@ export interface Limb {
   readonly radiusTo?: number;
   /** Silhouette erosion in px (default `DEFAULT_ERODE`). 0 = a machine-perfect capsule edge. */
   readonly erode?: number;
+  /**
+   * How far the rounded END CAPS extend past the joints, as a fraction of the radius.
+   * 1 = a true capsule (hemispherical caps); 0 = flat ends exactly at the joints.
+   *
+   * This matters far more than it sounds. A capsule's drawn length is `bone + 2 * radius`, so a
+   * short fat limb becomes a long blob — a 7px femur at radius 5 draws 17px tall, taller than the
+   * whole torso, which is exactly how the legs came to dominate the figure. The reference pack's
+   * thigh is 6px wide and 7px tall over a 5px bone, which no capsule can produce: its limbs are
+   * BLOCKS with a slight overhang, not capsules. Low values give that.
+   */
+  readonly cap?: number;
 }
 
 /**
@@ -162,6 +176,8 @@ export function rasterizeLimb(
   // an otherwise-correct limb look computed next to the rock. So the radius is perturbed per-pixel
   // by body-space noise — the same trick, anchored to the body so it doesn't crawl.
   const erode = limb.erode ?? DEFAULT_ERODE;
+  const cap = limb.cap ?? DEFAULT_CAP;
+  const segLen = Math.hypot(limb.bx - limb.ax, limb.by - limb.ay);
   const minX = Math.max(0, Math.floor(Math.min(limb.ax, limb.bx) - r));
   const maxX = Math.min(img.width - 1, Math.ceil(Math.max(limb.ax, limb.bx) + r));
   const minY = Math.max(0, Math.floor(Math.min(limb.ay, limb.by) - r));
@@ -173,6 +189,11 @@ export function rasterizeLimb(
       // Sample at the pixel CENTRE so the capsule is symmetric about its spine.
       const { d2, nx, ny, t, along, side } = segment(px + 0.5, py + 0.5, limb);
       if (d2 > (r + erode) * (r + erode)) continue; // cheap reject before the noise fetch
+      // Clip the end caps: without this the limb runs a full radius past each joint.
+      if (segLen > 0) {
+        const overhang = (cap * r) / segLen;
+        if (along < -overhang || along > 1 + overhang) continue;
+      }
       // Taper: interpolate the radius along the limb. Clamped `t` (not the cap-overshooting `along`)
       // so the caps keep the radius of the end they belong to instead of shrinking past it.
       const rHere = rA + (rB - rA) * t;

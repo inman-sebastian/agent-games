@@ -104,6 +104,8 @@ export interface Part {
    * coded render can be diffed against a reference frame numerically instead of by eye.
    */
   readonly coded?: Rgb;
+  /** End-cap extension for `limb` shapes — see `Limb.cap`. */
+  readonly cap?: number;
 }
 
 /**

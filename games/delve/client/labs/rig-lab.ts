@@ -52,6 +52,9 @@ const GROUPS: Group[] = [
       ['armSwing', 0, 24, 1],
       ['bob', 0, 5, 0.25],
       ['lean', -6, 8, 0.5],
+      ['armOffset', 0, 8, 0.5],
+      ['limbCap', 0, 1, 0.05],
+      ['legOffset', 0, 6, 0.5],
     ],
   },
   {
@@ -185,7 +188,21 @@ modeBtn.onclick = (): void => {
   rebuild();
 };
 renderMode();
-modeRow.append(modeBtn);
+// Build switch: the reference pack has one androgynous template, so this is ours. Same rig, same
+// parts, a multiplier set over the measured widths — which is what keeps equipment authored against
+// surface coordinates fitting either build without per-build art.
+const buildBtn = document.createElement('button');
+const renderBuild = (): void => {
+  buildBtn.textContent = `build: ${cfg.build}`;
+};
+buildBtn.onclick = (): void => {
+  cfg.build = cfg.build === 'male' ? 'female' : 'male';
+  renderBuild();
+  save(cfg);
+  rebuild();
+};
+renderBuild();
+modeRow.append(modeBtn, buildBtn);
 side.append(modeRow);
 
 const actions = document.createElement('div');
