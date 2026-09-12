@@ -1845,6 +1845,31 @@ DOM owns anything that is fundamentally a document. Concretely, for DELVE:
   it tiles to any panel size without blur. Authored in code, so it satisfies the
   create-every-asset rule, and it needs no build step.
 
+### Implementation: Web Components
+
+**Decided.** All UI elements are built as
+**[Web Components](https://developer.mozilla.org/en-US/docs/Web/API/Web_components)** — native,
+no dependency, and the fit is real rather than forced: the
+[shared vocabulary](#four-of-the-seven-are-the-same-widget) (panel frame, slot, item icon, label,
+tooltip, focus ring) maps one-to-one onto custom elements.
+
+It also satisfies two rules already in force. The workspace rule to **prefer modern native Web
+APIs over libraries**, and DELVE's own rule that **if the game and a lab draw the same thing they
+call the same module** — the labs already duplicate game chrome, and importable elements are how
+that stops.
+
+**Two scopes, decided separately:**
+
+- **Custom elements: by default.** The element vocabulary and lifecycle are the whole point.
+- **Shadow DOM: selectively, not by default.** It cuts both ways. It makes the
+  [palette-via-custom-properties discipline](#recommended-shape-keep-the-dom-force-it-onto-the-arts-rules)
+  **mandatory**, since custom properties are the only styling that pierces the boundary — which is
+  exactly the discipline this section is asking for. But **ARIA references cannot cross shadow
+  boundaries**, which makes cross-component labelling and focus genuinely fiddly, and
+  accessibility isn't tradeable. So: shadow DOM where encapsulation earns it (the **slot**, which
+  appears dozens of times), light DOM where the component is mostly layout (the **panel frame**,
+  which wraps arbitrary content).
+
 ### The one genuinely canvas-shaped win
 
 **Render icons and material swatches with the real material shaders**, into small canvases
