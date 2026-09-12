@@ -24,9 +24,10 @@
 
 ## Glossary
 
-**Proposed, needs ratification.** Nomenclature drift in this document has already caused one
-wrong decision, so the vocabulary is pinned here and every section should use these words with
-these meanings. Correct any definition that's wrong — the names are the author's call.
+**Provisional, and accepted as good enough for now.** Some of this vocabulary is expected to
+change as the docs are ironed out and a real design document is nailed down. Nomenclature drift
+has already caused one wrong decision here, so the words are pinned *now* rather than waiting for
+the final names, and every section should use them with these meanings until they're revised.
 
 | Term | Means |
 | --- | --- |
@@ -247,7 +248,9 @@ live. It does mean generation and content placement must work in both modes.
   by what they let you do, not just by a damage number.
 
 This confirms combat as a **parallel discipline** to mining, with its own crafting,
-its own progression, and its own feel. It's a major scope commitment and should be
+its own progression, and its own feel. ("Its own progression" is consistent rather than
+competing, since progression is
+[layered by design](#t1-progression-is-layered-so-the-layers-must-do-different-jobs).) It's a major scope commitment and should be
 planned as one of the game's primary systems rather than a feature.
 
 The "removes a constraint" rule from [§6](#6-the-incremental-loop-rebuilt) applies
