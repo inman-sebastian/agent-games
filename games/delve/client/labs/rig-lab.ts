@@ -57,6 +57,9 @@ const GROUPS: Group[] = [
       ['handSplay', 0, 10, 0.2],
       ['limbCap', 0, 1, 0.05],
       ['legOffset', 0, 10, 0.2],
+      ['stanceSplay', 0, 14, 0.2],
+      ['kneeLead', -0.5, 1.5, 0.02],
+      ['elbowLead', -0.5, 2, 0.05],
     ],
   },
   {
@@ -72,6 +75,8 @@ const GROUPS: Group[] = [
       ['rUpperArm', 1.5, 6, 0.1],
       ['rForearm', 1, 5, 0.1],
       ['rFoot', 1, 5, 0.1],
+      ['farNarrowArm', 0.2, 1, 0.05],
+      ['farNarrowLeg', 0.5, 1.2, 0.05],
       ['footLen', 0, 9, 0.5],
       ['footDrop', -2, 4, 0.5],
     ],
@@ -91,7 +96,7 @@ const GROUPS: Group[] = [
 // Config survives a reload, because losing twenty minutes of tuning to a refresh is its own tax.
 // Versioned: `load` merges the saved object over DEFAULT_CONFIG, so a stale entry would shadow
 // every value a new default introduces. Bump this whenever the measured defaults change.
-const STORAGE = 'delve.riglab.config.v2';
+const STORAGE = 'delve.riglab.config.v3';
 const load = (): HumanoidConfig => {
   try {
     const raw = localStorage.getItem(STORAGE);

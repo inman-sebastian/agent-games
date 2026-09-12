@@ -74,6 +74,41 @@ export interface HumanoidConfig {
   limbCap: number;
 
   /**
+   * How far each ANKLE sits outboard of its own hip — near foot forward, far foot back.
+   *
+   * This is the angle. The reference's idle sweeps each limb diagonally across the body: its near
+   * leg runs 4.5px forward from hip to foot over 11 rows, its far leg 3.5px back. Ours hung both
+   * legs vertically, and a limb drawn as a vertical slab instead of a diagonal stroke is most of
+   * why the figure read as a mannequin rather than a person. Bounding-box measurements cannot see
+   * this at all, which is how it survived five rounds of tuning.
+   */
+  stanceSplay: number;
+
+  /**
+   * What share of the leg's splay the KNEE takes, and the ARM's the elbow. Both read straight off
+   * the reference's per-row centre drift, and they go opposite ways.
+   *
+   * Its leg drifts barely at all for four rows then accelerates: the thigh hangs near-vertical and
+   * the shin swings forward, so the knee takes only about a fifth of the splay despite being
+   * halfway down. Its arm is the reverse — all the drift happens above the elbow and the forearm
+   * hangs almost straight, so the elbow overshoots the hand. Placing both joints proportionally
+   * gave two straight angled sticks instead of two bent limbs.
+   */
+  kneeLead: number;
+  elbowLead: number;
+
+  /**
+   * How much narrower the far-side limbs are drawn — the reference thins them as well as darkening
+   * them, but only really the arms.
+   *
+   * Its far arm is a 1px sliver for four rows where the near arm is 2-4, because at 29px a far arm
+   * tucked behind the torso is drawn as a line. Its far LEG is a different story: full width, near
+   * enough the same as the near leg. One shared value made the far leg a 2px stick.
+   */
+  farNarrowArm: number;
+  farNarrowLeg: number;
+
+  /**
    * How far the legs sit either side of the body centreline.
    *
    * Same problem the arms had: a 10px-wide near thigh at x=0 completely covers a 9.6px-wide pelvis,
@@ -109,7 +144,14 @@ export interface HumanoidConfig {
   torsoDrop: number;
 
   // ---- foot ----
-  /** How far the toe sits ahead of the ankle. The reference's foot is a small nub, offset forward. */
+  /**
+   * How far the toe sits ahead of the ankle.
+   *
+   * Small, because the reference's IDLE has no foot nub at all — its leg simply continues at 3px to
+   * the ground. A longer foot showed up in the row profile as the bottom rows widening to 5 against
+   * the reference's 3. The foot exists for the walk, where the pack does colour it separately, and
+   * to give foot IK something to plant.
+   */
   footLen: number;
   /** How far the toe sits below the ankle, so the sole reads flat rather than pointed. */
   footDrop: number;
@@ -146,9 +188,14 @@ export const BUILDS: Record<
 export const DEFAULT_CONFIG: HumanoidConfig = {
   build: 'male',
   armOffset: 6.2,
-  limbCap: 0.25,
-  legOffset: 5.8,
-  handSplay: 4,
+  limbCap: 0.4,
+  legOffset: 5,
+  stanceSplay: 6.6,
+  farNarrowArm: 0.4,
+  farNarrowLeg: 0.95,
+  kneeLead: 0.22,
+  elbowLead: 1.15,
+  handSplay: 5,
   torsoDrop: 1,
 
   // Joints: the reference's own joint rows, scaled by 48/29, and nothing here is estimated. They sit
@@ -192,12 +239,12 @@ export const DEFAULT_CONFIG: HumanoidConfig = {
   rChest: 6.7,
   rWaist: 5,
   rPelvis: 6,
-  rThigh: 4.6,
-  rShin: 3.3,
-  rUpperArm: 3.2,
-  rForearm: 2.8,
-  rFoot: 3,
-  footLen: 5,
+  rThigh: 4.2,
+  rShin: 2.2,
+  rUpperArm: 2.8,
+  rForearm: 2,
+  rFoot: 1.6,
+  footLen: 2,
   footDrop: 0,
 
   rimDarken: 0.14,

@@ -21,6 +21,7 @@ import {
   H,
   K,
   OUR_HEIGHT,
+  PROFILES,
   REFERENCE,
   W,
   measure,
@@ -117,7 +118,7 @@ function sheet(cfg: HumanoidConfig, path: string, codedMode: boolean, zoom = 4):
 
 // ---- report -------------------------------------------------------------------------------------
 const cfg = DEFAULT_CONFIG;
-const { groups: got, byColour, uncoded } = measure(cfg);
+const { groups: got, shapes, byColour, uncoded } = measure(cfg);
 for (const k of uncoded) {
   console.warn(
     `\n⚠ uncoded colour ${k} — a part is missing its \`coded\` entry, or a GROUPS row is stale`,
@@ -166,8 +167,23 @@ const pngAt = process.argv.indexOf('--png');
 if (pngAt >= 0)
   sheet(cfg, process.argv[pngAt + 1] ?? 'rig.png', !process.argv.includes('--shaded'));
 
+// Shape, per row — the number that matters. Bounding boxes can agree while the shapes don't.
+console.log('\npart      | width err | angle err | ours vs reference, width per row');
+console.log('----------+-----------+-----------+---------------------------------------------');
+let worstShape = 0;
+for (const [name, err] of Object.entries(shapes)) {
+  worstShape = Math.max(worstShape, err.width, err.drift);
+  const ref = PROFILES[name as keyof typeof PROFILES];
+  const fmt = (a: readonly number[]): string => a.map((v) => v.toFixed(0).padStart(2)).join('');
+  console.log(
+    `${name.padEnd(9)} |   ${err.width.toFixed(2)}    |   ${err.drift.toFixed(2)}    | ${fmt(err.widths)}\n` +
+      `${' '.repeat(9)} |           |           | ${fmt(ref.widths)}  (reference)`,
+  );
+}
+console.log(`\nworst SHAPE error: ${worstShape.toFixed(2)} reference px per row`);
+
 console.log(
-  `\nworst deviation: ${worst.toFixed(1)} reference px  (▲ ours is lower/wider, ▼ higher/narrower)`,
+  `worst extent deviation: ${worst.toFixed(1)} reference px  (▲ ours is lower/wider, ▼ higher/narrower)`,
 );
 console.log(
   'a deviation under 1 reference px is under one pixel of the art it was measured from.\n',

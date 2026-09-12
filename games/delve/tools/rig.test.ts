@@ -9,13 +9,23 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, BUILDS, type BodyBuild } from '../client/src/render/entity/config';
 import { idlePose, walkPose } from '../client/src/render/entity/humanoid';
-import { GROUPS, REFERENCE, K, measure, toRef, type GroupName } from './rig-reference';
+import { GROUPS, PROFILES, REFERENCE, K, measure, toRef, type GroupName } from './rig-reference';
 
 /** One reference pixel. Closer than the art the numbers were measured from can express. */
 const TOLERANCE = 1;
 
+/**
+ * Mean per-row shape error allowed, in reference px.
+ *
+ * Looser than one pixel on purpose: the reference is hand-drawn at 29px and ours is generated at 48,
+ * so some rows cannot agree — its arm oscillates 2,3,4,4,3,2,2,3,3,3 across ten rows, which two
+ * tapered segments cannot reproduce exactly. 1.5 is set just under where the figure currently sits,
+ * so the numbers can only improve from here and a regression trips the gate.
+ */
+const SHAPE_TOLERANCE = 1.5;
+
 describe('humanoid silhouette vs the reference pack', () => {
-  const { groups, uncoded } = measure(DEFAULT_CONFIG);
+  const { groups, shapes, uncoded } = measure(DEFAULT_CONFIG);
 
   it('paints every part in a coded colour the measurement knows about', () => {
     // Magenta here means a part shipped without a `coded` entry — the render falls back to it.
@@ -33,6 +43,26 @@ describe('humanoid silhouette vs the reference pack', () => {
         expect(Math.abs(toRef(groups[name].top) - ref.top)).toBeLessThanOrEqual(TOLERANCE);
         expect(Math.abs(toRef(groups[name].bottom) - ref.bottom)).toBeLessThanOrEqual(TOLERANCE);
       });
+
+      if (name !== 'figure') {
+        // THE metric. Bounding boxes were the gate first and they hid every real fault for five
+        // rounds: the reference's leg is a diagonal staircase 2-5px wide, ours was an 8px vertical
+        // slab, and both have the same widest row. `width` compares the per-row width profile —
+        // taper — and `drift` compares each row's centre against the top row's, which is the limb's
+        // ANGLE. Both in reference px per row.
+        it("has the reference part's shape, row by row", () => {
+          const err = shapes[name];
+          const ref = PROFILES[name];
+          expect(
+            err.width,
+            `widths ${err.widths.map((v) => v.toFixed(1))} vs ${ref.widths}`,
+          ).toBeLessThanOrEqual(SHAPE_TOLERANCE);
+          expect(
+            err.drift,
+            `drift ${err.drift_.map((v) => v.toFixed(1))} vs ${ref.drift}`,
+          ).toBeLessThanOrEqual(SHAPE_TOLERANCE);
+        });
+      }
 
       it('is as wide as the reference', () => {
         // `figure` is the one deliberate exception. The reference's IDLE splays its feet — near toe
