@@ -792,9 +792,9 @@ for.
 
 #### What follows from it
 
-- **Persistence forks into two stores, not one.** A **player store** (character: attributes,
-  equipment, inventory, unlocks) and a **world store** (terrain mutations, fluid, entities,
-  NPCs). The table above lists "world-scoped persistence" as the required work; it's **both**,
+- **Persistence forks into three scopes.** **Account** (the codex, settings — shared across all
+  of a player's characters), **character** (attributes, equipment, inventory, unlocks), and
+  **world** (terrain mutations, fluid, entities, NPCs). The table above lists "world-scoped persistence" as the required work; it's **both**,
   and they have different lifetimes and different owners.
 - **The player store holds a collection, not a save.** If fresh characters are easy, players
   will have several. Today it's one JSON file per `playerId`
@@ -810,10 +810,31 @@ for.
 - **A well-geared player in a newcomer's world is a social problem, not a systems one.** Same as
   Terraria. Worth not building machinery for.
 
-**Still open: is the discovery codex per-character or per-account?** It currently records
-lifetime mined and deepest find per ore. Account-level is friendlier — your discovery log is
-yours forever — but it weakens what "fresh character" means. Per-character makes a fresh start
-genuinely fresh and asks players to re-earn a log that isn't really a mechanic.
+#### The codex is a ledger, and it's account-scoped
+
+**Decided.** The codex is **never mechanical** — it's a ledger of everything the player has
+encountered: enemies fought, NPCs met, materials gathered. Pure information and flavour. A
+**recipe book** for crafting is a *separate* system, not a view of this one.
+
+Because it gates nothing, account-level progress leaks no power into a fresh character, so it's
+**per account**: the discovery log is the player's and survives starting over.
+
+Three consequences, the last of which affects architecture now:
+
+- **It's not a material list.** Today it records lifetime mined and deepest find per ore. The real
+  shape is a **multi-category ledger** over everything encounterable, with materials as one
+  category among several.
+- **It implies one registry for every encounterable entity.** Materials already self-register one
+  file per entity (`shared/src/resources/*.ts`); enemies and NPCs want the same treatment, because
+  the codex has to enumerate all three *uniformly*. That's a concrete argument for extending the
+  existing registry rather than growing parallel per-type systems.
+- **It introduces a third persistence scope.** There is now **world** data, **character** data, and
+  **account** data. The codex is the first member of the last group and settings likely belong
+  there too — worth pinning while the two-store model is still on paper
+  ([above](#what-follows-from-it)).
+
+**Still open, and small:** is the **recipe book** its own surface (making eight in
+[§12](#the-surface-inventory)) or a view inside the crafting menu?
 
 ### Target scale
 
