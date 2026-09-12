@@ -102,7 +102,12 @@ export function newPlayer(): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
     x: startColumn + 0.5, // player CENTRE (tile units); starts on the surface
-    y: SURFACE + 0.5,
+    // Feet resting exactly on the first solid row, DERIVED from the body height rather than picked.
+    // `SURFACE + 0.5` was right while the body fitted inside one tile; at 1.82 tiles it put the feet
+    // inside row 1 and the player spawned overlapping rock, to be ejected upward over the next few
+    // frames. Self-correcting, but it is a pop at best and an ejection in the wrong direction in a
+    // tighter spot.
+    y: SURFACE + 1 - HALF_HEIGHT,
     vx: 0,
     vy: 0,
     grounded: false,

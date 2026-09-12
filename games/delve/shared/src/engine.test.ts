@@ -376,6 +376,22 @@ describe('the player body is taller than one tile (#47)', () => {
     }
   });
 
+  it('spawns a fresh player standing on the surface, not inside it', () => {
+    // The body is derived from the character art, so the spawn height has to be derived from the
+    // body. At the old size `SURFACE + 0.5` was fine; at 1.82 tiles it buried the feet in the first
+    // solid row and let the physics eject the player over the following frames.
+    const session = newSession(99);
+    expect(unstick(session.world, session.player, 0)).toBe(true);
+    expect(session.player.grounded).toBe(false); // not yet stepped
+    const before = session.player.y;
+    for (let i = 0; i < 60; i++) {
+      physicsStep(session, { left: false, right: false, jump: false }, TICK_DT);
+    }
+    // Standing still on solid ground must not move the player at all.
+    expect(session.player.y).toBeCloseTo(before, 2);
+    expect(session.player.grounded).toBe(true);
+  });
+
   it('gives up rather than teleporting a hopelessly stuck player', () => {
     const session = newSession(7); // nothing dug anywhere
     session.player.x = COL + 0.5;
