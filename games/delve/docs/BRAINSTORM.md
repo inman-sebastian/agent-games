@@ -142,7 +142,7 @@ The loss is scoped to **the expedition**, which is exactly the unit
 [capacity](#capacity-limits-variety-not-volume) already operates on. Nothing that took real
 investment is ever at risk, so the
 [investment arc](#the-investment-arc) survives — losing the item that used to embarrass you and now
-carries you would undo the relationship [§11](#11-equipment-the-investment-arc--the-loadout) is
+carries you would undo the relationship [§12](#12-equipment-the-investment-arc--the-loadout) is
 built around.
 
 **Respawn, in priority order:**
@@ -160,7 +160,7 @@ built around.
   equipment, so the real ordering is surface → beacons → base.
 - **A base gets a fourth job** ([Q2](#open-questions)): housing, storage, safe panel use, and now
   respawn point.
-- **It decouples Q1 from chaos.** [§10](#10-chaos-floated-not-committed)'s unratified claim was that
+- **It decouples Q1 from chaos.** [§11](#11-chaos-floated-not-committed)'s unratified claim was that
   high chaos requires cheap failure. This penalty is *already* cheap, so the chaos question no
   longer has leverage over the death question.
 
@@ -515,7 +515,7 @@ Contained, but not cosmetic.
 
 It's where the most-visited non-mine activity already lands: **respawn** by default
 ([§1](#death-you-lose-the-trip-never-the-character)), **bases** and their four jobs, and **NPC
-housing** ([§9](#9-npcs--dialogue)). Making the most-visited location the least interesting one
+housing** ([§10](#10-npcs--dialogue)). Making the most-visited location the least interesting one
 would be the wrong trade.
 
 With [hard edges](#hard-edges--but-not-a-visible-box) decided, the surface is a **finite strip with
@@ -749,7 +749,7 @@ Three consequences that were already true in the engine and unrecorded here:
   needs *content placement*, not a signalling system.
 - **Lava telegraphs itself**, for the same reason. A molten pocket glows through the rock before
   it's breached, which turns "don't dig into lava" into a **learnable rule** rather than a gotcha
-  — exactly what [§10](#10-chaos-floated-not-committed) demands of chaos and what
+  — exactly what [§11](#11-chaos-floated-not-committed) demands of chaos and what
   [T4](#t4-auto-mining-interacts-badly-or-brilliantly-with-fluid) needs to stay fair.
 - **Environmental suppression has two possible mechanisms**, and the diegetic one composes better:
   make the *rock or air absorb light* in that biome, rather than debuffing the player's lamp stat.
@@ -1256,7 +1256,26 @@ future revision of the idea.
 
 ---
 
-## 9. NPCs & dialogue
+## 9. Electricity _(parked)_
+
+**Noted, not designed.** Electricity is wanted as a system, together with **electric lighting**.
+Deliberately not explored yet — parked for its own discussion like the
+[biome roster](#parked-for-a-dedicated-biome-session).
+
+Three things to carry into that conversation:
+
+- **Electric light can fail; the light floor cannot.** The player always keeps enough lamp to not
+  be lost in the dark ([§6](#light-an-untradeable-floor-everything-above-it-earned)). Powered light
+  is light *with a dependency*, which is what makes it interesting — so the two must stay clearly
+  separated rather than the floor quietly becoming something that can go out.
+- **It's an automation-adjacent system**, so
+  [automate the chore, never the choice](#the-rules-that-make-automation-safe-here) applies to it.
+- **It implies generation, transmission and consumers**, which is a placement system — and
+  [building is confirmed](#the-boundary-is-layered), so the substrate exists.
+
+---
+
+## 10. NPCs & dialogue
 
 **Resolved: there will be NPCs.** Who they are and what purpose they serve is
 undetermined, but their existence is not. Interacting with them is part of the intent,
@@ -1270,7 +1289,7 @@ Two consequences worth recording now, because they unblock things parked elsewhe
   This doesn't decide the question, but it removes the reason base building was
   deferred.
 - **NPCs are the cheapest place to put tone.** See
-  [§10](#10-chaos-floated-not-committed) — a character who *comments* on what just
+  [§11](#11-chaos-floated-not-committed) — a character who *comments* on what just
   happened to you is the single most efficient way to make a chaotic event read as
   intentional rather than broken.
 
@@ -1280,7 +1299,7 @@ the value; branching trees and quest state are a different and much larger thing
 
 ---
 
-## 10. Chaos (floated, **not** committed)
+## 11. Chaos (floated, **not** committed)
 
 > **Status: an idea thrown out, not a decision.** Explicitly *not* a pillar yet. The
 > analysis below is kept because it's useful if the idea is ever picked up, and
@@ -1359,7 +1378,7 @@ composes into a coherent game rather than a tonal mess.
 
 ---
 
-## 11. Equipment: the investment arc & the loadout
+## 12. Equipment: the investment arc & the loadout
 
 The part of the drone idea that's actually being committed to, separated from the
 chaos framing it arrived in.
@@ -1517,7 +1536,7 @@ conflict unless *irreplaceable* is scoped to a purpose rather than to the game.
 
 ---
 
-## 12. UI & interface art
+## 13. UI & interface art
 
 **Status: diagnosed, with a recommended direction. Nothing built, and the diegetic
 fork below is genuinely open.**
@@ -1667,13 +1686,12 @@ Three things it needs:
   the bar and shoulder buttons are the natural mappings; the workspace rules require both to be
   real rather than afterthoughts.
 
-> **_Speculative (unratified)_ — a gap noticed while answering this, recorded so it isn't lost.**
-> **There is no early-game placeable light source.** Light is the game's atmosphere, its only
-> exploration cue, and now a day/night mechanic, yet the only light the player carries is the lamp
-> on their body. A placeable torch would fill the bar from minute one, let the player **mark where
-> they've been** (a partial answer to the
-> [no-seen-memory problem](#light-an-untradeable-floor-everything-above-it-earned)), and make a dug
-> tunnel *look* dug. Not adopted — the author accepted the empty bar without ruling on this.
+**Placeable lights exist, in many varieties** — torches being the obvious first one. That softens
+the empty bar considerably: it's empty until the player crafts their first torch, which is
+**minutes, not hours**. Placeable light also lets the player **mark where they've been**, a partial
+answer to the [no-seen-memory problem](#light-an-untradeable-floor-everything-above-it-earned), and
+makes a dug tunnel *look* dug. They're emitters, so they compose with the existing lighting system
+for free.
 
 ### The slate splits on an axis that decides the technology
 
@@ -1742,7 +1760,7 @@ with a finite number of them. See
 ### What blocks what
 
 - **Crafting menu** is blocked on knowing what equipment *is* and what it upgrades into
-  ([§11](#11-equipment-the-investment-arc--the-loadout)) — there's nothing to craft until the
+  ([§12](#12-equipment-the-investment-arc--the-loadout)) — there's nothing to craft until the
   equipment layer has shape.
 - **Map** is blocked on the bounded world (build order step 1) and wants the cartographer
   arc to exist before it's finished.
@@ -2010,7 +2028,7 @@ deliberately, don't let it fork silently.
 
 ### T6. Irreplaceable gear and meaningful loadout choice are in tension
 
-Both goals come from [§11](#11-equipment-the-investment-arc--the-loadout), and taken
+Both goals come from [§12](#12-equipment-the-investment-arc--the-loadout), and taken
 literally they cancel: if fully-upgraded items become things you *never want to
 unequip*, the loadout decision collapses into "equip the best set," and the choice
 loop dies exactly when the player has the most gear to choose from. Terraria has a
@@ -2176,7 +2194,7 @@ occasionally throws away something you wanted.
   benefits from) or **per-player** (everyone keeps their own)? Shared bases need
   griefing/permission answers; per-player bases need the world to hold many of them.
   **No longer unblocked — comprehensively answered.** A base now has **four** functions:
-  **housing** NPCs ([§9](#9-npcs--dialogue)), **storage** for materials that don't fit
+  **housing** NPCs ([§10](#10-npcs--dialogue)), **storage** for materials that don't fit
   ([§12](#capacity-limits-variety-not-volume)), a **safe place to open panels** since
   [panels never pause](#three-consequences-that-are-already-decided-elsewhere), and a
   **respawn point** ([§1](#death-you-lose-the-trip-never-the-character)). The question was parked
@@ -2192,6 +2210,9 @@ occasionally throws away something you wanted.
   levels themselves still exist and nothing raises them
   ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs)). See
   [Recommendation](#the-one-thing-to-decide-before-building-anything) and issue #6.
+
+- **Q8. How does electricity work?** Parked for its own session — see
+  [§9](#9-electricity-parked). Wanted as a system alongside electric lighting; nothing designed.
 
 - **Q7. What is the biome roster, and how is each placed?** Parked for a dedicated session — the
   taxonomy (band vs pocket) and per-biome scarcity are settled in principle, but the roster and the
@@ -2213,7 +2234,7 @@ occasionally throws away something you wanted.
   "dozens" is a stretch or a fantasy.
 
 - **Q6. Is the UI an overlay or is it diegetic?** The fork from
-  [§12](#12-ui--interface-art). An overlay keeps the DOM, keeps accessibility, and is
+  [§13](#13-ui--interface-art). An overlay keeps the DOM, keeps accessibility, and is
   fixed by CSS discipline alone. A diegetic UI puts the interface in the world — lit,
   occluded, part of the character's equipment — which is far more distinctive and far
   more expensive, costs the readability the workspace rules require
@@ -2239,7 +2260,7 @@ underground biomes; wanting simulated fluid; a **bounded** world; full combat as
 discipline; reach and the jetpack as examples; multiplayer in scope; the two-to-four-player target;
 the dedicated multi-tenant server; drones and drone intelligence as the upgrade axis; the
 exploration identity constraint; NPCs; the equipment investment arc; **world size presets and the
-player-cap-per-preset shape**; and everything in [§12](#12-ui--interface-art), plus every decision
+player-cap-per-preset shape**; and everything in [§13](#13-ui--interface-art), plus every decision
 recorded during the audit session itself.
 
 ### Speculative — unratified, do not build on
@@ -2298,7 +2319,7 @@ It read as a decision, not code, free to make now, with four separate systems cl
 upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
 
 **My recommendation: equipment and crafting own progression.** This is reinforced by
-[§11](#11-equipment-the-investment-arc--the-loadout) — the investment arc and the
+[§12](#12-equipment-the-investment-arc--the-loadout) — the investment arc and the
 loadout loop only exist if equipment carries real weight. Specifically:
 
 - **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune) — **done**, and
@@ -2469,9 +2490,9 @@ Not cuts — parked, with the reason:
 
 | Deferred | Why |
 | --- | --- |
-| **Base building** | Still parked, but the reason weakened: NPCs are now confirmed ([§9](#9-npcs--dialogue)) and housing them is a proven job for a base. Decide [Q2](#open-questions) deliberately, then build. |
+| **Base building** | Still parked, but the reason weakened: NPCs are now confirmed ([§10](#10-npcs--dialogue)) and housing them is a proven job for a base. Decide [Q2](#open-questions) deliberately, then build. |
 | **Large named-skill system** | Per-skill XP bars levelled by repeated use. The **attribute layer** is intended and not deferred; this is the much bigger version of it. |
-| **Branching dialogue** | NPCs are in scope, but barks and one-shot lines carry most of the value ([§9](#9-npcs--dialogue)). Trees and quest state are a much larger system. |
+| **Branching dialogue** | NPCs are in scope, but barks and one-shot lines carry most of the value ([§10](#10-npcs--dialogue)). Trees and quest state are a much larger system. |
 | **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
 | ~~**Infinite mode**~~ | **Cut, not deferred** — see [§4](#hosted-worlds). It undoes guaranteed density, can't be covered by the content gate, and would have forced every content system to serve two contracts. |
 | **Medium/Large worlds, 8–16 players** | Where every naive implementation stops being acceptable. Earn them. |
