@@ -8,7 +8,10 @@
 > get folded into [DESIGN.md](DESIGN.md) (what the game is) or the art docs, and
 > this file gets deleted.
 >
-> Baseline: DESIGN.md as of `e5754f1`. Everything before this session is prototype.
+> Baseline: DESIGN.md as of `ac8b07a`, re-baselined from `e5754f1` mid-session. Main shipped
+> two things this document had been arguing *for* — the coin economy's deletion and the move to
+> Vitest — so those passages now read as records of what happened rather than recommendations.
+> Everything before this session is prototype.
 
 ---
 
@@ -49,10 +52,14 @@ player for simply existing in the world; threat comes from what's *in* the world
 ### Mining's role is changing
 
 Mining **stays a core loop** — that isn't in question. What changes is its
-*purpose*. Today mining is the whole game: you dig to get ore to buy upgrades to
-dig deeper, a closed incremental loop. Going forward, mining leans much harder into
-being **the means of exploration** — the way you move through and open up the world
-— rather than an end in itself.
+*purpose*. Until the economy was deleted, mining was the whole game: you dug to get ore to
+buy upgrades to dig deeper, a closed incremental loop. Going forward, mining leans much harder
+into being **the means of exploration** — the way you move through and open up the world —
+rather than an end in itself.
+
+That closed loop is now **gone rather than replaced**: mining drops materials into an inventory
+and nothing consumes them. So the reframing here isn't a course correction away from a working
+loop, it's the design for the hole where one used to be.
 
 > **Honest state of the prototype:** there is no real game loop yet. That's expected
 > and fine — everything to date has been prototyping (world gen, rendering,
@@ -93,6 +100,23 @@ Confirmed so far:
 
 **Discoverability and exploration are a headline pillar**, not a feature. The
 question "what's over there / down there?" is the engine of the game.
+
+### Both of these need a placement system that main has already named
+
+Structures and biomes are the same technical request: *something other than depth decides
+what's here.* Today `band` / strata `top` is the **only** input to placement, so the world is a
+pure function of row and every biome would be a horizontal stripe. Main's roadmap already calls
+this out as a placeholder under **placement beyond depth**, with noise regions, proximity and
+features as the intended extra signals — which makes it the shared prerequisite for this whole
+section rather than a rendering errand.
+
+The sibling roadmap entry, **unify strata and ore into one material system**, matters here too: it
+makes plain rock a collectible material sharing the ore render path, which is what lets a biome be
+*built out of its own materials* instead of being a palette swap over the same stone.
+
+There's also an accidental foothold already on main: **Stone Bricks** ships as a registered,
+minable material whose own source comment says it belongs in ruins and structures, not in random
+veins. A constructed material exists and is looking for a structure to live in.
 
 ---
 
@@ -566,7 +590,7 @@ Two consequences worth recording now, because they unblock things parked elsewhe
   This doesn't decide the question, but it removes the reason base building was
   deferred.
 - **NPCs are the cheapest place to put tone.** See
-  [§10](#10-chaos-as-a-deliberate-pillar) — a character who *comments* on what just
+  [§10](#10-chaos-floated-not-committed) — a character who *comments* on what just
   happened to you is the single most efficient way to make a chaotic event read as
   intentional rather than broken.
 
@@ -806,17 +830,27 @@ deletes. Not objections — things to decide deliberately rather than discover l
 
 ### T1. Three progression channels now exist
 
-Progression can now arrive by three different routes: the **coin-bought upgrade
-panel** (Pickaxe / Agility / Refinery / Fortune), **crafted or looted equipment**,
+Progression can arrive by three different routes: the **orphaned upgrade levels**
+(`up.pick` / `up.speed` / `up.fortune`, plus `tech.lantern`), **crafted or looted equipment**,
 and **levelable skills**. Each is a complete progression system on its own.
+
+**Partly resolved by main, not by this document.** The coin economy is deleted — coins, selling,
+ore `value`, the Refinery multiplier and the Upgrades panel that bought levels are all gone. The
+*levels* survive on `PlayerState` and still feed `stats()`, and **nothing raises them**, so dig
+power, speed, fortune and vision are constants. The first channel is therefore no longer a rival
+design competing for the spine; it's live plumbing with no owner. The question it leaves behind is
+sharper than the original three-way one: does equipment **replace** those levels outright, or
+**become the thing that raises them**?
 
 Reach is the concrete case: it reads equally naturally as a purchased upgrade level,
 a crafted pickaxe's stat, or a mining-skill rank. Whichever it is, the other two
 channels get quieter. Worth deciding which channel *owns* "the player gets stronger"
 before building any of them.
 
-Refinery and Fortune are specifically idle-game levers — multipliers on a coin
-economy. They pull toward a different genre than equipment and skills do.
+Refinery is already gone with the economy. **Fortune is the one surviving idle-game lever** — a
+multiplier on rich-vein chance, which makes *ore quantity* the reward in a design that wants the
+reward to be what you find and where you go. Whatever owns progression should decide deliberately
+whether Fortune is kept, not inherit it because the field is still on the struct.
 
 ### T2. Fluid simulation is the biggest technical risk on the board
 
@@ -974,9 +1008,12 @@ traversal problem rather than ending it.
   **Partially unblocked by [§9](#9-npcs--dialogue):** NPCs exist, and housing them is
   a proven answer to what a base is for.
 
-- **Q3. Does the coin economy survive?** **Answered: no.** Crafting and equipment
-  become the progression spine; coins, selling and the Upgrades panel are deleted
-  rather than retuned. See
+- **Q3. Does the coin economy survive?** **Answered: no — and already shipped.** Coins,
+  selling, ore `value`, the Refinery multiplier and the Upgrades panel are deleted from main,
+  not retuned. Crafting and equipment are the intended successor spine, which is still
+  undesigned, so the honest state is *deleted, not yet replaced*. Residual: the upgrade
+  levels themselves still exist and nothing raises them
+  ([T1](#t1-three-progression-channels-now-exist)). See
   [Recommendation](#the-one-thing-to-decide-before-building-anything) and issue #6.
 
 - **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
@@ -1009,10 +1046,11 @@ upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
 [§11](#11-equipment-the-investment-arc--the-loadout) — the investment arc and the
 loadout loop only exist if equipment is the spine. Specifically:
 
-- **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune). Refinery
-  and Fortune in particular are idle-game multipliers on a coin economy, and they pull
-  against exploration — they make *ore* the point, when the point is supposed to be
-  what you find and where you go.
+- **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune) — **done**, and
+  done outside this document. Refinery and Fortune in particular were idle-game multipliers on a
+  coin economy, and they pulled against exploration: they made *ore* the point, when the point is
+  supposed to be what you find and where you go. Refinery is gone; the remaining levels are inert
+  plumbing awaiting an owner.
 - **Ore becomes a crafting input, not a currency.** This is the change that makes
   mining serve exploration instead of being a slot machine: you mine because you need
   that material for the thing that gets you deeper, not because it converts to a
@@ -1030,19 +1068,21 @@ than surviving as a parallel currency that needs its own justification.
 
 **Agreed, and it already has a home.** This is
 [#6 — *delve: rework the incremental / economy mechanics*](https://github.com/inman-sebastian/agent-games/issues/6),
-whose intent was always heading here. The scope now resolves concretely: **#6 is the
-deletion of the coin economy**, not a retune of it. Worth editing the issue to say so,
-since its current wording ("what the upgrade/craft/reward curve looks like once digging
-isn't an auto-coin faucet") still assumes coins survive in some form.
+whose intent was always heading here. The scope resolved concretely and then moved on: the
+deletion shipped, and #6 is now the **new progression system** rather than either a retune or the
+deletion. DESIGN.md's roadmap already describes it that way, so the rewording this section asked
+for is done — what #6 now needs is the spine decision above, since it has nothing to build until
+something owns "the player gets stronger".
 
-#### Consequence: the balance gate goes with it
+#### Consequence: the balance gate went with it
 
-`tools/verify.ts` currently proves *"a greedy bot reaches Mythril within a sane
-budget"* — a **coin-economy-shaped assertion**. Delete the economy and the gate stops
-testing anything real. It needs replacing, not deleting, because the content-quality
-guarantee it provides is the reason no broken balance has shipped so far.
+`tools/verify.ts` proved *"a greedy bot reaches Mythril within a sane budget"* — a
+**coin-economy-shaped assertion**. Deleting the economy left it testing nothing real, and main
+**deleted the script rather than replacing it**. That was the cheap half of the right move: the
+assertion was dead, but the content-quality guarantee it carried — that no broken balance can ship
+without a human playing every world — went with it and has no successor.
 
-The natural replacement follows the same spirit but asserts the *new* pillar:
+The replacement still needs building. It follows the same spirit but asserts the *new* pillar:
 
 - Every generated world contains its guaranteed content (structures, biomes, ore
   tiers) at the **per-player density** the presets promise
@@ -1072,19 +1112,29 @@ because they have opposite fixes.
   replaying one perfect run. That's property-based testing, and it's the standard
   answer to exactly this bias.
 
-**Moving to [Vitest](https://vitest.dev) is the right call**, with one caveat: Vitest
-is a test *runner*, not a replacement for the gate. The valuable thing in `verify.ts`
-was never the harness, it was the **claim** — that no broken content can ship without
-a human playing every world. Losing that would be a real regression (and is explicitly
-against the workspace rule on automating content verification). So: **the gate should
-become a Vitest test, not disappear into one.**
+**The move to [Vitest](https://vitest.dev) has shipped** (PR #23), with
+[fast-check](https://fast-check.dev) for property/fuzz generation and the policy written down in
+[TESTING.md](TESTING.md) — invariants over curated scenarios, red before green, a regression test
+per bug. The seeds-and-fuzzing half of the argument above is therefore done, and done well:
+`engine.test.ts` drives random input streams over random seeds asserting no-tunneling, no NaN,
+bounded velocity, monotonic depth, deterministic replay and material conservation, and
+`blocks.test.ts` asserts world-gen determinism plus the ore-stays-in-its-band placement invariant.
+
+**The caveat landed, though.** Vitest is a test *runner*, not a replacement for the gate, and the
+gate **disappeared into it rather than becoming one**. Nothing on main asserts content
+reachability, content density, or the absence of soft-locks — the class of property the deleted
+script existed to guarantee. That's the live gap this section now describes, and it's a standing
+violation of the workspace rule on automating content verification rather than an open design
+question. It stays blocked on the same thing as everything else here: there's no crafting tree or
+bounded world to assert *about* yet, which makes it the natural companion to build order step 1
+rather than a separate errand.
 
 The two test types are complementary, not alternatives:
 
 | Type | Catches | Shape |
 | --- | --- | --- |
-| **Content verification** (the gate, reborn) | Unsolvable, sparse, or soft-locked worlds | Headless sim, hundreds of seeds, imperfect agents, invariant assertions |
-| **End-to-end** | Presentation, input, netcode and integration bugs the sim can't see | Thin, and **headless-first** — consistent with this project's existing preference for cheap tools over browser automation |
+| **Content verification** (the gate, reborn — **not yet built**) | Unsolvable, sparse, or soft-locked worlds | Headless sim, hundreds of seeds, imperfect agents, invariant assertions |
+| **End-to-end** | Presentation, input, netcode and integration bugs the sim can't see | Thin, and **headless-first** — consistent with this project's existing preference for cheap tools over browser automation. Exists: `server/src/protocol.e2e.test.ts` covers the real client↔server path |
 
 Invariants worth asserting once it's property-based, over N seeds:
 
