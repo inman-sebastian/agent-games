@@ -7,7 +7,15 @@
 import { T, setStrata, composeBand } from '../src/render/cave-render';
 import { WIDTH, SURFACE, STRATA, strataIndexAt, solidAt } from '@delve/shared';
 import { colorsFor } from '../src/render/palette';
-import { rasterizeLimb, clothSurface, plateSurface, snap, type Limb } from '../src/render/entity/limb';
+import {
+  rasterizeLimb,
+  clothSurface,
+  plateSurface,
+  surfaceMapSurface,
+  snap,
+  type Limb,
+  type PartShader,
+} from '../src/render/entity/limb';
 
 const DEFAULT_SEED = 12345;
 const DEFAULT_ROW = 100;
@@ -23,12 +31,20 @@ const seed = num('seed', DEFAULT_SEED);
 const centerRow = num('r', DEFAULT_ROW);
 const scale = num('scale', DEFAULT_SCALE);
 const angleCount = num('angles', DEFAULT_ANGLES);
+// `map=1` swaps every part to the coordinate-field debug surface — the analogue of the authoring
+// "map" in the UV-encoding devlog. Validate (along, around) here BEFORE authoring features onto it.
+const showMap = num('map', 0) === 1;
+const surfaceFor = (shader: PartShader): PartShader => (showMap ? surfaceMapSurface : shader);
+// Limb radius scales with the character: the proof ran at ~3px, sized for the OLD sub-tile miner.
+// The decided scale is 2x3 TILES (32x48px — cf. the 48x48 frames in the reference asset pack), so
+// `big=1` shows a limb at the real size, where there's room for the banding to actually read.
+const big = num('big', 0) === 1;
 
 const COLS = 20;
 const ROCK_ROWS = 8;
 const STRIP_ROWS = 5;
-const LIMB_LEN = 13;
-const LIMB_RADIUS = 3.2;
+const LIMB_LEN = big ? 26 : 13;
+const LIMB_RADIUS = big ? 6.4 : 3.2;
 
 // The limb wears the palette of the stratum it's standing in, so any tonal mismatch with the rock
 // is the rasterizer's fault rather than a palette difference confusing the comparison.
@@ -79,7 +95,7 @@ ctx.imageSmoothingEnabled = false;
     rasterizeLimb(
       img,
       { ax: snap(cx - dx), ay: snap(cy - dy), bx: snap(cx + dx), by: snap(cy + dy), radius: LIMB_RADIUS },
-      i % 2 === 0 ? clothSurface : plateSurface,
+      surfaceFor(i % 2 === 0 ? clothSurface : plateSurface),
       clothColors,
     );
   }
@@ -99,21 +115,32 @@ ctx.imageSmoothingEnabled = false;
   const img = ctx.createImageData(width, h);
   const cy = 4 * T; // inside the carved chamber
   // a crude two-bone leg, posed — the shape the rig will actually produce
+  const thighR = big ? 6.8 : 3.4;
+  const shinR = big ? 5.6 : 2.8;
+  const femur = big ? 18 : 9;
+  const tibia = big ? 20 : 10;
   const poses: Limb[][] = [];
   for (let i = 0; i < 4; i++) {
     const hipX = width * (0.14 + i * 0.24);
     const knee = { x: hipX + (i - 1.5) * 3, y: cy + 1 };
     poses.push([
-      { ax: snap(hipX), ay: snap(cy - 9), bx: snap(knee.x), by: snap(knee.y), radius: 3.4 },
-      { ax: snap(knee.x), ay: snap(knee.y), bx: snap(knee.x + (i - 1.5) * 2), by: snap(cy + 10), radius: 2.8 },
+      { ax: snap(hipX), ay: snap(cy - femur), bx: snap(knee.x), by: snap(knee.y), radius: thighR },
+      {
+        ax: snap(knee.x),
+        ay: snap(knee.y),
+        bx: snap(knee.x + (i - 1.5) * 2),
+        by: snap(cy + tibia),
+        radius: shinR,
+      },
     ]);
   }
-  for (const pose of poses) for (const limb of pose) rasterizeLimb(img, limb, clothSurface, clothColors);
+  for (const pose of poses)
+    for (const limb of pose) rasterizeLimb(img, limb, surfaceFor(clothSurface), clothColors);
   // and one in the ROCK's own palette, to isolate "does the surface match" from "does the palette match"
   rasterizeLimb(
     img,
     { ax: snap(width - 40), ay: snap(cy - 9), bx: snap(width - 34), by: snap(cy + 10), radius: 3.4 },
-    plateSurface,
+    surfaceFor(plateSurface),
     rockColors,
   );
   // composite only the covered pixels so the rock shows through

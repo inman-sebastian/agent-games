@@ -35,9 +35,42 @@ export interface Limb {
   readonly erode?: number;
 }
 
-/** Per-pixel inputs handed to a part's shader. All coordinates are BODY-space art pixels. */
+/**
+ * Per-pixel inputs handed to a part's shader.
+ *
+ * The important pair is `along`/`around` — the pixel's position on the part's SURFACE, stable under
+ * rotation and pose. That's what lets appearance be authored once and land correctly in every frame:
+ * armour, dirt, a device strapped to a forearm are all just functions over (along, around), exactly
+ * as a material shader is a function over world coordinates.
+ *
+ * `localX`/`localY` are frame-space and therefore rotate WITH the limb — fine for seeding texture
+ * noise, wrong for placing a feature. A detail pinned to a frame coordinate swims across the body as
+ * it moves; pinned to a surface coordinate it stays put.
+ */
 export interface PartCtx {
-  /** Position within the part's own frame — use this to seed noise so texture rides the body. */
+  // ---- surface coordinates (author features against these) ----
+  /**
+   * Position down the part: 0 at the proximal joint (a), 1 at the distal (b).
+   *
+   * Runs slightly OUTSIDE 0..1 inside the rounded end caps, deliberately. Clamping would give every
+   * pixel in a cap the same value, collapsing the hemisphere to one band and smearing anything
+   * authored there — and the caps are the joints, which is where equipment attaches. Shaders that
+   * need a strict 0..1 should clamp at the point of use.
+   */
+  along: number;
+  /**
+   * Position across the part, -1 at one silhouette edge to +1 at the other, 0 on the spine.
+   *
+   * Read as a cylinder seen side-on, this is `sin(angle)` around the circumference — so a shader
+   * wanting true cylindrical wrap uses `asin(around)`, giving ±90°. The far half of the
+   * circumference is never rasterized (a 2D capsule only shows its front), which is the behaviour
+   * you want: a marking on the back of an arm shouldn't show from the front. Which half is visible
+   * is a property of the part's facing, not of this value.
+   */
+  around: number;
+
+  // ---- texture + shading ----
+  /** Frame-space position. Seed noise with this so texture rides the body. NOT for placing features. */
   localX: number;
   localY: number;
   /** Pixel parity for the Bayer dither. Body-anchored, so the grain doesn't crawl. */
@@ -52,19 +85,38 @@ export interface PartCtx {
 
 export type PartShader = (ctx: PartCtx) => Rgb;
 
-/** Squared distance from point p to segment a→b, plus the parametric position along it. */
-function segment(px: number, py: number, l: Limb): { d2: number; nx: number; ny: number } {
+/**
+ * Squared distance from p to the segment a→b, the parametric position `t` along it, and the SIGNED
+ * perpendicular offset. `t` and `side` are the raw material for the surface coordinates — `t` was
+ * already being computed here and thrown away.
+ */
+function segment(
+  px: number,
+  py: number,
+  l: Limb,
+): { d2: number; nx: number; ny: number; t: number; along: number; side: number } {
   const vx = l.bx - l.ax;
   const vy = l.by - l.ay;
   const wx = px - l.ax;
   const wy = py - l.ay;
   const len2 = vx * vx + vy * vy;
-  const t = len2 === 0 ? 0 : clamp01((wx * vx + wy * vy) / len2);
+  const raw = len2 === 0 ? 0 : (wx * vx + wy * vy) / len2; // UNCLAMPED — see the cap note below
+  const t = clamp01(raw);
   const cx = l.ax + vx * t;
   const cy = l.ay + vy * t;
   const dx = px - cx;
   const dy = py - cy;
-  return { d2: dx * dx + dy * dy, nx: dx, ny: dy };
+  // Signed side: project onto the segment's left-hand perpendicular, so one silhouette edge is
+  // negative and the other positive with a consistent handedness along the whole limb.
+  const len = Math.sqrt(len2);
+  const side = len === 0 ? dx : (dx * -vy + dy * vx) / len;
+  // `along` keeps the UNCLAMPED projection. Clamping it (the obvious thing) makes every pixel in a
+  // hemispherical cap share t=0 or t=1, so the whole cap collapses to one coordinate band and any
+  // feature authored there smears — which the coordinate debug map showed plainly. Joints are
+  // exactly where equipment attaches (a boot cuff, a knee pad, a pauldron), so the caps are the
+  // last place that can afford a degenerate coordinate. Overshooting slightly past 0..1 in the caps
+  // keeps it continuous and monotonic end to end.
+  return { d2: dx * dx + dy * dy, nx: dx, ny: dy, t, along: raw, side };
 }
 
 /**
@@ -100,7 +152,7 @@ export function rasterizeLimb(
   for (let py = minY; py <= maxY; py++) {
     for (let px = minX; px <= maxX; px++) {
       // Sample at the pixel CENTRE so the capsule is symmetric about its spine.
-      const { d2, nx, ny } = segment(px + 0.5, py + 0.5, limb);
+      const { d2, nx, ny, t, along, side } = segment(px + 0.5, py + 0.5, limb);
       if (d2 > (r + erode) * (r + erode)) continue; // cheap reject before the noise fetch
       const bite = erode * vnoise(px * EDGE_NOISE_FREQ, py * EDGE_NOISE_FREQ, TEX_BODY + 31);
       const edge = r - bite;
@@ -115,6 +167,10 @@ export function rasterizeLimb(
       const brightness = clamp01(0.18 + lambert * 0.82);
 
       const rgb = shade({
+        along,
+        // Normalised to the ERODED edge, so `around` still reaches ±1 at the silhouette after the
+        // noise bite — otherwise features would drift away from the edge wherever it was nibbled.
+        around: edge === 0 ? 0 : clamp01Signed(side / edge),
         localX: px,
         localY: py,
         px,
@@ -132,6 +188,9 @@ export function rasterizeLimb(
     }
   }
 }
+
+/** Clamp to -1..1 (the signed sibling of `clamp01`). */
+const clamp01Signed = (v: number): number => (v < -1 ? -1 : v > 1 ? 1 : v);
 
 /** Round a joint to the pixel grid. Solve in float, snap here, then rasterize. */
 export const snap = (v: number): number => Math.round(v);
@@ -170,6 +229,26 @@ function bandsOf(colors: RockColors): Rgb[] {
     bandCache.set(colors, bands);
   }
   return bands;
+}
+
+/**
+ * DEBUG surface — the analogue of the authoring "map" in aarthificial's UV-encoding devlog, which
+ * animates against a high-contrast intermediate because UV-encoded frames are unreadable. Nothing
+ * here is unreadable, but the coordinate field still needs validating BEFORE features are authored
+ * against it: stripes down `along` and across `around` make a discontinuity or a handedness flip
+ * obvious, where a shaded limb would hide it.
+ *
+ * Bands are deliberately coarse and hard-edged — this is a measuring tool, not art.
+ */
+export function surfaceMapSurface(ctx: PartCtx): Rgb {
+  // Coarse on purpose: at 8x4 the cells came out ~3x1.6px and read as stripes, which hides exactly
+  // the discontinuities this view exists to expose.
+  const alongBand = Math.floor(ctx.along * 5) % 2 === 0;
+  const aroundBand = Math.floor((ctx.around + 1) * 1.5) % 2 === 0;
+  // magenta/green checker = the two coordinates are independent and continuous; a smear or a
+  // mirrored seam mid-limb means the handedness flipped.
+  if (alongBand === aroundBand) return [232, 78, 160];
+  return [96, 219, 128];
 }
 
 /** Build the shading swatches for a part from a 6-stop ramp — same call the strata/materials use. */
