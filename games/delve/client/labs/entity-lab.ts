@@ -14,8 +14,10 @@ import {
   surfaceMapSurface,
   snap,
   type Limb,
+  type PartCtx,
   type PartShader,
 } from '../src/render/entity/limb';
+import { band, shadePart, partPalettes, type Part } from '../src/render/entity/part';
 
 const DEFAULT_SEED = 12345;
 const DEFAULT_ROW = 100;
@@ -39,6 +41,22 @@ const surfaceFor = (shader: PartShader): PartShader => (showMap ? surfaceMapSurf
 // The decided scale is 2x3 TILES (32x48px — cf. the 48x48 frames in the reference asset pack), so
 // `big=1` shows a limb at the real size, where there's room for the banding to actually read.
 const big = num('big', 0) === 1;
+
+// The contract's real test: a tapered limb carrying an armour BAND, swept through poses. The band is
+// declared in surface coordinates (`along` 0.55..0.8), so if the coordinate system works it stays
+// welded to the same place on the limb at every angle — the paint-once-appear-everywhere claim.
+const ARMOUR_RAMP = ['#2e222f', '#3e3546', '#625565', '#7f708a', '#9babb2', '#c7dcd0'];
+const GREAVE: Part = {
+  id: 'shin',
+  from: 'knee',
+  to: 'ankle',
+  shape: { kind: 'limb', rFrom: 6.4, rTo: 4.4 },
+  ramp: ['#2e222f', '#323353', '#484a77', '#4d65b4', '#4d9be6', '#8fd3ff'],
+  surface: clothSurface,
+  layers: [{ id: 'greave', ramp: ARMOUR_RAMP, shade: band(0.55, 0.8, plateSurface) }],
+  order: 0,
+};
+const GREAVE_PALETTES = partPalettes(GREAVE);
 
 const COLS = 20;
 const ROCK_ROWS = 8;
@@ -92,11 +110,21 @@ ctx.imageSmoothingEnabled = false;
     const cx = step * (i + 0.5);
     const dx = (Math.cos(angle) * LIMB_LEN) / 2;
     const dy = (Math.sin(angle) * LIMB_LEN) / 2;
+    const shader: PartShader = showMap
+      ? surfaceMapSurface
+      : (ctx: PartCtx) => shadePart(GREAVE, ctx, GREAVE_PALETTES.layers);
     rasterizeLimb(
       img,
-      { ax: snap(cx - dx), ay: snap(cy - dy), bx: snap(cx + dx), by: snap(cy + dy), radius: LIMB_RADIUS },
-      surfaceFor(i % 2 === 0 ? clothSurface : plateSurface),
-      clothColors,
+      {
+        ax: snap(cx - dx),
+        ay: snap(cy - dy),
+        bx: snap(cx + dx),
+        by: snap(cy + dy),
+        radius: big ? GREAVE.shape.kind === 'limb' ? GREAVE.shape.rFrom : LIMB_RADIUS : LIMB_RADIUS,
+        radiusTo: big && GREAVE.shape.kind === 'limb' ? GREAVE.shape.rTo : undefined,
+      },
+      shader,
+      GREAVE_PALETTES.base,
     );
   }
   ctx.putImageData(img, 0, 0);

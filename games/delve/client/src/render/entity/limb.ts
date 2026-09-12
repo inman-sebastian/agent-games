@@ -24,13 +24,22 @@ const TEX_BODY = 5171; // fixed seed for body-space texture noise (cf. TEX for w
 const DEFAULT_ERODE = 0.7;
 const EDGE_NOISE_FREQ = 0.5;
 
-/** A limb is a capsule: a segment (a → b) with a radius, in LOGICAL ART PIXELS. */
+/**
+ * A limb is a TAPERED capsule: a segment (a → b) with a radius at each end, in LOGICAL ART PIXELS.
+ *
+ * Taper isn't decoration — a uniform capsule can't express a thigh (thick at the hip, narrower at
+ * the knee) or a forearm, so every limb would read as a sausage. `radiusTo` defaults to `radius`,
+ * which keeps a plain capsule a one-field declaration.
+ */
 export interface Limb {
   readonly ax: number;
   readonly ay: number;
   readonly bx: number;
   readonly by: number;
+  /** Radius at `a` (proximal). */
   readonly radius: number;
+  /** Radius at `b` (distal). Defaults to `radius` — i.e. no taper. */
+  readonly radiusTo?: number;
   /** Silhouette erosion in px (default `DEFAULT_ERODE`). 0 = a machine-perfect capsule edge. */
   readonly erode?: number;
 }
@@ -137,7 +146,9 @@ export function rasterizeLimb(
   lightDirX = 0,
   lightDirY = -1,
 ): void {
-  const r = limb.radius;
+  const rA = limb.radius;
+  const rB = limb.radiusTo ?? limb.radius;
+  const r = Math.max(rA, rB); // bounding radius, for the loop bounds and the cheap reject
   // Rock never has a geometrically perfect edge: its tile boundaries are nibbled by world noise so
   // nothing reads as machine-drawn. A bare capsule is exactly that machine edge, which is what makes
   // an otherwise-correct limb look computed next to the rock. So the radius is perturbed per-pixel
@@ -154,8 +165,11 @@ export function rasterizeLimb(
       // Sample at the pixel CENTRE so the capsule is symmetric about its spine.
       const { d2, nx, ny, t, along, side } = segment(px + 0.5, py + 0.5, limb);
       if (d2 > (r + erode) * (r + erode)) continue; // cheap reject before the noise fetch
+      // Taper: interpolate the radius along the limb. Clamped `t` (not the cap-overshooting `along`)
+      // so the caps keep the radius of the end they belong to instead of shrinking past it.
+      const rHere = rA + (rB - rA) * t;
       const bite = erode * vnoise(px * EDGE_NOISE_FREQ, py * EDGE_NOISE_FREQ, TEX_BODY + 31);
-      const edge = r - bite;
+      const edge = rHere - bite;
       if (d2 > edge * edge) continue; // hard coverage — no partial alpha, ever
 
       const dist = Math.sqrt(d2);
