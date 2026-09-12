@@ -8,12 +8,22 @@
 > get folded into [DESIGN.md](DESIGN.md) (what the game is) or the art docs, and
 > this file gets deleted.
 >
-> **Provenance matters here, and this doc got it wrong once.** Author decisions and agent
-> synthesis carry different weight and must stay distinguishable. **Decided** / **Resolved**
-> marks the author's call. **Guideline** marks something the agent derived from the
-> discussion: useful, advisory, and **overrulable without argument**. A guideline must never
-> harden into a constraint that blocks an idea on its own — if a synthesized principle starts
-> being cited as a reason something can't happen, that's the bug, not the idea.
+> **Provenance matters here, and this doc got it wrong repeatedly.** Author decisions and agent
+> synthesis carry different weight and must stay distinguishable. Three markers:
+>
+> - **Decided** / **Resolved** — the **author's call**. Build on it.
+> - **Guideline** — the agent derived it from the discussion. Useful, advisory, and
+>   **overrulable without argument**. A guideline must never harden into a constraint that blocks
+>   an idea on its own; if a synthesized principle is being cited as a reason something *can't*
+>   happen, that's the bug, not the idea.
+> - **Speculative (unratified)** — agent-proposed and **never ruled on by the author**. Do not
+>   build on it, and do not cite it as settled. A
+>   [provenance audit](#appendix-provenance-audit) found ten such claims that had been written up
+>   as decisions; they're indexed there and marked in place.
+>
+> Three decisions in this doc turned out to be ideas a previous session inflated into settled
+> direction (the behaviour-over-numbers rule, horizontal wrapping, and fluid "settling" on
+> resume). Assume more exist until audited.
 >
 > Baseline: DESIGN.md as of `ac8b07a`, re-baselined from `e5754f1` mid-session. Main shipped
 > two things this document had been arguing *for* — the coin economy's deletion and the move to
@@ -559,11 +569,11 @@ with.** Reach removes "I must be adjacent." The jetpack removes "I must dig my w
 out." This is worth adopting for equipment design — it's what separates memorable gear from a
 stat ladder, and it applies to weapons ([§5](#5-combat)) as much as to tools.
 
-> **Provenance flag, unresolved.** This was synthesized by the agent from the author's two
+> **_Speculative (unratified)._** This was synthesized by the agent from the author's two
 > examples and then written up as "an explicit, game-wide rule." That's the same overreach
 > that happened to the behaviour-over-numbers
-> [guideline](#provenance-and-why-this-is-a-guideline). It has not been ruled on: it may well
-> be a real rule the author endorses, but it shouldn't be *treated* as one until they say so.
+> [guideline](#provenance-and-why-this-is-a-guideline). It may well be a rule the author
+> endorses, but it is **not** to be treated as one or cited as settled until they say so.
 > Note that this framing is weaker than it looks — removing a constraint and raising a number
 > aren't opposites, since "more slots" removes "I must turn back when full."
 
@@ -687,6 +697,12 @@ decoupled from connections, world lifecycle, and world-scoped persistence.
 
 ### Player cap scales with world size
 
+> **Decided — with the numbers explicitly untested.** Size presets exist, and max players is a
+> function of the preset. The **specific counts below are assumed defaults derived from world
+> size, not measurements** — the netcode has never been load-tested, so treat them as placeholders
+> with the right *shape*, not as a validated budget. [Q5](#open-questions) is the measurement that
+> would turn them into real numbers.
+
 Max players is **determined by the world-size preset** rather than being one global
 number. Illustrative, not final:
 
@@ -701,7 +717,8 @@ This is a genuinely good resolution to
 *literally one knob* instead of two that have to be kept in sync. Two things fall out
 of it that are worth building on:
 
-1. **The tuning invariant becomes content-per-player, not content-per-area.** If
+1. **The tuning invariant becomes content-per-player, not content-per-area.**
+   **_Speculative (unratified)._** If
    structures, biomes and ore are generated per *expected player* rather than per unit
    of world, all three presets feel the same to play — nobody's world is sparse and
    nobody's world is stripped bare in an hour. That's a much easier target to tune
@@ -724,11 +741,14 @@ Worth knowing before large worlds get built: **the cap's top end is where every
   *concurrent active worlds*, so many small worlds is the cheap case and a few large
   worlds running fluid at capacity is the expensive one.
 
-Practical consequence: **ship Small first.** It's the cheapest to run, the easiest to
+Practical consequence: **ship Small first.** **_Speculative (unratified)._** It's the cheapest to run, the easiest to
 tune, and it's the size that makes the naive implementations acceptable. Medium and
 Large can follow once interest management and fluid budgets are real.
 
 #### World lifecycle is now a required system
+
+**_Speculative (unratified)._** That world lifecycle is *required*, and both policies below, are
+agent proposals — not author decisions.
 
 With worlds outliving their players, two things need explicit answers:
 
@@ -877,6 +897,10 @@ Why this is better than a bigger number:
 
 ### Synthesis: progression unlocks the toggles
 
+**_Speculative (unratified)._** The three-stage arc below, and late-game obedience modes in
+particular, are the agent combining two options that were floated rather than the author picking
+one.
+
 The two options floated — player settings vs. a progression axis — are better
 together than either alone:
 
@@ -988,7 +1012,9 @@ contradicting either:
 - **Refinery and Fortune — cut.** Pure rate multipliers on a loop the player was already
   running. Nothing new becomes attemptable ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs)).
 
-**Follow-the-player is therefore load-bearing, not flavour.** The moment drones can
+**Follow-the-player is therefore load-bearing, not flavour.** **_Speculative (unratified)_** —
+the reasoning is the agent's, and the closing claim that it "should survive every future revision"
+is not an author decision. The moment drones can
 be parked somewhere and left to mine unattended, DELVE becomes an idle game and
 exploration becomes optional — the player's optimal move is to stop playing. Tethered
 to the player, the same drones are pure upside. This constraint should survive every
@@ -1080,7 +1106,8 @@ not a setback.
 persistent progress is far more expensive than chaos that ends a twenty-minute run. So
 committing to chaos as a pillar forces a matching commitment:
 
-> **High chaos requires cheap failure.** If the world is allowed to wreck your plans
+> **High chaos requires cheap failure.** **_Speculative (unratified)_**, and doubly so since
+> chaos itself is uncommitted. If the world is allowed to wreck your plans
 > regularly, losing must cost little — quick recovery, little or nothing dropped, the
 > setback measured in minutes.
 
@@ -1149,6 +1176,12 @@ almost nothing to implement beyond the slot limit itself.
 
 ### Candidate equipment slate
 
+> **_Speculative (unratified)._** This entire slate is an **agent proposal**, not a decided
+> roster. The only items with author provenance are the **jetpack** and the **drone**
+> ([§6](#6-the-incremental-loop-rebuilt), [§8](#8-automation)); the scanner exists in the game
+> today. Everything else below was invented here. Nine items reading as a settled roster is
+> exactly the kind of thing that gets built by mistake.
+
 Ideas that fit the drone's identity. Three properties are the actual bar: it **removes a
 constraint**, its early version is **useful but flawed**, and it stays **specialized** so the
 loadout choice survives
@@ -1160,6 +1193,8 @@ is partly or wholly numeric is not disqualified — it just needs the number to 
 player can attempt rather than only a rate.
 
 #### Design the slate by axis, not by item
+
+**_Speculative (unratified)._**
 
 The single most useful rule for choosing what to build: **give each item its own
 axis**, so no two compete for the same job. A loadout decision is only real if the
@@ -1730,7 +1765,10 @@ because every option is now excellent at its niche and the opportunity cost of
 leaving it behind is high. This is the proven pattern — Monster Hunter, Deep Rock
 Galactic's overclocks, and most loadout-driven games work exactly this way.
 
-Corollary worth stating: **slot count should not be a progression reward**, or at
+Corollary, **_speculative (unratified)_** — and note it **conflicts with a decision already
+made**, since [inventory slots *are* a progression reward](#capacity-limits-variety-not-volume).
+If it survives at all it applies to *equipment* slots only: **slot count should not be a
+progression reward**, or at
 most a very rare one. Handing out slots dissolves the tension that makes the system
 work. The scarcity *is* the mechanic.
 
@@ -1907,6 +1945,62 @@ occasionally throws away something you wanted.
   ([T11](#t11-diegetic-ui-trades-legibility-for-cohesion)), and is the only thing that
   would justify moving UI onto the canvas. A split answer is available and probably
   right: diegetic for ambient state, overlay for anything urgent or precise.
+
+---
+
+## Appendix: provenance audit
+
+Run after three separate claims in this document turned out to be ideas a previous session
+inflated into settled direction. Method: cross-reference each claim against the commit that
+introduced it. The commit bodies have a reliable tell — *"Records the proposed…"* / *"Records the
+stated…"* indicates author input, while *"Synthesizes"*, *"Recommends"*, *"Proposes"*, *"Adds"* and
+*"generalizes into a rule"* indicate the agent's own work. Several of the latter landed in the doc
+as decisions.
+
+### Ratified by the author
+
+The seven-category genre framing; survival as danger rather than attrition; buried structures and
+underground biomes; wanting simulated fluid; a **bounded** world; full combat as a parallel
+discipline; reach and the jetpack as examples; multiplayer in scope; the two-to-four-player target;
+the dedicated multi-tenant server; drones and drone intelligence as the upgrade axis; the
+exploration identity constraint; NPCs; the equipment investment arc; **world size presets and the
+player-cap-per-preset shape**; and everything in [§12](#12-ui--interface-art), plus every decision
+recorded during the audit session itself.
+
+### Speculative — unratified, do not build on
+
+| # | Claim | Where |
+| --- | --- | --- |
+| 1 | Content generated **per expected player**, not per area | [§7](#player-cap-scales-with-world-size), [T7](#t7-player-count-and-world-size-interact) |
+| 2 | **Ship Small first** | [§7](#where-the-cost-and-risk-concentrate) |
+| 3 | World **lifecycle is required**; hibernation + retention policies | [§7](#world-lifecycle-is-now-a-required-system) |
+| 4 | The **nine-item equipment slate** | [§11](#candidate-equipment-slate) |
+| 5 | **One item per axis** | [§11](#design-the-slate-by-axis-not-by-item) |
+| 6 | **Slot count is not a progression reward** (conflicts with a decision already made) | [T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension) |
+| 7 | **Removes a constraint** as a game-wide rule | [§6](#the-design-rule-behind-both) |
+| 8 | **Follow-the-player is load-bearing** and permanent | [§8](#the-rules-that-make-automation-safe-here) |
+| 9 | Late-game drone **obedience modes** | [§8](#synthesis-progression-unlocks-the-toggles) |
+| 10 | **High chaos requires cheap failure** | [§10](#the-constraint-delve-has-that-chaos-heavy-games-usually-dont) |
+
+### Downgraded during the audit session
+
+- **Behaviour-over-numbers** → a [guideline](#provenance-and-why-this-is-a-guideline), after being
+  cited against the author's own "larger backpack" idea.
+- **Horizontal wrapping** → [reopened](#hard-edges-vs-wrapping), with hard edges leading. Never
+  landed on; only *bounded* was.
+- **Fluid "settles on resume"** → replaced with running to completion
+  ([§7](#world-lifecycle-is-now-a-required-system)). Decided without the author, and exploitable.
+
+### Could not determine
+
+- Whether the **four-player hard cap** was the author's before it was attached to size presets.
+- Whether **scarce equipment slots as a core loop** was the author's or the agent's.
+
+### Note on the tensions
+
+`T1`–`T13` are analysis rather than decisions, and being the agent's work is appropriate there —
+naming conflicts is the job. They're only a problem where a tension asserts a *resolution*, which
+is why #6 above is listed despite living in one.
 
 ---
 
