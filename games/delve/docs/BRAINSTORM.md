@@ -324,6 +324,79 @@ the rest from it:
    biome gate a material; variable presence makes worlds distinct and rerollable but forces the
    gate to prove reachability without assuming any given biome.
 
+### Biomes are the placement system
+
+**Decided.** One system, many signals. **Placement resolves a _biome_ for each location from a
+combination of inputs; the biome then determines rock palette, materials, flora and hazards.**
+
+**Depth is one signal, not the system.** The five strata bands (and the per-material `band` row
+ranges) are **leftovers from the first prototype**, when DELVE was a "keep digging down" game. Depth
+still matters — it just stops being the sole input. Candidate signals: **depth**, **region noise**
+(the source of horizontal variety), **distance from the world edge** (the
+[ocean](#hard-edges--but-not-a-visible-box)), and **surface elevation**.
+
+**The ordering is the load-bearing part.** Biome is decided *first*, then the biome decides
+contents. The alternative — each material carrying its own spawn rule, with "biome" being whatever
+emerges where several coincide — cannot guarantee that a mushroom cavern *reads* as a mushroom
+cavern. [§2](#2-discovery--the-unexpected)'s pillar needs biomes to be **authored places**, not
+coincidences.
+
+**Plain biomes are fine.** The five strata become unremarkable background biomes that happen to
+correlate with depth, which is what they already are. Every game with biomes has dull ones;
+Minecraft's plains is a biome and nobody minds. This is why one system doesn't cheapen the word.
+
+#### Biomes have differentiated material distributions
+
+**Decided.** Biomes are **not** uniform in what they contain:
+
+- Some biomes are **abundant** in a material where others are sparse.
+- Some biomes **lack** certain materials entirely.
+
+That's the point, and it does three jobs at once: it **rewards discovering a new biome** with
+materials the player has never seen, it gives a **reason to return** and farm a specific place, and
+it gives [yield-Fortune](#fortune-survives-re-pointed-at-extraction) somewhere to matter — you go
+to the biome rich in the thing you need.
+
+It also compounds with [variety-limited capacity](#capacity-limits-variety-not-volume): entering a
+new biome means meeting new material *types*, so slot pressure peaks exactly at the discovery
+moment ([T12](#t12-capacity-as-progression-taxes-the-discovery-pillar)).
+
+#### The invariant, stated precisely — and the soft-lock it prevents
+
+> **Every material is obtainable in _at least one_ biome.** Never "every biome carries every
+> material" — exclusivity is the feature.
+
+**Material exclusivity plus pocket biomes can strand the crafting tree.** If a material lives only
+in a pocket biome and pockets are *placed* rather than guaranteed, a world can generate without it
+— and if the crafting tree needs it, that world is unfinishable. So materials split into two tiers
+**by placement**:
+
+| Tier | Placement rule |
+| --- | --- |
+| **Required** (the crafting tree depends on it) | Must exist in at least one **guaranteed** biome |
+| **Optional / bonus** | Free to be exclusive to an optional pocket biome |
+
+This promotes the earlier "only bands can safely gate progression" note from a caution to a **hard
+constraint the content gate can check**.
+
+#### Schema: biomes declare their contents
+
+> **_Guideline (agent proposal)._** Let **biomes declare what's in them**, rather than materials
+> declaring where they spawn. A biome is an authored *place*, so its identity includes its contents,
+> and *"this biome has no iron"* is expressible by **omission** — far clearer than iron carrying a
+> zero weight for every biome it's absent from. Cost: adding a material means editing the biomes it
+> belongs to. That's arguably a feature — it forces a decision about where a new material lives
+> instead of letting it leak everywhere by default.
+
+#### Code consequences
+
+- **`strata.top` and every material's `band: [min, max]`** are depth-only placement and become
+  obsolete in this model.
+- **Mythril's band is `[480, 99999]`** — open-ended, which a
+  [bounded world](#4-world-topology--hosting) makes wrong regardless.
+- The **content gate** swaps "ore stays inside its row range" for "every biome generates, and every
+  required material is reachable through a guaranteed one."
+
 ### Both of these need a placement system that main has already named
 
 Structures and biomes are the same technical request: *something other than depth decides
