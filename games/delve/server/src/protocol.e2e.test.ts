@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { newSession, physicsStep, TICK_DT } from '@delve/shared';
+import { newSession, physicsStep, TICK_DT, PHYS } from '@delve/shared';
 import { PROTOCOL_VERSION, WS_PATH } from '@delve/shared';
 import type { ClientMessage, ServerMessage, StateMessage, HelloMessage, Input } from '@delve/shared';
 
@@ -76,8 +76,11 @@ async function waitUntil(pred: () => boolean, ms: number, label: string): Promis
   throw new Error(`timed out waiting for ${label}`);
 }
 
+// Generous, because a queued input now costs a TICK of real time rather than a message round trip
+// (#45). Waiting for the Nth ack means waiting for N ticks to elapse, so this scales with the
+// scripted input count rather than with network latency.
 const waitForAck = (conn: Conn, seq: number): Promise<void> =>
-  waitUntil(() => (lastState(conn)?.ackSeq ?? -1) >= seq, 5000, `ackSeq>=${seq}`);
+  waitUntil(() => (lastState(conn)?.ackSeq ?? -1) >= seq, 10000, `ackSeq>=${seq}`);
 
 const setsEqual = (a: Set<string>, b: Set<string>): boolean =>
   a.size === b.size && [...a].every((x) => b.has(x));
@@ -113,7 +116,13 @@ describe('P3 authoritative server', () => {
     // 2) DETERMINISM/AUTHORITY: drive a scripted descent over the wire AND locally; the server's
     //    authoritative state must equal the client's local prediction of the same inputs.
     const local = newSession(seed); // matches the server's fresh session (same seed)
-    const STEPS = 400;
+    // Chosen against the CLOCK, not against how much digging is interesting: the server spends one
+    // queued input per tick (#45), so this scenario costs STEPS/60 seconds of wall time no matter
+    // how fast the inputs are sent. It was 400 while the server stepped on receipt and 400 steps
+    // were free; 200 still drives a long enough input chain to catch a determinism break and keeps
+    // the gate quick. The burst send is kept deliberately — the point is that a burst is applied
+    // fully and in order, just not instantly.
+    const STEPS = 200;
     for (let seq = 1; seq <= STEPS; seq++) {
       const input: Input = {
         mine: { column: Math.floor(local.player.x), row: Math.floor(local.player.y) + 1 },
@@ -173,4 +182,62 @@ describe('P3 authoritative server', () => {
     expect(await errored, 'protocol mismatch is rejected').toBe(true);
     c3.ws.close();
   }, 30000);
+});
+
+// The server's own CLOCK (#45). Separate from the scenario above because these assert that the
+// simulation advances WITHOUT client input, which is the opposite of what every other test here
+// drives. Each uses its own playerId, so each gets its own world and they stay independent.
+describe('the server owns the tick', () => {
+  it('keeps simulating when the client goes silent', async () => {
+    // A jump, then total silence. An input-driven server applies exactly one step and leaves the
+    // player hanging in the air forever; a clocked one finishes the arc and lands them.
+    const conn = await connect();
+    sendMsg(conn, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'e2e-clock', seed: 77 });
+    await waitUntil(() => conn.hello !== null, 4000, 'hello');
+    const startY = conn.hello!.snapshot.player.y;
+
+    sendMsg(conn, { t: 'input', seq: 1, input: { left: false, right: false, jump: true } });
+    await waitForAck(conn, 1);
+    const rose = await new Promise<number>((resolve) => {
+      // Catch the apex, so the test proves the arc HAPPENED rather than just that y ended up level.
+      let peak = startY;
+      const timer = setInterval(() => {
+        const y = lastState(conn)?.player.y ?? startY;
+        if (y < peak) peak = y;
+      }, 10);
+      setTimeout(() => {
+        clearInterval(timer);
+        resolve(startY - peak);
+      }, 700);
+    });
+    expect(rose, 'the jump actually left the ground').toBeGreaterThan(0.5);
+
+    await delay(1200); // long enough to rise, fall and settle, with no further input at all
+    const end = lastState(conn)!;
+    expect(Math.abs(end.player.y - startY), 'landed back on the ground unaided').toBeLessThan(0.05);
+    expect(Math.abs(end.player.vy), 'came to rest').toBeLessThan(1);
+    conn.ws.close();
+  }, 20000);
+
+  it('bounds how fast a client can spend inputs', async () => {
+    // The input-driven server stepped physics once per MESSAGE, so a client that flooded inputs ran
+    // the world at its own chosen speed — a speedhack reachable with no modified client at all. A
+    // clocked server spends at most one queued input per tick, so a burst buys queue depth, not
+    // distance. The inputs are still all applied (determinism above depends on that), just in time.
+    const conn = await connect();
+    sendMsg(conn, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'e2e-flood', seed: 99 });
+    await waitUntil(() => conn.hello !== null, 4000, 'hello');
+    const startX = conn.hello!.snapshot.player.x;
+
+    const BURST = 300;
+    for (let seq = 1; seq <= BURST; seq++) {
+      sendMsg(conn, { t: 'input', seq, input: { left: false, right: true, jump: false } });
+    }
+    await delay(300); // ~18 ticks of wall-clock, whatever the client asked for
+    const moved = (lastState(conn)?.player.x ?? startX) - startX;
+    const ifUnbounded = BURST * PHYS.RUN_SPEED * TICK_DT;
+    expect(moved, 'a burst of inputs did not buy a burst of movement').toBeLessThan(ifUnbounded / 4);
+    expect(moved, 'but the ticks that did elapse were spent').toBeGreaterThan(0);
+    conn.ws.close();
+  }, 20000);
 });

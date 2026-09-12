@@ -581,9 +581,6 @@ content density possible.
 
 ### Also queued
 
-- **[#45](https://github.com/inman-sebastian/agent-games/issues/45) — the server needs a fixed
-  tick.** `physicsStep` is input-driven rather than clocked, which blocks day/night, fluid, entities
-  and hibernation, and is why client-side pause currently works at all.
 - **[#46](https://github.com/inman-sebastian/agent-games/issues/46) — `rarityOf` is registration
   order**, so the break FX (pitch, particles, shake) scale by the wrong number: quartz outshines
   mythril and stone bricks outshines everything. Rarity wants to be **authored** on the resource

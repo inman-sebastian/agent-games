@@ -162,12 +162,12 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
   plus the discrete `command` `newGame`. They never send state, so **out-of-reach mining is
   impossible by construction** — the server computes every mutation itself, and `physicsStep`
   enforces mining reach.
-- **The server is the single source of truth.** It owns each connection's `Session` (its shared
-  world + player), applies one authoritative `physicsStep` per received input (WebSocket is
-  ordered/reliable, so inputs replay in order), validates commands (can't afford → no-op), and
-  persists to `server/data/` (a sanitized-id JSON per player). It broadcasts authoritative
-  `state` deltas at 20 Hz: the full `PlayerState` + newly-dug tiles + tile damage + `ackSeq`
-  (the last input it applied).
+- **The server is the single source of truth, and it owns time.** It owns each connection's
+  `Session` (its shared world + player), **queues** received inputs and spends them on its own
+  fixed tick (WebSocket is ordered/reliable, so they apply in order), validates commands (can't
+  afford → no-op), and persists to `server/data/` (a sanitized-id JSON per player). It broadcasts
+  authoritative `state` deltas at 20 Hz: the full `PlayerState` + newly-dug tiles + tile damage +
+  `ackSeq` (the last input it applied).
 - **The client predicts + reconciles.** It runs the sim locally each fixed `TICK_DT` for instant
   feel (movement + optimistic mining), buffering un-acked inputs. On each `state` it adopts the
   authoritative player, applies the world deltas, drops acked inputs, and **replays** the rest —
@@ -176,14 +176,35 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
   mispredict is a self-correcting nudge, not a lockstep desync. Offline, it just predicts with no
   server — the network is additive, and `localStorage` is the offline cache.
 
-**Fixed timestep — but only the client has a fixed _tick_.** Both sides step the sim with the same
-`TICK_DT` (`TICK_HZ` = 60), which is what makes a replayed input on the client reproduce the
-server's result. The **client** runs a real clock; the **server steps once per received input**
-(`physicsStep(session, …, TICK_DT)` on message receipt) and only its *snapshot broadcast* is on a
-timer. So the server's effective sim rate is the client's send rate, and **the world stops
-advancing when nobody sends input** — which is why client-side pause currently works at all.
-That's [#45](https://github.com/inman-sebastian/agent-games/issues/45), and it blocks day/night,
-fluid, entities and world hibernation, all of which need time to pass unprompted. **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
+**Fixed timestep, both sides clocked.** Both step the sim with the same `TICK_DT`
+(`TICK_HZ` = 60), which is what makes a replayed input on the client reproduce the server's result.
+Each runs its own real clock with the same accumulator shape — banked elapsed time drained into
+whole ticks, with bounded catch-up — so neither quietly runs slow when its timer fires late.
+
+**The server's clock is what makes it authoritative over _time_, not just over state.** It used to
+step once per received input message, which had two consequences worth remembering because both
+looked like design until they were measured:
+
+- **Nothing could happen unprompted.** The world advanced only while somebody held a key, so a
+  day/night cycle, draining lava, an enemy acting or a player falling down their own shaft were all
+  unreachable — and a client could stop the world by simply going quiet, which is why "nothing
+  pauses, ever" ([UI.md](UI.md)) could not be enforced from the client at all.
+- **Input rate WAS simulation rate.** A client that sent inputs faster than 60 Hz ran the world
+  faster. Measured: a 300-input burst bought 29.8 tiles of travel inside 300 ms of wall clock, with
+  no modified client, just a loop.
+
+Now one loop drives every connected session and an input buys a place in a **queue**. A client
+earns one input credit per tick, banking at most 8 so ordinary network jitter drains invisibly, so
+over any stretch of time it gets exactly the physics steps the clock gave it. When the queue
+starves the server repeats the last input for 6 ticks to bridge the gap, then drops to neutral — so
+a client that closed its menu or lost the network goes limp under gravity rather than walking on
+forever. The loop idles when nobody is connected, which is the hook **hibernation** will hang on.
+
+One cost, recorded because it is permanent: a scripted input stream now costs a tick of real time
+per input, so the authority gate's determinism scenario takes seconds rather than milliseconds. Its
+step count is chosen against the clock rather than against how much digging is interesting.
+
+**Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
 WS-only) via `concurrently`; Vite proxies `/ws`. **Prod:** `pnpm build` → dist, then `pnpm start`
 serves the built client (`sirv`) + the WebSocket from one process. `server/src/protocol.e2e.test.ts`
 is the authority gate — it spawns the real server and proves its state equals the client's
@@ -250,8 +271,8 @@ so it's assumed:
   state would make logging out a way to freeze a disaster.
 - **Retention** — created worlds accumulate forever unless something evicts them.
 
-Note hibernation presupposes a server tick to stop
-([#45](https://github.com/inman-sebastian/agent-games/issues/45)).
+Hibernation presupposes a server tick to stop, and now there is one — the loop already idles with
+nobody connected, so what remains is unloading the sessions rather than inventing the lever.
 
 ## `stats()` needs world context
 
