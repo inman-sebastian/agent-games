@@ -383,7 +383,7 @@ is concrete and known-shaped, not vague:
 | **Player roster + join/leave** | Snapshots must carry other players; clients must render and interpolate them. |
 | **Entity replication** | Enemies, dropped loot, projectiles are all server-owned entities. The protocol currently has no entity concept at all. |
 | **Interest management** | A large world can't stream everything to everyone. Today the client receives the world's entire dug-tile set; that doesn't scale with world size or player count. |
-| **World-scoped persistence** | Per-player whole-file writes can't hold a shared world, especially with fluid state in it. |
+| **World-scoped persistence** | Per-player whole-file writes can't hold a shared world, especially with fluid state in it. Note this is *in addition to* a player store, since [characters are portable](#characters-are-portable). |
 
 ### Status: pinned, planned-around
 
@@ -507,6 +507,42 @@ With worlds outliving their players, two things need explicit answers:
 - **Retention.** Created worlds accumulate forever unless something evicts them.
   Abandoned-world cleanup, storage caps, or explicit deletion — not urgent, but it's a
   real cost curve and better decided than discovered.
+
+### Characters are portable
+
+**Decided.** A character belongs to the **player**, not to the world. Attributes, equipment,
+inventory and unlocks travel into any world the player joins. Starting a **fresh character** is
+supported and must be **easy** — a deliberate choice, not a data-wipe.
+
+This is the Terraria/Valheim model and it's what players of this genre expect. It also makes
+drop-in play work: helping a friend in their world costs you nothing, which is the behaviour the
+[hosted, multi-tenant shape](#decided-shape-one-dedicated-server-many-player-created-worlds) is
+for.
+
+#### What follows from it
+
+- **Persistence forks into two stores, not one.** A **player store** (character: attributes,
+  equipment, inventory, unlocks) and a **world store** (terrain mutations, fluid, entities,
+  NPCs). The table above lists "world-scoped persistence" as the required work; it's **both**,
+  and they have different lifetimes and different owners.
+- **The player store holds a collection, not a save.** If fresh characters are easy, players
+  will have several. Today it's one JSON file per `playerId`
+  (`server/src/store.ts`); it becomes one player → many characters.
+- **A character select/create surface now exists**, which wasn't in
+  [§12](#the-surface-inventory)'s slate. Added there.
+- **Difficulty pacing can no longer be guaranteed, and that's accepted.** A maxed character can
+  enter a brand-new world and trivialize it. Terraria accepts exactly this; so do we. The
+  consequence for testing is in the gate
+  ([below](#the-verify-scripts-actual-flaw-and-what-to-keep)) — it asserts a *fresh character in
+  a fresh world*, and the maxed-character case is explicitly **out of scope** rather than a
+  balance failure to fix.
+- **A well-geared player in a newcomer's world is a social problem, not a systems one.** Same as
+  Terraria. Worth not building machinery for.
+
+**Still open: is the discovery codex per-character or per-account?** It currently records
+lifetime mined and deepest find per ore. Account-level is friendlier — your discovery log is
+yours forever — but it weakens what "fresh character" means. Per-character makes a fresh start
+genuinely fresh and asks players to re-earn a log that isn't really a mechanic.
 
 ### Target scale
 
@@ -1070,6 +1106,7 @@ which is substantially larger than what exists today:
 | **Crafting menu** | Invoked | Slots + recipe text, scrolling |
 | **Codex** | Invoked | Prose, scrolling _(exists)_ |
 | **Full map** | Invoked | **A world render** + chrome |
+| **Character select / create** | Pre-session | Roster + creation form; exists because [characters are portable](#characters-are-portable) |
 
 Seven surfaces is an **architecture** decision, not a styling one. Hand-rolling each in
 turn is how the style forks, which is the exact failure the workspace rules warn about.
@@ -1653,7 +1690,9 @@ The two test types are complementary, not alternatives:
 
 Invariants worth asserting once it's property-based, over N seeds:
 
-- Every tier of the crafting tree is **reachable** from a fresh world.
+- Every tier of the crafting tree is **reachable** by a **fresh character in a fresh world** —
+  both halves stated, since [characters are portable](#characters-are-portable) and the two come
+  apart. A maxed character entering a new world is out of scope by design, not a failure.
 - Guaranteed content (structures, biomes, ore tiers) meets the promised
   **per-player density** at every size preset.
 - No generated cavity or structure can **trap** the player with the traversal
