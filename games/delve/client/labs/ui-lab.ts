@@ -12,6 +12,7 @@ import { UPSCALE } from '../src/render/palette';
 import { WIDTH, STRATA, oreAt, surfaceAt } from '@delve/shared';
 import { oreMaterial } from '../src/render/materials';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
+import { installSurfaces } from '../src/ui/surface';
 
 const SEED = 12345;
 const CENTER_ROW = 96; // deep enough for the stone/deepstone boundary and some ore
@@ -82,6 +83,7 @@ export function draw(): void {
   });
 }
 
+installSurfaces(); // the same frames the game installs, from the same module
 draw();
 addEventListener('resize', draw);
 

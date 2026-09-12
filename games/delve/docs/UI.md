@@ -200,12 +200,59 @@ Every candidate here is openly licensed (OFL or CC0). A licensed typeface is chr
 game asset — the art direction's ban is on emoji, clip art and stock images standing in for art the
 agent should author, and it is satisfied by a font the way it is by a system sans.
 
-### Panel frames
+### Panel frames and surfaces — built
 
-Nine-slice `border-image` — the standard technique for a stylised panel in the DOM. **Draw the frame
-in code** at startup (canvas → data URL → custom property), which satisfies the create-every-asset
-rule and needs no build step or asset file. With `image-rendering: pixelated` it tiles to any panel
-size without blur.
+**The stylesheet discipline was necessary and not sufficient**, and this is the more useful lesson of
+the two. Putting the UI on the art's grid and the art's palette left it *geometrically* pixel-correct
+and *materially flat*: two solid fills and a hairline border, beside rock that has a six-step ramp,
+4×4 ordered dithering, hash-noise texture, accent flecks, a lit rim and a dark centre. **Sharing a
+palette is not sharing an art direction.** Flat colour is what CSS gives you for free, and "for
+free" is precisely what made the interface read as CSS.
+
+So the surfaces are **drawn**, in `client/src/ui/surface.ts`, generated at startup — canvas → data
+URL → custom property. No asset file to keep in sync, no build step, and no second home for the
+palette, since the colours are read back out of the stylesheet's own roles.
+
+**The import that matters is `BAYER` from `render/palette.ts`** — the identical matrix every material
+shader quantises with. A dithered panel and a dithered rock face interleave on the *same threshold
+grid* rather than merely resembling each other. Same argument the material system already won.
+
+| Surface | Technique |
+| --- | --- |
+| Panel frame | nine-slice `border-image`, 16px source, 3px slice |
+| Panel face | hash-noise mottle over three ramp steps, tiling from the middle slice |
+| Row recess | the same frame with the bevel reversed and a darker fill |
+| Button | a raised frame one ramp step lighter, so a control reads as sitting *on* a panel |
+| Button pressed | the **inset** frame — a press is the bevel flipping, not a colour change |
+| Modal scrim | a 4×4 dither at 75% coverage, not an alpha wash |
+| Top-bar fade | a dithered vertical ramp, replacing a four-stop hard-banded gradient |
+
+**The frame's third ring is the whole point.** A hard lip against a flat face is a *line*; the same
+lip dithering into the face is a *material*, and it is how the rock's lit rim resolves into its body.
+Without it a panel is a rectangle with an edge drawn on it.
+
+Four things learned by looking, each of which a test now holds:
+
+1. **The bevel's shade must be darker than the face.** The first version used the mid grey, which is
+   *lighter* than the panel, so the bottom and right read as lit too and the plate looked swollen.
+2. **A 2×2 tiling middle is a screen door, not stone.** At that size an ordered dither *is* a regular
+   grid. The face needs a domain big enough to look unplanned, and hash noise rather than Bayer —
+   which wraps for free, since the tile *is* the coordinate domain.
+3. **Texture behind text is paid for in contrast.** At a tenth per fleck colour the ore descriptions
+   fought the surface. Prose moved off `--c-dim` (≈2.5:1 on the panel face, already under par) onto
+   `--c-mute` (≈4.9:1).
+4. **A button is almost entirely text**, so it gets half the fleck, in adjacent ramp steps rather
+   than a bright one. The first attempt put the light grey right behind the label.
+
+`client/src/ui/surface.test.ts` asserts the patterns rather than the images — the pure functions
+decide every pixel and the canvas only paints them, which is also what makes them testable under
+happy-dom. It checks that the dither is the rock's own threshold grid, that tiles wrap seamlessly,
+that a bevel is lit from the right direction, that the transition ring carries both the lip and the
+face, that the face is not one flat colour, and that no colour is invented.
+
+One property there started out wrong and is worth keeping in mind: the fade's coverage is **not**
+monotonic row by row, because the Bayer threshold varies with `y`. That oscillation is what makes it
+read as a dither instead of a stack of bands. The guarantee holds over one full matrix period.
 
 ## Icons
 

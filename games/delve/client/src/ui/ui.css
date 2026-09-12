@@ -96,6 +96,9 @@
   /* the debug overlay prints dense live numbers; 12px monospace is the readable floor */
   --t-mono: 12px;
 
+  /* nine-slice frame width: 3 art pixels, matching FRAME_SLICE in ui/surface.ts */
+  --frame-w: calc(var(--px) * 3);
+
   /* motion: quantised so a transition lands on whole art pixels */
   --ease-steps: steps(3, end);
 }
@@ -163,18 +166,16 @@ button,
   flex-direction: column;
   gap: var(--s2);
   pointer-events: none;
-  /* BANDED, not blended: four hard steps read as dithered pixel art, where a smooth
-     gradient reads as a web page. The same trick the rock's shading uses. */
-  background: linear-gradient(
-    180deg,
-    #2e222fe6 0%,
-    #2e222fe6 42%,
-    #2e222f99 42%,
-    #2e222f99 68%,
-    #2e222f4d 68%,
-    #2e222f4d 86%,
-    #2e222f00 86%
-  );
+  /* A DITHERED FADE, drawn by ui/surface.ts on the rock's own Bayer matrix. This was a four-stop
+     hard-stop gradient, which is the best CSS can manage and still read as CSS: four visible steps
+     is a banding artefact, where an ordered dither is a technique the rock already uses everywhere.
+     Falls back to a flat wash before script runs. */
+  background: #2e222fe6;
+  background-image: var(--tex-fade, none);
+  background-repeat: repeat-x;
+  background-size: calc(var(--px) * 4) var(--fade-h, 100%);
+  background-position: top left;
+  image-rendering: pixelated;
 }
 header {
   display: flex;
@@ -206,22 +207,28 @@ button {
   font-size: var(--t-label);
   font-weight: 600;
   color: var(--c-ink);
-  background: var(--c-panel);
-  border: var(--px) solid var(--c-edge);
   padding: var(--s2) var(--s3);
   cursor: pointer;
-  /* a hard offset shadow: the panel sits ON the world rather than floating over it */
-  box-shadow: var(--px) var(--px) 0 var(--c-void);
   transition: 0.12s var(--ease-steps);
+  /* one ramp step lighter than a panel, so a control reads as sitting ON one */
+  background: var(--c-edge);
+  border: var(--frame-w) solid var(--c-dim);
+  border-image: var(--frame-control, none) 3 fill / var(--frame-w) / 0 repeat;
+  image-rendering: pixelated;
+}
+/* PRESSED IS THE INSET FRAME, which is the whole reason the two exist: a button going down is the
+   bevel flipping, not a colour change. */
+button:active {
+  border-image: var(--frame-inset, none) 3 fill / var(--frame-w) / 0 repeat;
 }
 button:hover {
   border-color: var(--c-mute);
   filter: brightness(1.15);
 }
 button:active {
-  /* a whole art pixel of travel, and the shadow collapses under it */
+  /* a whole art pixel of travel. The bevel flipping is what sells the press; the travel just
+     reinforces it. */
   transform: translate(var(--px), var(--px));
-  box-shadow: 0 0 0 var(--c-void);
 }
 button:disabled {
   opacity: 0.4;
@@ -250,7 +257,14 @@ button:disabled {
 .overlay {
   position: fixed;
   inset: 0;
+  /* A DITHERED SCRIM rather than an alpha wash: three of every four pixels are the darkest step and
+     the fourth is the world showing through, which is how a pixel-art game has always done a modal
+     dim. Alpha blending invents colours between the palette's steps; a dither never does. */
   background: #2e222fd9;
+  background-image: var(--tex-scrim, none);
+  background-repeat: repeat;
+  background-size: calc(var(--px) * 4) calc(var(--px) * 4);
+  image-rendering: pixelated;
   display: none;
   align-items: center;
   justify-content: center;
@@ -265,10 +279,16 @@ button:disabled {
   max-width: 440px;
   max-height: 88vh;
   overflow: auto;
-  background: var(--c-panel);
-  border: var(--px) solid var(--c-edge);
   padding: var(--s4);
   box-shadow: var(--s2) var(--s2) 0 #2e222fcc;
+  /* The background and border colour are the FALLBACK, live until ui/frame.ts has run — a panel
+     must never be invisible, and the markup does not wait for script. `fill` on the border-image
+     paints over them once the frame exists. */
+  background: var(--c-panel);
+  border: var(--frame-w) solid var(--c-edge);
+  border-image: var(--frame-raised, none) 3 fill / var(--frame-w) / 0 repeat;
+  /* the frame is 6 art pixels of source stretched over a whole panel; without this it is a blur */
+  image-rendering: pixelated;
 }
 .panel h2 {
   margin: 0 0 var(--px);
@@ -276,7 +296,10 @@ button:disabled {
   letter-spacing: 0.08em;
 }
 .panel .sub {
-  color: var(--c-dim);
+  /* --c-mute, not --c-dim: on the panel face --c-dim is about 2.5:1, which was already under par
+     for body text and became unreadable once the face had texture in it. --c-mute is about 4.9:1.
+     Texture behind text has to be paid for in contrast. */
+  color: var(--c-mute);
   font-size: var(--t-body);
   margin-bottom: var(--s3);
 }
@@ -285,10 +308,13 @@ button:disabled {
   align-items: center;
   gap: var(--s3);
   padding: var(--s3);
-  /* a recess is DARKER than its panel; that is the only depth cue a hard-edged UI gets */
-  background: var(--c-void);
-  border: var(--px) solid var(--c-void);
   margin-bottom: var(--s2);
+  /* an INSET frame: the same art with the bevel reversed, so a row reads as cut INTO the panel
+     rather than laid on it. Darker fill for the same reason. */
+  background: var(--c-void);
+  border: var(--frame-w) solid var(--c-void);
+  border-image: var(--frame-inset, none) 3 fill / var(--frame-w) / 0 repeat;
+  image-rendering: pixelated;
 }
 .row .info {
   flex: 1;
@@ -298,7 +324,7 @@ button:disabled {
   font-weight: 700;
 }
 .row .ds {
-  color: var(--c-dim);
+  color: var(--c-mute);
   font-size: var(--t-body);
 }
 .row .lv {
@@ -310,7 +336,7 @@ button:disabled {
   min-width: 96px;
 }
 .sect {
-  color: var(--c-dim);
+  color: var(--c-mute);
   font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -468,7 +494,7 @@ body[data-app='title'] #titleOverlay {
   color: var(--c-gold);
 }
 .tag {
-  color: var(--c-dim);
+  color: var(--c-mute);
   font-size: var(--t-body);
   letter-spacing: 0.1em;
   margin-bottom: var(--s5);

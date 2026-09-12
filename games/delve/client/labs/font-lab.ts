@@ -12,6 +12,7 @@
 // Candidates are loaded from Google Fonts for the trial only. Whichever wins gets self-hosted, so
 // the game keeps working offline and does not depend on a third party at boot.
 import { R64 } from '../src/render/palette';
+import { installSurfaces } from '../src/ui/surface';
 
 /** A candidate, with the sizes it is actually designed to be drawn at. */
 interface Candidate {
@@ -174,6 +175,8 @@ function row(c: Candidate): HTMLElement {
   section.append(demo);
   return section;
 }
+
+installSurfaces(); // chrome must look like chrome here too, or the type is judged in a vacuum
 
 const board = document.getElementById('board')!;
 for (const c of shown) board.append(row(c));

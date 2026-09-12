@@ -22,6 +22,7 @@ import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
 import { hydrate, load, save, fresh } from './save';
 import { buildInventoryRows } from './ui/inventory';
+import { installSurfaces } from './ui/surface';
 
 // ---- display + world-view geometry ------------------------------------------------------
 // Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
@@ -1235,6 +1236,7 @@ if (matchMedia('(pointer: coarse)').matches) {
   bind('tJ', 'jump');
 }
 
+installSurfaces(); // generate the nine-slice panel frames into CSS custom properties (ui/frame.ts)
 setRenderStrata(engine.STRATA); // hand the strata palette to the rock renderer (main thread)
 fit();
 snapCam();
