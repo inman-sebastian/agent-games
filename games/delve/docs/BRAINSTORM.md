@@ -106,6 +106,57 @@ Explicitly **out**: hunger, thirst, stamina, temperature, fatigue, torch fuel, a
 every other meter that ticks down while you play normally. Nothing punishes the
 player for simply existing in the world; threat comes from what's *in* the world.
 
+### Death: you lose the trip, never the character
+
+**Decided.** The three losable things are cleanly separable, and only the cheapest one is lost:
+
+| | On death |
+| --- | --- |
+| **Inventory** | **Dropped** — and **recoverable** |
+| **Equipment** | Kept |
+| **Attributes** | Kept |
+
+The loss is scoped to **the expedition**, which is exactly the unit
+[capacity](#capacity-limits-variety-not-volume) already operates on. Nothing that took real
+investment is ever at risk, so the
+[investment arc](#the-investment-arc) survives — losing the item that used to embarrass you and now
+carries you would undo the relationship [§11](#11-equipment-the-investment-arc--the-loadout) is
+built around.
+
+**Respawn, in priority order:**
+
+1. **A base**, once bases exist.
+2. **A player-placed respawn beacon** — a strong candidate for a piece of equipment.
+3. **Fallback:** a determined safe area, or somewhere on the surface.
+
+#### What this settles beyond the question itself
+
+- **Beacons are the first confirmed _placeable_.** That fills the
+  [action bar](#the-action-bar-a-satisfactory-style-assignable-bar)'s otherwise-empty "placeable
+  materials" category, and it means **placement exists as a mechanic before base building does**.
+- **Surface respawn is the launch behaviour, not the fallback.** Bases don't exist and beacons are
+  equipment, so the real ordering is surface → beacons → base.
+- **A base gets a fourth job** ([Q2](#open-questions)): housing, storage, safe panel use, and now
+  respawn point.
+- **It decouples Q1 from chaos.** [§10](#10-chaos-floated-not-committed)'s unratified claim was that
+  high chaos requires cheap failure. This penalty is *already* cheap, so the chaos question no
+  longer has leverage over the death question.
+
+#### Recovering the bag — a proposal
+
+> **_Guideline (agent proposal, not ratified)._** Recovery has a real problem: there's
+> **no seen-memory and no early map**, so finding where you died is a genuine navigation task.
+>
+> **Make the dropped bag an emitter.** Light bleeds 2–3 tiles into rock
+> ([§6](#light-an-untradeable-floor-everything-above-it-earned)), so a glowing bag shows as a bloom
+> on the rock face before the bag itself is visible. No HUD marker, no map dependency, no new
+> system — the same mechanism that already makes lava and glowing caverns telegraph themselves. And
+> recovery gets *easier* the closer you get, which is the right gradient.
+
+**Residual, multiplayer:** are beacons per-player or shared, and does a placed beacon keep occupying
+its equipment slot? Beacons are **world**-scoped state while respawn is a **character** concern, so
+a beacon in one world does nothing in another.
+
 ### Mining's role is changing
 
 Mining **stays a core loop** — that isn't in question. What changes is its
@@ -1945,15 +1996,10 @@ occasionally throws away something you wanted.
 
 ## Open questions
 
-- **Q1. What happens when you die?** Health and enemies mean death, and death is the
-  moment that decides how bravely players explore. Respawn at a base, at the surface,
-  at a checkpoint? Do you drop inventory, or nothing? A harsh answer makes deep
-  exploration feel expensive and players play conservatively; a soft answer keeps the
-  "just see what's down there" impulse alive.
-  *If* chaos is ever adopted as a pillar
-  ([§10](#the-constraint-delve-has-that-chaos-heavy-games-usually-dont)), this is
-  largely answered, since high chaos requires cheap failure. Chaos is currently
-  uncommitted, so this stays open.
+- **Q1. What happens when you die?** **Answered** — drop the inventory (recoverable), keep
+  equipment and attributes; respawn at a base, else a placed beacon, else the surface. Full
+  treatment in [§1](#death-you-lose-the-trip-never-the-character). Note this is now settled
+  *independently* of the chaos question, which previously had leverage over it.
 
 - **Q2. What is a base _for_?** Base building needs a functional reason to exist or
   it becomes decorated storage. Terraria's answer is concrete: NPCs need housing,
@@ -1963,10 +2009,13 @@ occasionally throws away something you wanted.
   Multiplayer sharpens this: is a base **shared** (one party camp everyone builds and
   benefits from) or **per-player** (everyone keeps their own)? Shared bases need
   griefing/permission answers; per-player bases need the world to hold many of them.
-  **Partially unblocked twice over.** [§9](#9-npcs--dialogue): NPCs exist, and housing them
-  is a proven answer. And [§12](#gating-which-surfaces-are-earned): finite inventory makes
-  **storage** a job for a base — arguably the cleaner unblock, since it doesn't depend on the
-  NPC system existing first.
+  **No longer unblocked — comprehensively answered.** A base now has **four** functions:
+  **housing** NPCs ([§9](#9-npcs--dialogue)), **storage** for materials that don't fit
+  ([§12](#capacity-limits-variety-not-volume)), a **safe place to open panels** since
+  [panels never pause](#three-consequences-that-are-already-decided-elsewhere), and a
+  **respawn point** ([§1](#death-you-lose-the-trip-never-the-character)). The question was parked
+  because a base had no purpose; it now has more purposes than most of the rest of the doc. What's
+  left is *scope and shape*, not justification — plus the shared-vs-per-player question below.
 
 - **Q3. Does the coin economy survive?** **Answered: no — and already shipped.** Coins,
   selling, ore `value`, the Refinery multiplier and the Upgrades panel are deleted from main,
