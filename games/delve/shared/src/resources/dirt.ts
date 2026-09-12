@@ -8,7 +8,6 @@ register({
   name: 'Dirt',
   band: [2, 8],
   weight: 60,
-  value: 1,
   hp: 0,
   color: '#a06a3c',
   dim: true,

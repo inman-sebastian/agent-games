@@ -35,57 +35,64 @@ with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome b
    derived per-stratum — see [PALETTE.md](PALETTE.md)), with a depth gradient + faint
    distant-rock silhouettes. Drawn first; open/dug tunnels reveal it. Built to accept
    **parallax** layers later.
-2. **Foreground rock** — the diggable solid, composited on top with transparency for
-   open space, plus a subtle **contact shadow** where rock meets the background.
-3. **Overlays** — ore blocks, stalactites/stalagmites, the miner, the lamp glow, and
-   a vignette. Lighting ([LIGHTING.md](LIGHTING.md)) draws last, per-frame.
+2. **Foreground rock + ore** — the diggable solid, composited on top with transparency
+   for open space, plus a subtle **contact shadow** where rock meets the background. Ore
+   is **baked into this layer** through each ore's material shader (feathered into the
+   strata — see _Foreground rock & materials_ below), **not** a separate overlay.
+3. **Overlays (per-frame)** — animated FX drawn over the cached rock: each exposed, lit
+   vein's **twinkle**, **mining-damage** cracks on tiles taking hits, the miner, particles,
+   then the **lighting pass** ([LIGHTING.md](LIGHTING.md)) last (lamp glow + darkness scrim
+   + vignette). Ore does **not** cast its own light.
 
-The rock (layers 1–2) is drawn by `composeBand` in `cave-render.ts` and cached as
-chunks (see [ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays
-draw per-frame on top of the cached rock.
+Layers 1–2 are drawn by `composeBand` in `cave-render.ts` and cached as chunks (see
+[ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays draw per-frame on
+top of the cached rock. A dig re-bakes only the affected chunk region.
 
-## Foreground rock model (per-pixel field)
+## Foreground rock & materials (per-pixel field)
 
-- Rock solidity is a **per-pixel field**: a tile is solid, then its boundary with
-  open space is eroded by world-space noise (gentle, ~0.4–1.8px) so edges are organic
-  and **connect seamlessly** across tiles/corners.
-- **Top-lit, dark-bodied.** Brightness falls off from _every_ exposed edge (walls and
-  undersides included) with a **top-light bias** (up-facing surfaces brightest). The
-  interior of any large mass falls to near-black — **dark centers** — which reads as
-  depth and keeps the body calm. The dark body is left **empty** (no random grit — it
-  read busy).
-- The surface→center transition is **organic, not a colour band**: multi-octave noise
-  (lumps poke into light, crevices fall to dark) + ordered (Bayer) dithering, with
-  sparse crack detail only in the transition band.
-- **Rim** is desaturated and varied between the warm rock tone and a grayer rock tone
-  — reads as stone, not molten orange. No moss/flora here (see [JUICE.md](JUICE.md)).
+Solid tiles — rock **and** ore — all render through one shared per-pixel compositor
+(`shadeRock` inside `cave-render.ts`). The compositor owns the **geometry**; each material
+owns only its **colour**. This is the material system (no tile atlases, no autotiling — the
+seamless look is emergent from world-anchored fields). See [MATERIALS.md](MATERIALS.md) for
+the authoring spec and the material contract.
 
-## Ore nodes / blocks (Terraria-style clusters)
+- **Solidity is a per-pixel field.** A tile is solid, then its boundary with open space is
+  eroded by world-space noise (gentle, ~0.4–1.8px) so edges are organic and **connect
+  seamlessly** across tiles. **Convex corners** are additionally bitten by a small
+  noise-varied quarter-disc, so blocks never read as perfectly square.
+- **Top-lit, dark-bodied.** Baked brightness falls off from _every_ exposed edge with a
+  **top-light bias** (up-facing surfaces brightest), over a range that spans ~1–1.5 tiles,
+  so exposed rock reads as a broad softly-fading band (the interior of a large mass still
+  falls to near-black — dark centers read as depth). The lamp then adds its own falloff on
+  top ([LIGHTING.md](LIGHTING.md)).
+- The surface→center transition is **organic, not a colour band**: multi-octave noise +
+  ordered (Bayer) dithering (the shared `stoneSurface` recipe). Dark body left **empty**
+  (no grit — it read busy). Rim is desaturated stone, not molten orange.
+- **Materials colour the pixel.** Where a tile carries an ore, that ore's **material shader**
+  (`shade(ctx) => Rgb`) colours the pixel through this same geometry — every material builds
+  on one of the shared **surface-class primitives** (`stoneSurface` / `metalSurface` /
+  `facetSurface` / `glassSurface`, see [MATERIALS.md](MATERIALS.md)) in its own
+  [Resurrect-64](PALETTE.md) ramp, so all solid tiles share one visual language ("the same
+  world, made of gold"). The compositor **feathers a
+  colour blend** across material boundaries (material↔rock _and_ material↔material) so
+  neighbours cross-fade instead of meeting at a hard seam. The blend only crosses **two solid
+  tiles** — an open (dug) neighbour is the silhouette edge, so a mined-out vein leaves **no
+  colour stain** on the surrounding rock.
 
-Ore is not embedded veins-in-rock — each ore cell **is** an ore **block** that fills
-the cell, and adjacent same-ore cells form a **node**: a contiguous cluster that
-reads as one crystalline mass (like a Cobalt Ore clump), not confetti.
+## Ore (baked, procedural clusters)
 
-- **Placement** is a pure `f(seed,c,r)` in `shared/src/blocks.ts` (`oreAt`): a
-  low-frequency value-noise field is thresholded into blobby pockets, and a coarse
-  region grid gives each pocket a single ore type (weighted by depth band). Density is
-  kept near the old per-cell value for now; a rarer/richer-cluster economy retune is a
-  later pass.
-- **Rendering** — `drawOreBlock(g, art, X, Y, col, row, frac, sameOre)` in
-  `client/src/render/ore-art.ts` (approach A): the rock body is drawn by `cave-render`; each ore
-  cell is overlaid with a **world-anchored faceted crystalline fill** (noise keyed to
-  world coords, so it flows continuously across cells). Only **cluster-boundary** edges
-  (where the neighbour isn't the same ore) get the dark outline + a top rim highlight —
-  internal cell seams are invisible, so the pocket reads as one block. `sameOre(dc,dr)`
-  supplies the neighbour test.
-- **No reveal.** The block simply _is_ ore; taking damage shows spreading **cracks**
-  (`frac` in 0..1), not a growing crystal. Breaking it sells the ore (juice moves to
-  the break — see [JUICE.md](JUICE.md)).
-- **Only rendered where visible** — within lamp range, or anywhere with the **Ore
-  Scanner** — as a per-frame pass over the cached rock (faded by visibility, not
-  baked). Exposed ore also emits coloured light through the lighting system, so a
-  cluster glows its own hue. The per-ore crystal **shapes** (`SHAPES`) live on as the
-  extracted-ore icon and (future) break effect. **Dirt** is a `dim` ore: it renders as
-  plain rock.
-- _Future refinement (approach B):_ fold ore into `cave-render` as a first-class block
-  type coloured per-cell, for deeper unification; A gets the look fast.
+- **Placement** is a pure `f(seed,c,r)` in `shared/src/blocks.ts` (`oreAt`): a low-frequency
+  value-noise field is thresholded into blobby pockets; a coarse region grid gives each pocket
+  a single ore type (weighted by depth band), so adjacent same-ore cells read as one mass.
+- **Baked, not overlaid.** Ore is composited into the rock chunk via
+  `materialAt = (c,r) => oreMaterial(oreAt(seed,c,r))` passed to `composeBand`, so it feathers
+  into the strata seamlessly (there is no `drawOreBlock` overlay anymore). It's simply _there_;
+  there is **no reveal** step.
+- **No ore emission.** Veins read purely by their lit surface + baked `sparkle` and animated
+  `twinkle` FX — they do **not** cast coloured light. **Lamp-only vision** (LIGHTING.md) hides
+  unlit ore in the void, so discovery still matters.
+- **Damage** is a shared, tiered **crack FX** (`fx.drawDamage`), keyed on `world.dmg`, drawn
+  per-frame over damaged tiles; breaking a tile drops the ore into the inventory (juice moves
+  to the break — see [JUICE.md](JUICE.md)).
+- The per-ore crystal **shapes** (`SHAPES`/`ORE_ART` in `ore-art.ts`) live on only as the
+  inventory/codex **icon**. **Dirt** is a `dim` ore with no material: it renders as plain rock.

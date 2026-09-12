@@ -8,7 +8,6 @@ register({
   name: 'Emerald',
   band: [132, 240],
   weight: 7,
-  value: 260,
   hp: 6,
   color: '#41cf76',
   desc: 'The first true gem — deep green, deeply prized.',

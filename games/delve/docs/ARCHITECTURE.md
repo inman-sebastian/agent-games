@@ -17,8 +17,8 @@ DELVE is a small **pnpm workspace of three TypeScript packages**, plus the tools
 - **`@delve/server`** (`server/`) — the Node + `ws` server (`src/`). Bundled with **esbuild** →
   `server/dist`.
 
-The `tools/` (verify / sim / server-check / shot.sh) and `docs/` sit alongside, owned by the
-thin root **`delve`** package that orchestrates `pnpm dev` / `build` / `verify` across the
+The `tools/` (sim / shot.sh), the Vitest suites (co-located `*.test.ts`), and `docs/` sit
+alongside, owned by the thin root **`delve`** package that orchestrates `pnpm dev` / `build` / `test` across the
 three. In dev, `@delve/shared` resolves straight to **source** (a Vite alias for the client;
 package `exports` → `src` for tsx/tsc/esbuild), so there is no prebuild step; each package
 still emits its own `dist/`. There are no runtime globals and no hand-written bundle — the
@@ -31,16 +31,17 @@ rock until you dig it (issue #1). Each cell's _static_ contents are a **pure fun
 `(seed, c, r)`**, so the world is never stored, only regenerated on demand. Only the
 **dynamic** state is held, split for multiplayer (P3, #12) into a shared **`WorldState`**
 `{ seed, dug, dmg }` — the terrain everyone digs together, tile-break damage included — and
-a per-player **`PlayerState`** (continuous position/velocity + economy: coins, inventory,
-upgrades, tech). A **`Session`** bundles one world + one player; in multiplayer many Sessions
+a per-player **`PlayerState`** (continuous position/velocity + collected-material inventory +
+upgrade levels; there is no money). A **`Session`** bundles one world + one player; in multiplayer many Sessions
 share one `WorldState`. See [`blocks.ts`](#modules) for the static query and
 `newWorld`/`newPlayer`/`newSession` in `engine.ts` for the shapes. (`WIDTH` still exists as
 the default spawn column, not a wall.)
 
 Movement is a **gravity platformer** (issue #2): you fall, jump, and run, and mining is a
-separate aim/target action (#3). The economy stays **soft-lock-free by construction** —
-digging is free and ore sells anytime, so you can never get stranded; upward-traversal
-tools are a future pass. [`tools/verify.ts`](#verification) proves the pacing holds.
+separate aim/target action (#3). There is **no economy** — everything mined goes into the
+inventory (no coins, no selling); digging is free and unconditional, so the loop can't
+strand you. Upward-traversal tools are a future pass. The [Vitest suites](#verification)
+cover the sim/world-gen invariants.
 
 ## Modules
 
@@ -56,7 +57,7 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 | `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                         |
 | `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                 | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.) |
 | `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`           | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                            |
-| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, economy | The pure **sim** — player physics, dig resolution, economy, upgrades — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                              |
+| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount` | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                              |
 | `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types              | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                          |
 | `index.ts`    | (barrel)                                                  | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                 |
 
@@ -86,8 +87,8 @@ all: it only renders rock, and the strata palette is posted in its init message
 (`setStrata`).
 
 **Adding an entity:** create `shared/src/resources/<name>.ts` (self-registering), add its import to
-`shared/src/resources/index.ts`, done — `verify.ts` validates the schema and that the index matches
-the directory (no drift).
+`shared/src/resources/index.ts`, done — the resource tests (`shared/src/resources/resources.test.ts`)
+validate the schema and that the index matches the directory (no drift).
 
 ## Who composes what
 
@@ -97,8 +98,9 @@ the directory (no drift).
   game uses** so they can't drift: `style-lab.ts` (art tuning over a sample cave),
   `render.ts` (the one-region render harness `shot.sh` captures), `light-lab.ts` (coloured-
   light blending). Iterate a module and the game and the labs move together.
-- **`tools/`** — the CLI dev tools (`verify.ts`, `sim.ts`, `shot.sh`) read the same modules
-  for cheap headless checks — see [`tools/README.md`](../tools/README.md).
+- **`tools/`** — the interactive CLI dev tools (`sim.ts`, `shot.sh`) read the same modules
+  for cheap headless inspection — see [`tools/README.md`](../tools/README.md). Automated testing
+  lives in the co-located Vitest suites — see [`docs/TESTING.md`](TESTING.md).
 
 ## The rock chunk pipeline
 
@@ -132,9 +134,9 @@ after research over peer-to-peer lockstep / rollback, which don't scale for many
 perfect cross-machine determinism. The rationale + decision are on issue #12.
 
 - **Clients send inputs only.** Per tick: `input { seq, input }` (movement + a mine target);
-  plus discrete `command`s for the shop (`buyUpgrade` / `buyTech` / `sellAll` / `newGame`). They
-  never send state, so **forged coins / out-of-reach mining are impossible by construction** —
-  the server computes every mutation itself, and `physicsStep` enforces mining reach.
+  plus the discrete `command` `newGame`. They never send state, so **out-of-reach mining is
+  impossible by construction** — the server computes every mutation itself, and `physicsStep`
+  enforces mining reach.
 - **The server is the single source of truth.** It owns each connection's `Session` (its shared
   world + player), applies one authoritative `physicsStep` per received input (WebSocket is
   ordered/reliable, so inputs replay in order), validates commands (can't afford → no-op), and
@@ -152,19 +154,20 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
 **Fixed tick:** both sides step the sim at `TICK_DT` (`TICK_HZ` = 60), so a replayed input on the
 client reproduces the server's result. **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
 WS-only) via `concurrently`; Vite proxies `/ws`. **Prod:** `pnpm build` → dist, then `pnpm start`
-serves the built client (`sirv`) + the WebSocket from one process. `tools/server-check.ts`
-(`pnpm server:check`) is the headless authority gate — it proves the server's state equals the
-client's prediction for a scripted input stream, that out-of-reach mining is rejected, and that
-reconnect hydrates the persisted world.
+serves the built client (`sirv`) + the WebSocket from one process. `server/src/protocol.e2e.test.ts`
+is the authority gate — it spawns the real server and proves its state equals the client's
+prediction for a scripted input stream, that out-of-reach mining is rejected, and that reconnect
+hydrates the persisted world.
 
 Deferred to **P4** (real multiplayer): multiple concurrent players sharing one `WorldState`,
 remote-avatar interpolation, area-of-interest culling at scale, rooms.
 
 ## Verification
 
-`tools/verify.ts` is the balance gate. Digging is free and ore sells anytime, so a hard
-soft-lock is impossible by construction; the real risk is **pacing**. It drives a greedy
-bot through the **same engine** the player uses and asserts it reaches every ore tier —
-down into Mythril — within a sane action budget, plus static invariants on the ore table,
-cost curves, world gen, and the resource registry (index↔directory drift). Run `pnpm
-verify`. The other `tools/` give cheaper, more targeted checks.
+Testing is **Vitest**, `pnpm test` — see [`docs/TESTING.md`](TESTING.md) for the full picture.
+The philosophy is **invariants over curated scenarios**: instead of one hand-scripted "perfect"
+playthrough (the retired `verify.ts`), property/fuzz tests (fast-check) assert what must hold
+across many random seeds and input streams — no tunneling, deterministic replay, material
+conservation, ore-always-in-band — plus the real client↔server protocol e2e (a spawned server)
+and the client's save/DOM under happy-dom. The interactive `tools/` (`sim`, `shot.sh`) remain for
+inspection, not gating.

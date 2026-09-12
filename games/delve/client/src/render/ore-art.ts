@@ -6,7 +6,8 @@ import { vnoise, mulberry, hashXY } from '@delve/shared';
 import { OUT, shapes, all } from '@delve/shared';
 import type { OreArt } from '@delve/shared';
 
-// ore art keyed by ore id, sourced from the ore resources.
+// ore art keyed by ore id, sourced from the ore resources. (Used for the inventory/codex crystal
+// ICONS; the in-world tile look now comes from each ore's material shader — see render/materials/.)
 export const ORE_ART: Record<number, OreArt> = {};
 for (const ore of all('ore')) ORE_ART[ore.id] = ore.art;
 

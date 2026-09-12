@@ -34,10 +34,10 @@ Light is **occluded by rock** — Terraria's technique:
 2. The field is **propagated** across the visible tile window with four corner sweeps
    (max-with-attenuation). Attenuation is the _destination tile's_ opacity:
    **open/dug tiles conduct** light (`OPEN_ATTEN`), **solid rock absorbs** it fast
-   (`ROCK_ATTEN`). So light pools down the tunnels you've carved and dies a couple
-   tiles into rock — the lit region takes the **shape of the dug space, not a circle**,
-   and it bends around corners (an L-shaped tunnel lights as an L). One round converges
-   because each sweep chains through already-updated neighbours in its direction.
+   (`ROCK_ATTEN`). So light pools down the tunnels you've carved and fades ~3 tiles into
+   rock — the lit region takes the **shape of the dug space, not a circle**, and it bends
+   around corners (an L-shaped tunnel lights as an L). One round converges because each
+   sweep chains through already-updated neighbours in its direction.
 3. The tile field is **bilinear-sampled per pixel** (smooth across tiles, no grid) and
    composited in two passes: a **smooth additive colour glow** (warm lamp + coloured
    ore, drawn with `'lighter'`) + a **dithered darkness scrim** derived from the _same
@@ -48,6 +48,26 @@ Because the scrim is derived from the light field, **a source lights its own
 surroundings out of the dark** by the identical rule, and the **first rock layer
 around a lit tunnel catches a warm rim for free** (one attenuated step of warm light)
 — the SteamWorld dug-edge signature, emergent rather than special-cased.
+
+### Exposed-rock transition band
+
+Exposed rock reads as a **broad, softly-fading lit band** ~2–3 tiles deep (SteamWorld/Core
+Keeper), not a thin bright rim snapping to black. Two knobs set it together: the lamp's
+`ROCK_ATTEN` (how far light reaches into rock) and the **baked** geometric light `range` in
+`cave-render` (`shadeRock`), which fades brightness over ~1–1.5 tiles from the nearest open
+edge. The wide band both looks better and gives surface-level FX (e.g. mining **damage**) a
+real canvas — damage FX lives in `client/src/render/materials/fx.ts` (`drawDamage`).
+
+### Lamp-only vision (the void)
+
+Underground, **you see only what your lamp currently reaches** — exploration and
+discovery are core, so unexplored space is a true **void**, not a dimly-previewed map.
+This falls out of the same field: the ambient floor is **zero** (`AMB = [0,0,0]`) and the
+scrim reaches **full** on a wholly-unlit pixel (`MAX_DARKNESS = 1`), so a tile no light
+touches fades all the way to the near-black `SCRIM` colour — ore included. Above the
+surface the scrim is forced off (`aboveSky`), so daylight is unaffected. There is **no
+persistent explored/“seen” memory** — walk away from a tunnel and it returns to the void
+(a remembered-map fog would be a separate feature layered on top).
 
 ## Gem glow
 
@@ -62,9 +82,9 @@ channel** (`GLOW_CAP`) on top of that — so no blown-out sunspot. The **total**
 (lamp warm + ore colour) is also capped together (`ADD_MAX`), so their overlap can't
 blow to a white sunspot.
 
-Distant **Ore-Scanner**-revealed ore shows its fleck art but does **not** emit light
-(gated on lamp reach / being mined), so it neither washes the dark nor floods the
-emitter list.
+Ore does **not** emit light — it reads only by its lit surface + baked/animated FX
+(see [RENDERING.md](RENDERING.md)), so with lamp-only vision unlit ore stays hidden in
+the void, and ore never washes the dark or floods the emitter list.
 
 ## Tuning knobs
 
@@ -76,8 +96,9 @@ All constants live at the top of `client/src/render/lighting.ts`:
 | `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                |
 | `ADD`                       | How strongly the light field shows as additive glow.                              |
 | `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                  |
-| `AMB`                       | Ambient floor — unlit rock stays dim, never pure black.                           |
-| `SCRIM`                     | The deep cool colour the darkness fades toward.                                   |
+| `AMB`                       | Ambient floor — `[0,0,0]` for lamp-only vision (unlit → the void). Raise to preview the map. |
+| `MAX_DARKNESS`              | How fully the scrim hides a wholly-unlit pixel — `1` = true void; lower reveals more.        |
+| `SCRIM`                     | The deep cool colour the darkness fades toward (the void's tint).                 |
 | `ORE_GLOW` / `GLOW_CAP`     | Gem halo seed strength and its per-channel anti-bloom ceiling.                    |
 | `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
 

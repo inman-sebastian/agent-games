@@ -137,11 +137,8 @@
         font-weight: 700;
         font-size: 15px;
       }
-      .stat.coin b {
-        color: var(--gold);
-      }
 
-      /* shop overlay */
+      /* inventory / collection overlay */
       .overlay {
         position: fixed;
         inset: 0;
@@ -156,7 +153,7 @@
       .overlay.on {
         display: flex;
       }
-      .shop {
+      .panel {
         width: 100%;
         max-width: 440px;
         max-height: 88vh;
@@ -167,12 +164,12 @@
         padding: 16px;
         box-shadow: 0 20px 60px #000c;
       }
-      .shop h2 {
+      .panel h2 {
         margin: 0 0 2px;
         font-size: 15px;
         letter-spacing: 0.08em;
       }
-      .shop .sub {
+      .panel .sub {
         color: var(--dim);
         font-size: 12px;
         margin-bottom: 12px;
@@ -243,6 +240,33 @@
       #dbg.on {
         display: block;
       }
+      #dbgtext {
+        white-space: pre;
+      }
+      /* render-system toggle buttons live inside #dbg but must be clickable (the panel isn't) */
+      #dbgtoggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+        pointer-events: auto;
+      }
+      .dbgbtn {
+        font: inherit;
+        color: #9fead0;
+        background: #0b1018;
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        padding: 2px 8px;
+        cursor: pointer;
+        opacity: 0.4;
+        text-transform: capitalize;
+      }
+      .dbgbtn.on {
+        opacity: 1;
+        border-color: #3a8a63;
+        color: #bfffe0;
+      }
 
       /* on-screen movement controls (touch only; mining is aim+tap on the canvas) */
       #touch {
@@ -308,7 +332,7 @@
       <header>
         <h1>DE<b>L</b>VE</h1>
         <div class="btns">
-          <button id="shopBtn">⛏ Upgrades</button>
+          <button id="invBtn">▣ Inventory</button>
           <button id="codexBtn" title="Collection">✦ Collection</button>
           <button id="muteBtn" title="Mute">♪</button>
           <button id="newBtn" title="New game">↺</button>
@@ -318,13 +342,12 @@
         <div class="stat">
           DEPTH <b><span id="depth">0</span>m</b>
         </div>
-        <div class="stat coin">◈ <b id="coins">0</b></div>
-        <div class="stat">CARGO <b id="cargo">0</b> ◈</div>
+        <div class="stat">HELD <b id="held">0</b></div>
         <div class="stat found">DEEPEST FIND <b id="found" style="color: var(--dim)">—</b></div>
       </div>
     </div>
 
-    <div id="dbg"></div>
+    <div id="dbg"><div id="dbgtext"></div><div id="dbgtoggles"></div></div>
 
     <div id="touch">
       <div class="tpad">
@@ -335,25 +358,16 @@
     </div>
 
     <div class="overlay" id="overlay">
-      <div class="shop">
-        <h2>Upgrades</h2>
-        <div class="sub">
-          Coins: <b id="shopCoins" style="color: var(--gold)">0</b> ◈ &nbsp;·&nbsp; sell your cargo,
-          then upgrade
-        </div>
-        <div class="sect">Cargo</div>
-        <div id="cargoList" class="ds" style="margin: 0 2px 8px">empty</div>
-        <button id="sellBtn" style="width: 100%; margin-bottom: 6px">Sell all</button>
-        <div class="sect">Upgrades</div>
-        <div id="upgrades"></div>
-        <div class="sect">Technology</div>
-        <div id="tech"></div>
+      <div class="panel">
+        <h2>Inventory</h2>
+        <div class="sub">Materials you've mined — <b id="invTotal">0</b> held</div>
+        <div id="invList"></div>
         <button class="close" id="closeBtn">Back to the mine</button>
       </div>
     </div>
 
     <div class="overlay" id="codexOverlay">
-      <div class="shop">
+      <div class="panel">
         <h2>Collection</h2>
         <div class="sub">Ores discovered on your descent</div>
         <div id="codexList"></div>

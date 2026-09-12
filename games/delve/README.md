@@ -5,7 +5,7 @@ What DELVE is and how it plays: **[docs/DESIGN.md](docs/DESIGN.md)**.
 Run `pnpm dev` to start the client (Vite) and the server together, then open the printed URL
 to play. Progress is saved on the **server** (with a `localStorage` fallback for offline).
 Build with `pnpm build` (emits `dist/`) and serve the built client + WebSocket with
-`pnpm start`. Gates: `pnpm verify` (balance) and `pnpm server:check` (client/server protocol).
+`pnpm start`. Gate: `pnpm test` (Vitest — sim, world-gen, client↔server protocol, and DOM).
 
 ## Docs
 
@@ -13,14 +13,16 @@ The design and art direction live in [`docs/`](docs/); this README is the index.
 
 | Doc                                          | What's in it                                                                                                                                                                                                      |
 | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [docs/DESIGN.md](docs/DESIGN.md)             | **Start here** — what the game is, the core loop, controls, ore tiers, upgrades, economy, design pillars, and the roadmap.                                                                                        |
+| [docs/DESIGN.md](docs/DESIGN.md)             | **Start here** — what the game is, the core loop, controls, ore tiers, upgradable stats, design pillars, and the roadmap.                                                                                        |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | The three packages (`@delve/shared` ruleset, `@delve/client`, `@delve/server`), how they compose from the shared modules, the `f(seed,c,r)` world model, the rock chunk pipeline, and the client/server boundary. |
 | [docs/CODE-STYLE.md](docs/CODE-STYLE.md)     | Coding standards — readable-over-terse source, naming, TypeScript conventions, comments, formatting.                                                                                                              |
 | [docs/PALETTE.md](docs/PALETTE.md)           | Resurrect 64, the per-stratum depth ramps, and the ore triads + crystal shapes.                                                                                                                                   |
-| [docs/RENDERING.md](docs/RENDERING.md)       | Resolution/pixel-density, the composited layers, the per-pixel rock model, and the ore nodes/blocks.                                                                                                              |
-| [docs/LIGHTING.md](docs/LIGHTING.md)         | The independent, geometry-aware lighting system (occlusion, lamp field, gem glow, tuning knobs).                                                                                                                  |
+| [docs/RENDERING.md](docs/RENDERING.md)       | Resolution/pixel-density, the composited layers, the per-pixel rock & material model, and baked procedural ore.                                                                                                    |
+| [docs/MATERIALS.md](docs/MATERIALS.md)       | The procedural material system — compositor/shader split, the `Material` contract, shared `stoneSurface`, the FX catalogue, and the value-gradient convention. (Add one with the `delve-new-material` skill.)      |
+| [docs/LIGHTING.md](docs/LIGHTING.md)         | The independent, geometry-aware lighting system (occlusion, lamp field, lamp-only vision, tuning knobs).                                                                                                           |
 | [docs/JUICE.md](docs/JUICE.md)               | The miner sprite, motion & juice, synthesized sound, and planned surface decoration.                                                                                                                              |
-| [tools/README.md](tools/README.md)           | Cheap headless verification — the sim harness and cropped-render tools.                                                                                                                                           |
+| [docs/TESTING.md](docs/TESTING.md)           | The Vitest setup — node + happy-dom projects, the property/fuzz philosophy (invariants over curated scenarios), what's covered, and how to write a test.                                                           |
+| [tools/README.md](tools/README.md)           | Interactive dev tools — the sim inspection CLI and cropped-render screenshots.                                                                                                                                    |
 
 ## Layout
 
@@ -36,7 +38,8 @@ tools and docs, orchestrated by the thin root `delve` package. Each package buil
   sandboxes: `style-lab`, `render`, `light-lab`). Multi-page Vite build.
 - **`server/`** — `@delve/server`, the Node + `ws` server: same engine, owns persistence (store
   of record), serves the build in production. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- **`tools/`** — CLI dev tools (run under `tsx`/bash, no build): `verify.ts` (balance gate),
-  `sim.ts` (headless sim), `server-check.ts` (protocol smoke test), `shot.sh` (screenshots).
+- **`tools/`** — interactive CLI dev tools (run under `tsx`/bash, no build): `sim.ts` (headless
+  sim inspection), `shot.sh` (cropped-render screenshots). Automated gating lives in the Vitest
+  suites (`pnpm test`), not here — see [docs/TESTING.md](docs/TESTING.md).
 - **`docs/`** — design + art-direction docs (this index points into them).
 - **`CLAUDE.md`** — working rules for agents touching this game.

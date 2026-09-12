@@ -1,28 +1,19 @@
 # DELVE dev tools
 
-Cheap headless verification, all driven from the shell. **Use these first — Playwright /
-MCP is a last resort.** Reading browser-automation screenshots (especially full-viewport
-or hi-DPI) is slow and burns tokens; these tools answer almost every question in text or a
-tiny cropped PNG. If something isn't covered, extend a tool rather than defaulting to
-Playwright. (Only genuinely live questions — input feel, real FPS — need the browser, and
-even then read the `?debug` overlay text, not screenshots.)
+Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Use these
+(and the tests) first — Playwright / MCP is a last resort.** Reading browser-automation
+screenshots (especially full-viewport or hi-DPI) is slow and burns tokens; these answer almost
+every question in text or a tiny cropped PNG.
 
-## `verify.ts` — the balance gate
-
-Drives a greedy bot through the SAME engine the player uses and asserts it reaches
-every ore tier down into Mythril within a sane action budget, plus static invariants
-on the ore table, cost curves, and world gen. Run it after any logic / economy /
-world-gen change:
-
-```sh
-pnpm verify          # from games/delve/ (or the workspace: pnpm --filter delve verify)
-node tools/verify.ts # equivalent, from games/delve/
-```
+> **Automated testing is separate.** The gate is `pnpm test` (Vitest — sim/world-gen fuzz,
+> the client↔server protocol e2e, and DOM). See [`docs/TESTING.md`](../docs/TESTING.md). The
+> tools below are for *inspection*, not gating; the retired `verify.ts` / `server-check.ts`
+> scripts are now Vitest suites.
 
 ## `sim.ts` — headless sim & world inspection (no browser, no images)
 
 Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic / world-gen
-/ economy / cluster question is answerable in text.
+/ cluster question is answerable in text.
 
 ```sh
 node tools/sim.ts state  [--seed N] [--from save.json]      # raw state as JSON
@@ -35,22 +26,13 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
   ore-coverage % and per-tier counts — ideal for eyeballing cluster shape/size/density.
 - `play` runs an action script through the platformer physics (tokens `<key><frames>`,
   key ∈ d = mine down / l = run left / r = run right / u = jump; frames are 1/60s) and
-  dumps the resulting state + a mined-ore summary — ideal for pacing/economy checks.
+  dumps the resulting state + a mined-material summary (`held` + per-type `mined`) — ideal
+  for pacing/collection checks.
 - `--from` loads a save JSON (merged over `newGame`, like the game) to inspect/continue
   a specific state.
 
-## `server-check.ts` — authoritative-server gate (no browser)
-
-Spawns the **real** server (`server/src/index.ts`) against a throwaway data dir, then drives the
-WebSocket protocol the way `client/src/net.ts` does and asserts the P3 authority guarantees:
-join → `hello` with a fresh world; **determinism/authority** — a scripted input stream yields the
-SAME state on the server as the client's local prediction (same seed + inputs → same result);
-**anti-cheat** — an out-of-reach mine target is rejected server-side; reconnect hydrates the
-persisted world; and a protocol-version mismatch is rejected. Exits non-zero on any failed check.
-
-```sh
-pnpm server:check
-```
+The authoritative-server roundtrip that used to live here (`server-check.ts`) is now the
+`server/src/protocol.e2e.test.ts` Vitest suite (run by `pnpm test`).
 
 ## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
@@ -76,8 +58,21 @@ the game headlessly:
 
 ```sh
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html  # a material in a cave
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
 ```
+
+## `client/labs/material-lab.html` — per-material inspector
+
+Every material (rock + all ores) rendered through the **same** compositor the game uses. A sidebar
+grid selects the material; the right shows its **surface** (top-lit block) and a **cave system**
+where several materials feather into rock and each other, lamp-lit with twinkle animating. It's the
+dedicated harness for authoring/tuning a material without driving Playwright. Fully URL-driven:
+`mat=<slug>` (lowercased name, no spaces), `view=surface|cave|both`, `depth=<row>`, `scale`
+(defaults to 2×, the game's scale), `lit=0|1`, `seed` (the **↻ seed** button randomises the cave
+shape *and* ore), `w`/`h`. `ui=0` renders one bare preview at the top-left framed by shot.sh's
+`w`/`h`/`scale`, and the cave view auto-centres on a vein of the selected material — so a single
+`shot.sh` shows any material in situ. See the `delve-new-material` skill for the authoring loop.
 
 ## `client/labs/light-lab.html` — colored-light blending sandbox
 
@@ -87,6 +82,6 @@ flood-fill), how occluders shadow, and how the additive cap reads. Open it in a 
 or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
 · **O** toggle occluders.
 
-**Rule of thumb:** reach for `sim.ts`/`verify.ts` first (free, text); render a crop only
+**Rule of thumb:** run `pnpm test` and reach for `sim.ts` first (free, text); render a crop only
 when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
 resort.

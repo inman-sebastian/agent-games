@@ -3,12 +3,12 @@
 // vocabulary and the message shapes can never drift. Messages are JSON objects discriminated by `t`.
 //
 // P3 model — the SERVER is authoritative:
-//   • Clients send INPUTS ONLY (per-tick movement/mining) + discrete COMMANDS (buy/sell/newGame).
-//     They never send state, so forged coins / out-of-reach mining are impossible by construction.
+//   • Clients send INPUTS ONLY (per-tick movement/mining) + discrete COMMANDS (newGame).
+//     They never send state, so out-of-reach mining is impossible by construction.
 //   • The server owns the shared world + each player, steps the sim, and streams authoritative
 //     snapshots. The client predicts its OWN avatar and reconciles against the server (it does not
 //     depend on cross-machine determinism — a misprediction is a small self-correcting nudge).
-import type { Input, PlayerState, Session, UpgradeLevels, TechOwned } from './types';
+import type { Input, PlayerState, Session } from './types';
 
 /** Bumped on any breaking wire change; a join with a mismatched version is rejected. */
 export const PROTOCOL_VERSION = 3;
@@ -37,11 +37,7 @@ export interface InputMessage {
 }
 
 /** A discrete, non-realtime action the server applies authoritatively (validated server-side). */
-export type ClientCommand =
-  | { kind: 'buyUpgrade'; key: keyof UpgradeLevels }
-  | { kind: 'buyTech'; key: keyof TechOwned }
-  | { kind: 'sellAll' }
-  | { kind: 'newGame'; seed: number };
+export type ClientCommand = { kind: 'newGame'; seed: number };
 
 export interface CommandMessage {
   t: 'command';

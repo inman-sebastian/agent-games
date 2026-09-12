@@ -8,7 +8,6 @@ register({
   name: 'Mythril',
   band: [480, 99999],
   weight: 2,
-  value: 6200,
   hp: 15,
   color: '#bd77f5',
   desc: 'The legendary violet ore of the abyss.',

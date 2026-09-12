@@ -1,7 +1,7 @@
 // index.ts — the DELVE game client: the glue that turns the pure sim (engine) and the shared
 // renderers (cave-render / ore-art / sprites / lighting) into a playable game. It owns only what
 // isn't a rule: the canvas + camera, the game loop, input, audio, juice (particles/floaties/
-// shake), the HUD/shop/codex DOM, and save/load. Every world and gameplay rule is imported —
+// shake), the HUD/inventory/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
 import type {
@@ -18,13 +18,15 @@ import {
   composeBand,
   mix,
   hashXY,
-  hexRgb,
 } from './render/cave-render';
-import { ORE_ART, SHAPES, drawOreBlock } from './render/ore-art';
+import { ORE_ART, SHAPES } from './render/ore-art';
+import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
 import { drawMiner } from './render/sprites';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
+import { hydrate, load, save, fresh } from './save';
+import { buildInventoryRows } from './ui/inventory';
 
 // ---- display + world-view geometry ------------------------------------------------------
 // Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
@@ -57,86 +59,14 @@ const lb = fieldBuf.getContext('2d')!;
 lb.imageSmoothingEnabled = false;
 
 // ---- state / persistence ----------------------------------------------------------------
-const SAVE_KEY = 'delve.save.v1';
+// hydrate/load/save + save-format migration live in ./save (extracted so they're testable
+// without the game loop). `save(s)` takes the current session since it's no longer a closure.
 const SAVE_INTERVAL_MS = 2500;
 
-function fresh(): Session {
-  return engine.newSession((Math.random() * 2 ** 31) >>> 0);
-}
-// Reconstruct a Session from a saved object over a fresh one (fills fields added since it was
-// written) and reset transient physics. Handles three formats: the current split save
-// ({ world, player }), the pre-split flat save, and the pre-physics grid save. Used by both
-// the localStorage load and the server hydrate (src/net.ts). `saved` is deserialized external
-// data, so it's genuinely untyped here.
-function hydrate(saved: any): Session {
-  const seed = saved.world?.seed ?? saved.seed;
-  const base = engine.newSession(seed);
-  const s: Session =
-    saved.world && saved.player
-      ? {
-          world: { ...base.world, ...saved.world },
-          player: {
-            ...base.player,
-            ...saved.player,
-            up: { ...base.player.up, ...saved.player.up },
-            tech: { ...base.player.tech, ...saved.player.tech },
-          },
-        }
-      : {
-          // migrate a pre-split flat save: peel world fields off, the rest is the player
-          world: { ...base.world, dug: saved.dug ?? {}, dmg: saved.dmg ?? {} },
-          player: {
-            ...base.player,
-            x: saved.x ?? base.player.x,
-            y: saved.y ?? base.player.y,
-            facing: saved.facing ?? base.player.facing,
-            coins: saved.coins ?? 0,
-            earned: saved.earned ?? 0,
-            inv: saved.inv ?? {},
-            log: saved.log ?? {},
-            depth: saved.depth ?? 0,
-            best: saved.best ?? 0,
-            up: { ...base.player.up, ...(saved.up ?? {}) },
-            tech: { ...base.player.tech, ...(saved.tech ?? {}) },
-          },
-        };
-  if (saved.world === undefined && saved.x === undefined && saved.c !== undefined) {
-    s.player.x = saved.c + 0.5; // pre-physics grid save
-    s.player.y = saved.r + 0.5;
-  }
-  s.player.vx = 0; // reset transient physics fields
-  s.player.vy = 0;
-  s.player.grounded = false;
-  s.player.digKey = null;
-  s.player.digTime = 0;
-  return s;
-}
-function load(): Session | null {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const saved = JSON.parse(raw);
-    if (!saved || !(saved.seed || saved.world?.seed)) return null;
-    return hydrate(saved);
-  } catch {
-    return null;
-  }
-}
-// Persist locally as the OFFLINE fallback. When online the server is authoritative and persists
-// the session itself (the client streams inputs, never state), so this is just a local cache used
-// before the first hello / when the server is unreachable.
-function save(): void {
-  try {
-    localStorage.setItem(SAVE_KEY, JSON.stringify(s));
-  } catch {
-    /* storage full or unavailable — the game stays playable, just not persisted */
-  }
-}
-
 let s: Session = load() || fresh();
-setInterval(save, SAVE_INTERVAL_MS);
+setInterval(() => save(s), SAVE_INTERVAL_MS);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) save();
+  if (document.hidden) save(s);
 });
 
 // 2-axis camera (keeps the miner centred). The sim position (s.player.x, s.player.y) is continuous and smooth
@@ -230,16 +160,6 @@ const sfx = {
     tone(base, 0.005, 0.14, 'triangle', 0.28);
     setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
   },
-  sell(amount: number): void {
-    const notes = [523, 659, 784, 1047]; // C-E-G-C arpeggio; longer for bigger sales
-    for (let i = 0; i < Math.min(4, 1 + Math.floor(amount / 40)); i++) {
-      setTimeout(() => tone(notes[i], 0.005, 0.22, 'triangle', 0.3), i * 70);
-    }
-  },
-  buy(): void {
-    tone(440, 0.005, 0.09, 'square', 0.25);
-    setTimeout(() => tone(660, 0.005, 0.12, 'square', 0.22), 70);
-  },
 };
 
 // ---- juice (particles / floaties / shake) -----------------------------------------------
@@ -314,6 +234,11 @@ const ckey = (cx: number, cy: number): string => cx + ',' + cy;
 const solidTile = (column: number, row: number): boolean =>
   engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
+// a tile's ore material (if it sits in an ore pocket), baked into the rock band by composeBand so
+// veins feather into the strata. Same lookup the worker uses; null → the tile renders as plain rock.
+const materialAt = (column: number, row: number) =>
+  oreMaterial(engine.oreAt(s.world.seed, column, row));
+
 function newChunkCanvas(): Chunk {
   const cv = document.createElement('canvas');
   cv.width = CW * T;
@@ -362,6 +287,7 @@ if (canOffloadChunks) {
       type: 'init',
       cfg: { T, CW, CH, SURFACE: engine.SURFACE, MARGIN, strata: engine.STRATA },
     });
+    worker.postMessage({ type: 'world', seed: s.world.seed }); // seed to bake ore into chunks
     worker.onmessage = (e: MessageEvent<ChunkResult>) => {
       const { cx, cy, bmp } = e.data;
       const key = ckey(cx, cy);
@@ -406,6 +332,12 @@ function requestChunk(cx: number, cy: number): void {
   worker!.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
 }
 
+// Re-post the world seed to the Worker so it bakes ore with the current seed. Call whenever the
+// world changes (new game / server hello) — right where the chunk cache is cleared.
+function syncWorkerWorld(): void {
+  worker?.postMessage({ type: 'world', seed: s.world.seed });
+}
+
 // Synchronous chunk render (fallback when no Worker) — uses the shared renderer.
 function renderChunkSync(cx: number, cy: number): Chunk {
   const start = performance.now();
@@ -418,6 +350,7 @@ function renderChunkSync(cx: number, cy: number): Chunk {
     CH + 2 * MARGIN,
     Infinity,
     engine.SURFACE,
+    materialAt,
   );
   const key = ckey(cx, cy);
   const chunk = chunks.get(key) || newChunkCanvas();
@@ -459,6 +392,7 @@ function patchDig(c: number, r: number): void {
     coreB - coreT + 1 + 2 * MARGIN,
     Infinity,
     engine.SURFACE,
+    materialAt,
   );
   // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
   for (let cy = chunkY(coreT); cy <= chunkY(coreB); cy++) {
@@ -501,7 +435,6 @@ function patchDig(c: number, r: number): void {
 const lighting = createLighting();
 
 // ---- render -----------------------------------------------------------------------------
-const ORE_GLOW_SEED = 0.9; // base intensity an exposed ore vein emits (scaled by distance/damage)
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at vision 0
 const LAMP_VISION_GAIN = 0.16; // added lamp brightness per unit of vision (Deep Lantern reaches further)
 
@@ -591,70 +524,79 @@ function render(t: number): void {
     return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5));
   };
 
-  // ore blocks + glow, drawn per-frame ONLY where visible: within lamp range, or anywhere once the
-  // Ore Scanner is owned. Unlit, unscanned rock hides its ore. (fog-of-war + lamp bloom + vignette
-  // are one pixelated pass at frame end — lighting.render.)
-  for (let r = rowT; r <= rowB; r++) {
-    if (r <= engine.SURFACE) continue;
-    for (let c = colL; c <= colR; c++) {
-      if (!solidTile(c, r)) continue;
-      const block = engine.blockAt(s.world.seed, c, r);
-      if (!block.ore) continue;
-      const vis = Math.max(lightAt(c, r) ** 2, s.player.tech.scanner ? 0.4 : 0);
-      if (vis <= 0.06) continue;
-      const art = ORE_ART[block.ore];
-      if (!art || art.dim) continue; // dirt: no block, shows as plain rock
-      const frac = block.hp ? (s.world.dmg[engine.key(c, r)] || 0) / block.hp : 0;
-      // cluster-aware: a neighbour is "same ore" if it's still solid and the same node, so a pocket
-      // of ore cells tiles into one mass. (engine.oreAt is a cheap id-only lookup.)
-      const oreId = block.ore;
-      const sameOre = (dc: number, dr: number): boolean =>
-        solidTile(c + dc, r + dr) && engine.oreAt(s.world.seed, c + dc, r + dr) === oreId;
-      ctx.globalAlpha = Math.min(1, vis);
-      drawOreBlock(ctx, art, c * T, r * T, c, r, frac, sameOre);
-      ctx.globalAlpha = 1;
+  // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
+  // lit by the lamp like any other rock. The lighting system still supports coloured emitters via
+  // addLight(r>0) for future light sources; ore just doesn't use it.)
 
-      const phase = ((hashXY(c, r, 55) & 1023) / 1023) * 6.283; // per-ore shimmer offset
-      // an ore vein is a light source too — same system as the lamp. It only emits when EXPOSED
-      // (bordering an open tile), so its colour has somewhere to flood: seeded at the exposed OPEN
-      // face, the ore-glow field spills into the shaft and dies in rock (occlusion-aware), instead
-      // of a geometry-blind halo. Brightness fades with lamp distance; brighter as mined.
-      const li = lightAt(c, r);
-      let nc = c;
-      let nr = r;
-      if (!solidTile(c, r - 1)) nr = r - 1;
-      else if (!solidTile(c, r + 1)) nr = r + 1;
-      else if (!solidTile(c - 1, r)) nc = c - 1;
-      else if (!solidTile(c + 1, r)) nc = c + 1;
-      const exposed = nc !== c || nr !== r;
-      if (exposed && (li > 0.16 || frac > 0.05)) {
-        const [rr, gg, bb] = hexRgb(art.c[2]);
-        const pulse = 0.85 + 0.15 * Math.sin(t * 2.4 + phase);
-        lighting.addLight(
-          nc * T + (T >> 1),
-          nr * T + (T >> 1),
-          1,
-          [rr / 255, gg / 255, bb / 255],
-          ORE_GLOW_SEED * li * (0.5 + 0.85 * frac) * pulse,
-        );
-      }
+  // tiered damage: chip away tiles taking dig damage (rock + ore alike). Iterate the sparse dmg map
+  // (only in-progress tiles), gated to the view + lamp reach. A material may override the shared look.
+  if (debugFlags.damage)
+    for (const cellKey in s.world.dmg) {
+    const dmg = s.world.dmg[cellKey];
+    if (!dmg) continue;
+    const comma = cellKey.indexOf(',');
+    const dc = +cellKey.slice(0, comma);
+    const dr = +cellKey.slice(comma + 1);
+    if (dc < colL || dc > colR || dr < rowT || dr > rowB) continue; // off-screen
+    if (!solidTile(dc, dr)) continue;
+    const dlit = lightAt(dc, dr);
+    if (dlit < 0.16) continue; // hidden by fog
+    const hp = engine.blockAt(s.world.seed, dc, dr).hp;
+    if (hp <= 0) continue;
+    // which side is it being mined from? the dominant cardinal axis toward the miner (chunks bite out
+    // of that edge). px/py are the player's centre in tile units.
+    const towardX = px - (dc + 0.5);
+    const towardY = py - (dr + 0.5);
+    const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
+    const dirY = dirX === 0 ? Math.sign(towardY) : 0;
+    const damageCtx = {
+      g: ctx,
+      x: dc * T,
+      y: dr * T,
+      scale: 1,
+      frac: dmg / hp,
+      seed: hashXY(dc, dr, 71),
+      lit: dlit,
+      dirX,
+      dirY,
+    };
+    (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
+  }
 
-      const twinkle = Math.sin(t * 2.2 + phase * 1.7); // periodic per-ore shimmer glint
-      if (twinkle > 0.8) {
-        const a = ((twinkle - 0.8) / 0.2) * vis;
-        const gx = c * T + (T >> 1);
-        const gy = r * T + (T >> 1);
-        ctx.fillStyle = '#ffffff';
-        ctx.globalAlpha = a;
-        ctx.fillRect(gx, gy - 1, 1, 3);
-        ctx.fillRect(gx - 1, gy, 3, 1);
-        ctx.globalAlpha = a * 0.45;
-        ctx.fillRect(gx - 2, gy, 1, 1);
-        ctx.fillRect(gx + 2, gy, 1, 1);
-        ctx.fillRect(gx, gy - 2, 1, 1);
-        ctx.fillRect(gx, gy + 2, 1, 1);
-        ctx.globalAlpha = 1;
-      }
+  // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
+  // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
+  // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
+  if (debugFlags.twinkle) {
+    const twinkleEdges = collectTwinkleEdges({
+    bandLeft: colL,
+    bandTop: rowT,
+    cols: colR - colL + 1,
+    rows: rowB - rowT + 1,
+    solid: solidTile,
+    materialAt,
+    lit: lightAt,
+    seedAt: (c, r) => hashXY(c, r, 55),
+    minLit: 0.2,
+  });
+  if (twinkleEdges.length) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const offX = colL * T;
+    const offY = rowT * T;
+    for (const edge of twinkleEdges) {
+      edge.material.twinkle!({
+        g: ctx,
+        x0: edge.x0 + offX,
+        y0: edge.y0 + offY,
+        x1: edge.x1 + offX,
+        y1: edge.y1 + offY,
+        scale: 1,
+        time: t,
+        seed: edge.seed,
+        litAt: edge.litAt,
+      });
+    }
+    ctx.restore();
     }
   }
 
@@ -711,15 +653,28 @@ function render(t: number): void {
 
   // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the Deep
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
-  // Ore-vein emitters were already pushed in the ore loop above.
-  lighting.addLight(
-    px * T,
-    (py - 0.1) * T,
-    0,
-    LAMP_COLOR,
-    LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * st.vision,
-  );
-  lighting.render({ g: ctx, LW, LH, T, camX, camY, SURFACE: engine.SURFACE, solidTile });
+  // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
+  // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
+  if (debugFlags.lighting) {
+    lighting.addLight(
+      px * T,
+      (py - 0.1) * T,
+      0,
+      LAMP_COLOR,
+      LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * st.vision,
+    );
+    lighting.render({
+      g: ctx,
+      LW,
+      LH,
+      T,
+      camX,
+      camY,
+      SURFACE: engine.SURFACE,
+      solidTile,
+      scrim: debugFlags.fog,
+    });
+  }
 }
 
 // ---- input ------------------------------------------------------------------------------
@@ -978,6 +933,8 @@ function frame(now: number): void {
 // ---- debug overlay (F3 / ?debug) --------------------------------------------------------
 let DEBUG = /(\?|&)debug\b/.test(location.search);
 const dbg = document.getElementById('dbg')!;
+const dbgText = document.getElementById('dbgtext')!;
+const dbgToggles = document.getElementById('dbgtoggles')!;
 dbg.classList.toggle('on', DEBUG);
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.code === 'F3' || e.code === 'Backquote') {
@@ -986,12 +943,27 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     e.preventDefault();
   }
 });
+
+// render-system toggles — clickable buttons in the debug panel that flip visual passes on/off in
+// render() (see their use there), so you can isolate lighting / fog / twinkle / damage while playing.
+const debugFlags = { lighting: true, fog: true, twinkle: true, damage: true };
+for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
+  const button = document.createElement('button');
+  button.className = 'dbgbtn on';
+  button.textContent = key;
+  button.addEventListener('click', () => {
+    debugFlags[key] = !debugFlags[key];
+    button.classList.toggle('on', debugFlags[key]);
+  });
+  dbgToggles.appendChild(button);
+}
+
 function updateDebug(): void {
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const ore = engine.ORES[s.player.best];
   const netInfo = net.netStatus();
-  dbg.textContent =
+  dbgText.textContent =
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
     `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
@@ -1001,14 +973,14 @@ function updateDebug(): void {
     `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
-    `econ  coins ${Math.floor(s.player.coins)}  earned ${s.player.earned}  cargo ${engine.invCount(s.player)} (${engine.invValue(s.player)} ◈)\n` +
-    `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
-    `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · refine ${s.player.up.refine} · fortune ${s.player.up.fortune}   tech ${s.player.tech.scanner ? 'scanner' : '—'}/${s.player.tech.lantern ? 'lantern' : '—'}\n` +
+    `held  ${engine.invCount(s.player)} materials\n` +
+    `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
+    `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · fortune ${s.player.up.fortune}   tech ${s.player.tech.lantern ? 'lantern' : '—'}\n` +
     `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
     `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;
 }
 
-// ---- HUD / shop -------------------------------------------------------------------------
+// ---- HUD / inventory --------------------------------------------------------------------
 const el = (id: string): HTMLElement => document.getElementById(id)!;
 const overlay = el('overlay');
 const codexOverlay = el('codexOverlay');
@@ -1017,137 +989,35 @@ const paused = (): boolean =>
 
 function updateHUD(): void {
   el('depth').textContent = String(s.player.depth);
-  el('coins').textContent = Math.floor(s.player.coins).toLocaleString();
-  el('cargo').textContent = engine.invValue(s.player).toLocaleString();
+  el('held').textContent = engine.invCount(s.player).toLocaleString();
   const found = el('found');
   const ore = engine.ORES[s.player.best];
   found.textContent = ore ? ore.name : '—';
   found.style.color = ore && s.player.best > 0 ? ore.color : 'var(--dim)';
 }
 
-function buildShop(): void {
-  const upgradesEl = el('upgrades');
-  upgradesEl.innerHTML = '';
-  for (const k of Object.keys(engine.UPGRADES) as Array<keyof typeof engine.UPGRADES>) {
-    const upgrade = engine.UPGRADES[k];
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `<div class="info"><div class="nm">${upgrade.name} <span class="lv">Lv ${s.player.up[k]}${s.player.up[k] >= upgrade.max ? ' MAX' : ''}</span></div>
-        <div class="ds">${upgrade.desc}</div></div><button data-up="${k}"></button>`;
-    upgradesEl.appendChild(row);
-  }
-  const techEl = el('tech');
-  techEl.innerHTML = '';
-  for (const k of Object.keys(engine.TECH) as Array<keyof typeof engine.TECH>) {
-    const tech = engine.TECH[k];
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `<div class="info"><div class="nm">${tech.name}</div><div class="ds">${tech.desc}</div></div>
-        <button data-tech="${k}"></button>`;
-    techEl.appendChild(row);
-  }
-  // Economy actions apply LOCALLY for instant UI (optimistic prediction), and send the intent as a
-  // command so the server applies it authoritatively; the next snapshot reconciles. We only send
-  // when the local (same-logic) attempt succeeds, so the server — with identical coins — agrees.
-  upgradesEl.addEventListener('click', (e) => {
-    const k = (e.target as HTMLElement).dataset.up as keyof typeof engine.UPGRADES | undefined;
-    if (!k) return;
-    if (engine.buyUpgrade(s.player, k)) {
-      net.sendCommand({ kind: 'buyUpgrade', key: k });
-      sfx.buy();
-      save();
-    }
-    refreshShop();
-  });
-  techEl.addEventListener('click', (e) => {
-    const k = (e.target as HTMLElement).dataset.tech as keyof typeof engine.TECH | undefined;
-    if (!k) return;
-    if (engine.buyTech(s.player, k)) {
-      net.sendCommand({ kind: 'buyTech', key: k });
-      sfx.buy();
-      save();
-    }
-    refreshShop();
-  });
-  el('sellBtn').addEventListener('click', () => {
-    const amount = engine.sellAll(s.player);
-    if (amount > 0) {
-      net.sendCommand({ kind: 'sellAll' });
-      sfx.sell(amount);
-      save();
-    }
-    refreshShop();
-    updateHUD();
-  });
+// The inventory panel: every material the player is holding, as icon + name + count rows.
+function refreshInventory(): void {
+  el('invTotal').textContent = engine.invCount(s.player).toLocaleString();
+  const listEl = el('invList');
+  listEl.innerHTML = '';
+  for (const row of buildInventoryRows(s.player.inv, engine.ORE_BY_ID, oreIcon))
+    listEl.appendChild(row);
 }
-function refreshShop(): void {
-  el('shopCoins').textContent = Math.floor(s.player.coins).toLocaleString();
-  // cargo list (ore icon rows) + sell button
-  const cargoEl = el('cargoList');
-  cargoEl.innerHTML = '';
-  const ids = Object.keys(s.player.inv)
-    .map(Number)
-    .filter((id) => s.player.inv[id] > 0)
-    .sort((a, b) => a - b);
-  if (!ids.length) {
-    cargoEl.textContent = 'empty';
-  } else {
-    for (const id of ids) {
-      const row = document.createElement('span');
-      row.className = 'invrow';
-      row.appendChild(oreIcon(id, 16));
-      const label = document.createElement('span');
-      label.innerHTML = `${engine.ORE_BY_ID[id].name} <b>×${s.player.inv[id]}</b>`;
-      row.appendChild(label);
-      cargoEl.appendChild(row);
-    }
-  }
-  const val = engine.invValue(s.player);
-  const sellBtn = el('sellBtn') as HTMLButtonElement;
-  sellBtn.textContent = val > 0 ? `Sell all  +${val.toLocaleString()} ◈` : 'Sell all';
-  sellBtn.disabled = val <= 0;
-  for (const b of el('upgrades').querySelectorAll('button')) {
-    const btn = b as HTMLButtonElement;
-    const k = btn.dataset.up as keyof typeof engine.UPGRADES;
-    const upgrade = engine.UPGRADES[k];
-    btn.closest('.row')!.querySelector('.lv')!.textContent =
-      'Lv ' + s.player.up[k] + (s.player.up[k] >= upgrade.max ? ' MAX' : '');
-    if (s.player.up[k] >= upgrade.max) {
-      btn.textContent = 'MAX';
-      btn.disabled = true;
-    } else {
-      const cost = engine.upgradeCost(k, s.player.up[k]);
-      btn.textContent = cost.toLocaleString() + ' ◈';
-      btn.disabled = s.player.coins < cost;
-    }
-  }
-  for (const b of el('tech').querySelectorAll('button')) {
-    const btn = b as HTMLButtonElement;
-    const k = btn.dataset.tech as keyof typeof engine.TECH;
-    const tech = engine.TECH[k];
-    if (s.player.tech[k]) {
-      btn.textContent = 'OWNED';
-      btn.disabled = true;
-    } else {
-      btn.textContent = tech.cost.toLocaleString() + ' ◈';
-      btn.disabled = s.player.coins < tech.cost;
-    }
-  }
-}
-function openShop(): void {
+function openInventory(): void {
   audio();
   releaseAllHeld();
   aim.down = false;
-  refreshShop();
+  refreshInventory();
   overlay.classList.add('on');
 }
-function closeShop(): void {
+function closeInventory(): void {
   overlay.classList.remove('on');
 }
-el('shopBtn').onclick = openShop;
-el('closeBtn').onclick = closeShop;
+el('invBtn').onclick = openInventory;
+el('closeBtn').onclick = closeInventory;
 overlay.addEventListener('click', (e) => {
-  if (e.target === overlay) closeShop();
+  if (e.target === overlay) closeInventory();
 });
 
 // ---- collection codex -------------------------------------------------------------------
@@ -1172,7 +1042,7 @@ function renderCodex(): void {
     info.className = 'info';
     info.innerHTML = found
       ? `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>` +
-        `<div class="ds" style="color:var(--gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m · ${ore.value} ◈ each</div>`
+        `<div class="ds" style="color:var(--gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
       : `<div class="nm" style="color:var(--dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
     row.appendChild(icon);
     row.appendChild(info);
@@ -1211,8 +1081,9 @@ el('newBtn').onclick = function () {
   snapCam();
   chunks.clear();
   pending.clear();
-  save();
-  refreshShop();
+  syncWorkerWorld();
+  save(s);
+  refreshInventory();
 };
 
 // block scroll/zoom gestures on the game
@@ -1281,7 +1152,6 @@ if (matchMedia('(pointer: coarse)').matches) {
 }
 
 setRenderStrata(engine.STRATA); // hand the strata palette to the rock renderer (main thread)
-buildShop();
 fit();
 snapCam();
 updateHUD();
@@ -1301,8 +1171,9 @@ net.connect({
     correctionY = 0;
     chunks.clear();
     pending.clear(); // chunk-generation queue
+    syncWorkerWorld();
     snapCam();
-    refreshShop();
+    refreshInventory();
     updateHUD();
   },
   onState: (msg) => reconcile(msg),

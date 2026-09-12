@@ -2,8 +2,8 @@
 // the SAME shared engine as the client (one ruleset, both sides) and is the single source of truth:
 //   join    → load-or-create the player's session, reply `hello` with the full snapshot
 //   input   → apply ONE authoritative physics step (server owns every mutation); track ackSeq
-//   command → buy / sell / newGame, validated server-side (can't afford → no-op)
-// Clients send inputs only, so forged coins / out-of-reach mining are impossible by construction.
+//   command → newGame, applied server-side
+// Clients send inputs only, so out-of-reach mining is impossible by construction.
 // The server broadcasts authoritative `state` deltas (player + newly-dug tiles) at a fixed rate;
 // the client reconciles its own prediction against them. In dev, Vite serves the client and
 // proxies /ws here; in production, pass `--serve-static` to serve the built client too.
@@ -12,7 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import sirv from 'sirv';
-import { newSession, physicsStep, buyUpgrade, buyTech, sellAll, TICK_DT } from '@delve/shared';
+import { newSession, physicsStep, TICK_DT } from '@delve/shared';
 import { WS_PATH, PROTOCOL_VERSION } from '@delve/shared';
 import type { ClientMessage, ServerMessage, Input, Session } from '@delve/shared';
 import { loadSave, persistSave } from './store';
@@ -67,7 +67,7 @@ wss.on('connection', (ws) => {
   let session: Session | null = null; // this connection's authoritative world + player
   let lastSeq = 0; // last input seq applied
   let sentSeq = 0; // last seq reflected in a broadcast
-  let dirty = false; // a command (buy/sell) mutated state since the last broadcast
+  let dirty = false; // a command (newGame) mutated state since the last broadcast
   const sentDug = new Set<string>(); // world.dug keys already streamed to this client
 
   // Broadcast an authoritative delta whenever something changed (inputs applied or tiles dug).
@@ -138,11 +138,8 @@ wss.on('connection', (ws) => {
 
     if (msg.t === 'command') {
       const command = msg.command;
-      dirty = true; // ensure the resulting economy change is broadcast even with no inputs in flight
-      if (command.kind === 'buyUpgrade') buyUpgrade(session.player, command.key);
-      else if (command.kind === 'buyTech') buyTech(session.player, command.key);
-      else if (command.kind === 'sellAll') sellAll(session.player);
-      else if (command.kind === 'newGame') {
+      dirty = true; // ensure the resulting state change is broadcast even with no inputs in flight
+      if (command.kind === 'newGame') {
         session = newSession(command.seed);
         sentDug.clear();
         lastSeq = 0;

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — material lab</title>
+    <style>
+      :root {
+        --bg: #0b0e13;
+        --panel: #141922;
+        --panel2: #1b2230;
+        --ink: #e8eef5;
+        --dim: #8494a8;
+        --line: #ffffff1c;
+        --sel: #f2c14e;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font: 12px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      #ui {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 16px;
+        align-items: center;
+        padding: 8px 14px;
+        background: var(--panel);
+        border-bottom: 1px solid var(--line);
+      }
+      #ui.hidden {
+        display: none;
+      }
+      #ui label {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        color: var(--dim);
+        user-select: none;
+      }
+      button {
+        font: inherit;
+        color: var(--ink);
+        background: var(--panel2);
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 4px 9px;
+        cursor: pointer;
+      }
+      input[type='range'] {
+        width: 120px;
+        accent-color: var(--sel);
+      }
+      .val {
+        color: var(--sel);
+        font-variant-numeric: tabular-nums;
+        min-width: 30px;
+      }
+      #app {
+        display: flex;
+        gap: 16px;
+        padding: 16px;
+        align-items: flex-start;
+      }
+      /* left sidebar — scrollable grid of material swatches (selectors) */
+      #sidebar {
+        width: 208px;
+        flex: none;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        max-height: calc(100vh - 90px);
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      #sidebar .group {
+        grid-column: 1 / -1;
+        font-size: 10px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin: 6px 0 0;
+        padding-bottom: 3px;
+        border-bottom: 1px solid var(--line);
+      }
+      #sidebar .group:first-child {
+        margin-top: 0;
+      }
+      .swatch {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 3px;
+      }
+      .swatch.sel {
+        border-color: var(--sel);
+      }
+      .swatch .label {
+        color: var(--dim);
+        text-align: center;
+        font-size: 10px;
+      }
+      .swatch.sel .label {
+        color: var(--ink);
+      }
+      /* right — two equal, fixed-size preview panes; scale zooms the render inside, box stays fixed */
+      .pane {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .pane h2 {
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--dim);
+        margin: 0;
+      }
+      .box {
+        width: 520px;
+        height: 340px;
+        overflow: hidden;
+        background: #07070c;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+      }
+      canvas {
+        image-rendering: pixelated;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <label
+        >view
+        <select id="view">
+          <option value="both">both</option>
+          <option value="surface">surface</option>
+          <option value="cave">cave</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="lit" /> lamp</label>
+      <label
+        >scale <input type="range" id="scale" min="2" max="12" step="1" /><span class="val" id="scalev"></span
+      ></label>
+      <label
+        >depth <input type="range" id="depth" min="4" max="640" step="2" /><span class="val" id="depthv"></span
+      ></label>
+      <button id="regen">↻ seed</button>
+    </div>
+    <div id="app">
+      <div id="sidebar"></div>
+      <div class="pane" id="surfacePane">
+        <h2 id="surfaceLabel">Surface</h2>
+        <div class="box" id="surfaceBox"></div>
+      </div>
+      <div class="pane" id="cavePane">
+        <h2>Cave system</h2>
+        <div class="box" id="caveBox"></div>
+      </div>
+    </div>
+    <script type="module" src="./material-lab.ts"></script>
+  </body>
+</html>

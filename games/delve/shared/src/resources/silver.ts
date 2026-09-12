@@ -8,7 +8,6 @@ register({
   name: 'Silver',
   band: [40, 92],
   weight: 15,
-  value: 34,
   hp: 3,
   color: '#f0f4fa',
   desc: 'Bright and soft, glinting in cool grey rock.',
