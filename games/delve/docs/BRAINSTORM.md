@@ -371,18 +371,88 @@ Placed rather than guaranteed, so **only optional materials may be exclusive her
 Also new content, not just new labels: **The Mine Head, Woodland and Crags** are surface biomes and
 the surface currently has none.
 
+### Every pocket generates, and uniques are placed deliberately
+
+**Decided.** **Every world contains every pocket.** And pockets that are **unique** are
+**placed by rule**, not scattered randomly.
+
+#### Presence is guaranteed; discovery is not
+
+The distinction matters more than it sounds:
+
+- A **band** is *unavoidable* — you reach it by digging down.
+- A **pocket** is *findable* — it definitely exists, but a player can miss it indefinitely.
+
+So the [soft-lock rule](#the-invariant-stated-precisely--and-the-soft-lock-it-prevents) **softens
+and sharpens at once.** A required material in a pocket is no longer a soft-lock, because the
+pocket is guaranteed to exist. It's a potential **stall** if the pocket is never found. The rule
+becomes:
+
+> **A required material in a pocket needs a findability affordance.** Its own light (the
+> [Glowing Mushroom Cavern](#pockets--placed) already qualifies), a deliberate placement rule, or
+> reachability via the scanner/cartographer arc.
+
+The required-vs-optional material tiers therefore stop being a *safety* mechanism and become a
+design preference — worth keeping, but no longer load-bearing.
+
+#### Why deliberate placement matters more than it looks
+
+**It protects uniques from world size.** A unique pocket is **one instance regardless of preset**,
+so it doesn't scale with the world while everything else does. Random placement would make the
+Crystal Vault progressively harder to find as worlds grow. Placement by rule keeps it findable at
+**any** size.
+
+It also buys **learnable geography across worlds** — "the Works is always deep and far from spawn"
+is knowledge that survives starting a new world, which is exactly why Terraria's dungeon sits at a
+known direction from spawn. [Hard edges](#hard-edges--but-not-a-visible-box) are what make this
+possible: distance-from-spawn and distance-from-edge are meaningful again.
+
+**Two placement modes therefore exist in the generator:** noise-placed (most pockets) and
+authored-placed (the uniques).
+
+#### Scarcity tiers
+
+**The structure is decided** — three tiers, with uniques existing. **The specific assignment below
+is _an agent proposal_ pending confirmation:**
+
+| Tier | Count per world | Proposed members | Why |
+| --- | --- | --- | --- |
+| **Unique** | Exactly 1, authored placement | **Crystal Vault**, **The Works** | A jackpot that appears four times isn't a jackpot; one dungeon is what makes Terraria's work |
+| **Several** | A handful, scales with preset | **Glowing Mushroom Cavern**, **Rime Hollow**, **Nullshade** | Enough that you'll meet one, few enough that each still registers |
+| **Common** | Scattered, scales with preset | **Flooded Warren**, **Deadfall** | Hazard *terrain* rather than destinations — they want to be common, because that's what makes the pump and shoring tool worth carrying rather than curiosities |
+
+Counts for the two scaling tiers follow the
+[per-player density](#player-cap-scales-with-world-size) invariant: a Large world gets **more of
+each** pocket, not more kinds, since the roster is fixed.
+
+#### The content gate gets a crisp claim
+
+> **All 16 biomes generate in every world**, with the non-unique pockets at the promised
+> per-player density.
+
+That's directly checkable, and it's a much stronger guarantee than the row-range assertions it
+replaces.
+
 #### Still parked for this session
 
 Deliberately not answered here — this needs its own Q&A, starting from the **roster** and deriving
 the rest from it:
 
 1. ~~What biome types exist~~ — **done**, see [the roster](#the-roster).
-2. **How many pockets per world**, and whether the size preset scales the count (see the
-   [per-player density](#player-cap-scales-with-world-size) invariant, which implies a Large world
-   gets *more of each* biome rather than *more kinds*).
-3. **Per-biome scarcity** — which pockets are single landmarks and which repeat.
-4. **Whether every world contains every pocket.** _(Bands and surface regions are guaranteed by
-   shape, so this question is now only about pockets.)_
+2. ~~How many pockets per world, and whether size scales the count~~ — **structure done**: counts
+   follow per-player density, uniques don't scale. Actual numbers are tuning.
+3. **Per-biome scarcity** — the *tiers* are decided; the **specific assignment** above still needs
+   confirming.
+4. ~~Whether every world contains every pocket~~ — **done: yes.**
+
+Still genuinely open after this session:
+
+- **Which signals drive noise placement**, and their shapes. The roster says *what*; it doesn't say
+  how a Rime Hollow decides where to be.
+- **The authored placement rules** for the two uniques.
+- **The 7–12 new pocket materials** — names, art, and which biome each belongs to.
+- **Biome transitions.** Nothing says whether biomes butt up hard against each other or blend, which
+  matters for both rendering and readability.
 
 ### Biomes are the placement system
 
