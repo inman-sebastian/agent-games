@@ -22,6 +22,36 @@
 
 ---
 
+## Glossary
+
+**Proposed, needs ratification.** Nomenclature drift in this document has already caused one
+wrong decision, so the vocabulary is pinned here and every section should use these words with
+these meanings. Correct any definition that's wrong — the names are the author's call.
+
+| Term | Means |
+| --- | --- |
+| **Stat** | A *resolved* number describing current capability, computed by `stats()`. Never stored, always derived from everything below. "Dig damage per hit" is a stat. |
+| **Attribute** | A persistent, **player-owned** value that feeds a stat, grown by the player's own progression and **independent of gear or location**. The intrinsic layer. (What `up.pick` / `up.speed` currently stand in for.) |
+| **Skill tree** | The structure through which the player *chooses* which attributes to grow. Borrowed from incremental games as much as from RPGs. |
+| **Modifier** | A contribution to a stat from a source that isn't an attribute — equipment, environment, a temporary effect. Every modifier has a **source** and a **lifetime**. |
+| **Unlock** | A binary capability gate rather than a graded value: you have it or you don't. (`tech.lantern` is an unlock, not an attribute.) |
+| **Equipment** | An item occupying a scarce [slot](#limited-slots-as-a-core-loop). Has **its own upgrade path**, and may contribute modifiers to stats. |
+| **Loadout** | The set of currently equipped items. |
+| **Progression layer** | One independent system that grows over time — attributes, equipment, unlocks. **Layers coexist by design**; they are not alternatives. |
+
+### Retired terms
+
+These appear in older passages and are **actively misleading**. Replace on sight:
+
+| Retired | Why | Use instead |
+| --- | --- | --- |
+| **Upgrade level** | Implies buying or leveling, which is only one of several sources | **Attribute** |
+| **Progression spine** | Implies exactly one system owns "the player gets stronger." False by design — see [T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs) | **Progression layer**, plural |
+| **Progression channel** | Same problem: framed layers as rivals competing for one job | **Progression layer** |
+| **Enhancement** | Used loosely for attributes, modifiers and unlocks alike | Whichever of those three is meant |
+
+---
+
 ## 1. What DELVE is becoming
 
 **A Terraria-like.** That inspiration is settled and not up for debate — it's the
@@ -38,11 +68,17 @@ together is the fastest honest summary of the target:
 | **Survival**      | Enemies + player health + situational breath. **No attrition meters.**      |
 | **Crafting**      | Tools, weapons, equipment are made, not just bought.                        |
 | **Base building** | _(purpose TBD — see [Open questions](#open-questions))_                      |
-| **Light RPG**     | Levelable skills/proficiencies + equipment and weapons. Deliberately light. |
+| **Light RPG**     | _Elements_ of RPGs, not the genre: equipment, skill trees. See the caveat below. |
 
-"Light RPG" specifically means two things and no more: **skills that can be leveled
-or influenced**, and **equipment/weapons that change what you can do**. Not classes,
-quests, dialogue trees, or a stat sheet.
+**Caveat on "Light RPG": it carried more weight than intended.** It was never meant as a genre
+commitment — the intent is that *some elements* of RPGs suit DELVE, specifically **equipment** and
+**skill trees**. Skill trees arrive from the incremental side as much as the RPG side, so the
+label is doing double duty and overstating both.
+
+What's in: equipment that changes what you can do, and attributes the player invests in
+([Progression is layered](#progression-is-layered)). What's out: classes, quests, dialogue trees,
+and a character sheet of numbers. Where this table's labels and the doc's prose disagree, the
+[Glossary](#glossary) wins.
 
 ### Survival, scoped
 
@@ -233,38 +269,52 @@ Named examples:
 - **Jetpack.** Hold jump to fly, letting the player ascend a vertical shaft directly
   instead of having to dig their way back out.
 
-### The stat layer: what progression writes to
+### Progression is layered
 
-**Decided.** The four values still on the player (`up.pick`, `up.speed`, `up.fortune`,
-`tech.lantern`) were **kept deliberately** when the economy was stripped, not left behind by
-accident. They stand in for a general concept: **stats / skills / enhancements that can be
-influenced and incremented by outside forces.**
+**Decided.** Progression is **several independent systems layered on top of one another**, not
+one system that owns getting stronger. Terms are pinned in the [Glossary](#glossary).
 
-The sources are **plural and open-ended** — equipment, unlocks, environmental factors, and
-whatever else later wants a say. Equipment is *one* input, not the owner.
+- **Attributes** — intrinsic to the player, upgraded **independently** of what's equipped and
+  of where the player is standing. These have their **own progression path** (a skill tree is
+  the candidate structure, which DELVE inherits from incremental games as much as from RPGs).
+- **Equipment** — **its own separate progression**, per the investment arc in
+  [§11](#the-investment-arc). Equipment *can* also modify attributes, but the two are **not**
+  mutually exclusive and neither is a substitute for the other.
+- **Environment** — contextual modifiers applied by where the player is.
 
-Three consequences that shape how this gets built:
+The four values still on the player (`up.pick`, `up.speed`, `up.fortune`, `tech.lantern`) were
+**kept deliberately** when the economy was stripped, not left behind by it. They stand in for
+the attribute layer.
 
-- **It's a modifier stack, not a set of levels.** "Upgrade level" implies buying or leveling,
-  which is now only one of several possible sources. The shape wanted is a base value plus
-  contributions from many sources, resolved in one place. That's a standard, well-understood
-  pattern, and it should be built as one rather than as four integers that unrelated systems
-  reach in and poke.
-- **`stats()` stays the single place capability is computed.** This is why the layer is kept
-  rather than deleted: it's already the one spot where derived values live, so tuning doesn't
-  scatter across item definitions. Equipment writes inputs; `stats()` resolves them.
-- **Environmental factors have a different lifetime from the rest.** Equipment applies while
+#### What layering demands
+
+- **Each layer must do a different job.** Layered progression breaks when every layer touches
+  the same number: if an attribute, a pickaxe tier and an environmental modifier all scale dig
+  speed, no single upgrade feels like anything and the tuning surface multiplies. This is the
+  standard failure mode in layered-progression games, and the fix is distinct *signatures* per
+  layer, not distinct multipliers on one number. Recorded as
+  [T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs), with a candidate split.
+- **`stats()` stays the single place capability is resolved.** This is the reason to keep the
+  layer rather than delete it: tuning stays centralized instead of scattering across item
+  definitions. Attributes and modifiers are inputs; `stats()` resolves them.
+- **It's a modifier stack.** A base value plus contributions from many sources, resolved in one
+  place — a standard, well-understood pattern. Build it as one, rather than as four integers
+  that unrelated systems reach in and poke.
+- **Environmental modifiers have a different lifetime from the rest.** Equipment applies while
   equipped; an environmental effect applies while you're *somewhere*. That means temporary,
   contextual modifiers with duration and stacking, and it means `stats()` needs **world
-  context**, not just the player. That's a signature change in the shared ruleset, so the
-  client and server have to agree on it — see [ARCHITECTURE.md](ARCHITECTURE.md).
+  context**, not just the player. That's a signature change in the shared ruleset, so client and
+  server must agree on it — see [ARCHITECTURE.md](ARCHITECTURE.md).
+- **The layers must be legible.** If three sources can move one stat, the player needs to see
+  *which* moved it. That's a job for the character screen in
+  [§12](#the-equipment-screen-is-the-most-important-surface-here).
 
-**Still open:** whether **Fortune** survives at all (it's rich-vein chance, a world-gen roll
-rather than a player capability, and a pure rate multiplier — the
+**Still open:** whether **Fortune** survives at all (rich-vein chance is a world-gen roll rather
+than a player capability, and a pure rate multiplier — the
 [discriminator](#the-more-useful-test-than-numbers-bad) calls that filler), and whether
-**lantern vision** is gear-driven or a baseline the player can never trade away (light is the
-game's atmosphere *and* its only current exploration cue, so a slot that costs you sight is
-either an excellent hard choice or a miserable one).
+**lantern vision** is an unlock, gear-driven, or a baseline the player can never trade away
+(light is the game's atmosphere *and* its only current exploration cue, so a slot that costs you
+sight is either an excellent hard choice or a miserable one).
 
 ### The design rule behind both
 
@@ -651,7 +701,7 @@ contradicting either:
 - **More inventory slots — keep.** It lengthens an expedition, which changes how deep a trip
   can go, which is a different decision ([§12](#gating-which-surfaces-are-earned)).
 - **Refinery and Fortune — cut.** Pure rate multipliers on a loop the player was already
-  running. Nothing new becomes attemptable ([T1](#t1-three-progression-channels-now-exist)).
+  running. Nothing new becomes attemptable ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs)).
 
 **Follow-the-player is therefore load-bearing, not flavour.** The moment drones can
 be parked somewhere and left to mine unattended, DELVE becomes an idle game and
@@ -1074,9 +1124,9 @@ with a finite number of them. See
 
 ### What blocks what
 
-- **Crafting menu** is blocked on the progression spine
-  ([T1](#t1-three-progression-channels-now-exist)) — there's nothing to craft until
-  something owns "the player gets stronger."
+- **Crafting menu** is blocked on knowing what equipment *is* and what it upgrades into
+  ([§11](#11-equipment-the-investment-arc--the-loadout)) — there's nothing to craft until the
+  equipment layer has shape.
 - **Map** is blocked on the bounded world (build order step 1) and wants the cartographer
   arc to exist before it's finished.
 - **Slot + icon pipeline** is blocked on nothing. It's buildable today against the
@@ -1218,36 +1268,29 @@ the diegetic fork is ever taken, never as something the UI depends on.
 Conflicts between ideas in this doc, or between an idea and something it quietly
 deletes. Not objections — things to decide deliberately rather than discover later.
 
-### T1. Three progression channels now exist
+### T1. Progression is layered, so the layers must do different jobs
 
-Progression can arrive by three different routes: the **stat layer**
-(`up.pick` / `up.speed` / `up.fortune`, plus `tech.lantern`), **crafted or looted equipment**,
-and **levelable skills**. The original worry was that each is a complete progression system on
-its own, competing to own "the player gets stronger."
+**The original tension is answered, not dissolved.** It asked which of three systems should
+*own* progression. The answer is that they **coexist by design**: attributes, equipment and
+environment are separate layers, and equipment may additionally modify attributes. See
+[Progression is layered](#progression-is-layered).
 
-**Resolved — and the premise was partly wrong.** The coin economy is deleted (coins, selling,
-ore `value`, the Refinery multiplier and the Upgrades panel), but the four levels were **kept on
-purpose**, not stranded. They are the intended **stat layer**: values that other systems
-*influence*, rather than a rival channel. See
-[The stat layer](#the-stat-layer-what-progression-writes-to).
+**The live tension is what layering costs.** Layers that all scale the same number cancel each
+other out as *feel*: if an attribute, a pickaxe tier and an environmental modifier each multiply
+dig speed, every individual upgrade is imperceptible, and three systems have to be tuned against
+each other forever. That's the standard failure in layered-progression games.
 
-So these were never three competing channels. There's **one layer and many sources**: equipment
-writes into it, unlocks write into it, environmental factors write into it. `stats()` stays the
-single place capability is resolved, which is exactly why keeping the layer beats deleting it —
-tuning stays centralized instead of scattering across item definitions.
+**The fix is a distinct signature per layer, not a distinct multiplier.** Candidate split:
 
-What remains genuinely open is **which sources exist and which owns the bulk of the growth**,
-which is a much smaller question than the original one.
+| Layer | Character | Job |
+| --- | --- | --- |
+| **Attributes** | Broad, slow, permanent, applies everywhere | Raise the floor |
+| **Equipment** | Specialized, swappable, situational | Change what's possible *this trip* |
+| **Environment** | Temporary, contextual, mostly subtractive | Create pressure in specific places |
 
-Reach is the concrete case: it reads equally naturally as a purchased upgrade level,
-a crafted pickaxe's stat, or a mining-skill rank. Whichever it is, the other two
-channels get quieter. Worth deciding which channel *owns* "the player gets stronger"
-before building any of them.
-
-Refinery is already gone with the economy. **Fortune is the one surviving idle-game lever** — a
-multiplier on rich-vein chance, which makes *ore quantity* the reward in a design that wants the
-reward to be what you find and where you go. Whatever owns progression should decide deliberately
-whether Fortune is kept, not inherit it because the field is still on the struct.
+Each is felt differently, so the player can tell which layer moved. Residual work: decide, per
+stat, which layer is *allowed* to touch it — and prefer that most stats answer to one layer
+rather than all three.
 
 ### T2. Fluid simulation is the biggest technical risk on the board
 
@@ -1268,12 +1311,19 @@ None of this makes it a bad idea — it's the single highest-value system discus
 far. It just wants prototyping early rather than being bolted on late, because it
 has the power to reshape the netcode.
 
-### T3. Automation is a third claimant on the progression spine
+### T3. Drones span several progression layers at once
 
-Drone count and laser power are, mechanically, exactly the leveled-upgrade pattern
-that [T1](#t1-three-progression-channels-now-exist) is already about. Drones as a
-*found/crafted item* fit the equipment channel; drones as a *levelable thing* fit the
-skill or coin-upgrade channel. Same unresolved question, now with a third claimant.
+Drone count and laser power are graded values; drone *intelligence* is a behavioural arc; and a
+drone is also a **found or crafted item**. Under the old "pick one spine" framing that made
+drones a third claimant on progression. Under
+[layering](#t1-progression-is-layered-so-the-layers-must-do-different-jobs) it's simply what an
+item looks like when it has its own upgrade path — which
+[§11](#the-investment-arc) says most equipment should have.
+
+**Residual question, and it's now narrow:** does drone progression live *on the item* (upgrade
+the drone) or *on the player* (an attribute that improves every drone)? The first fits the
+investment arc and makes a specific drone *yours*; the second is cheaper to build and survives
+losing the item. Worth deciding once for all equipment rather than per item.
 
 ### T4. Auto-mining interacts badly (or brilliantly) with fluid
 
@@ -1456,10 +1506,10 @@ occasionally throws away something you wanted.
 
 - **Q3. Does the coin economy survive?** **Answered: no — and already shipped.** Coins,
   selling, ore `value`, the Refinery multiplier and the Upgrades panel are deleted from main,
-  not retuned. Crafting and equipment are the intended successor spine, which is still
+  not retuned. Crafting and equipment are the intended successor, which is still
   undesigned, so the honest state is *deleted, not yet replaced*. Residual: the upgrade
   levels themselves still exist and nothing raises them
-  ([T1](#t1-three-progression-channels-now-exist)). See
+  ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs)). See
   [Recommendation](#the-one-thing-to-decide-before-building-anything) and issue #6.
 
 - **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
@@ -1492,14 +1542,18 @@ the reasoning survives even if the conclusion gets overruled._
 
 ### The one thing to decide before building anything
 
-**Pick the progression spine.** It's a decision, not code, it's free to make now, and
-four separate systems currently claim it ([T1](#t1-three-progression-channels-now-exist),
-[T3](#t3-automation-is-a-third-claimant-on-the-progression-spine)): the coin-bought
+**~~Pick the progression spine.~~ Answered — the premise was wrong.** Progression is
+[layered](#progression-is-layered) by design, so there is no single spine to pick. What follows
+was written under the old framing and is kept because its *conclusions* about the coin economy
+still hold; read "the spine" as "which layer carries the bulk of the growth."
+
+It read as a decision, not code, free to make now, with four separate systems claiming it ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs),
+[T3](#t3-drones-span-several-progression-layers-at-once)): the coin-bought
 upgrade panel, crafted/looted equipment, levelable skills, and drone levels.
 
 **My recommendation: equipment and crafting own progression.** This is reinforced by
 [§11](#11-equipment-the-investment-arc--the-loadout) — the investment arc and the
-loadout loop only exist if equipment is the spine. Specifically:
+loadout loop only exist if equipment carries real weight. Specifically:
 
 - **Retire the coin/upgrade panel** (Pickaxe / Agility / Refinery / Fortune) — **done**, and
   done outside this document. Refinery and Fortune in particular were idle-game multipliers on a
@@ -1515,9 +1569,11 @@ loadout loop only exist if equipment is the spine. Specifically:
   behaviour-over-numbers [guideline](#provenance-and-why-this-is-a-guideline) prefers where
   they fit. The upgrade panel could do neither, and its levers were pure rate multipliers
   rather than numbers that changed what was attemptable.
-- **Skills stay deferred.** "Light RPG" is satisfied by equipment alone for a long
-  time. Add skills only if equipment turns out to be insufficient — a third channel
-  added later is easy; a third channel removed later is not.
+- **~~Skills stay deferred.~~ Superseded.** This assumed skills were a rival channel. Under
+  layering, the **attribute layer is intrinsic and intended**, with a skill tree as its
+  candidate structure ([Progression is layered](#progression-is-layered)). What remains
+  deferrable is a *large* named-skill system with per-skill experience bars, which is a
+  different and much bigger thing than an attribute the player invests in.
 
 This also answers [Q3](#open-questions): coins become vestigial and should go, rather
 than surviving as a parallel currency that needs its own justification.
@@ -1527,8 +1583,8 @@ than surviving as a parallel currency that needs its own justification.
 whose intent was always heading here. The scope resolved concretely and then moved on: the
 deletion shipped, and #6 is now the **new progression system** rather than either a retune or the
 deletion. DESIGN.md's roadmap already describes it that way, so the rewording this section asked
-for is done — what #6 now needs is the spine decision above, since it has nothing to build until
-something owns "the player gets stronger".
+for is done — what #6 now needs is the shape of the equipment and attribute layers, since it has
+nothing concrete to build until those exist.
 
 #### Consequence: the balance gate went with it
 
@@ -1644,7 +1700,7 @@ Not cuts — parked, with the reason:
 | Deferred | Why |
 | --- | --- |
 | **Base building** | Still parked, but the reason weakened: NPCs are now confirmed ([§9](#9-npcs--dialogue)) and housing them is a proven job for a base. Decide [Q2](#open-questions) deliberately, then build. |
-| **Skills** | Third progression channel. Equipment covers "light RPG" alone for now. |
+| **Large named-skill system** | Per-skill XP bars levelled by repeated use. The **attribute layer** is intended and not deferred; this is the much bigger version of it. |
 | **Branching dialogue** | NPCs are in scope, but barks and one-shot lines carry most of the value ([§9](#9-npcs--dialogue)). Trees and quest state are a much larger system. |
 | **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
 | **Infinite mode** | Reintroduces the empty-digging problem in full and is the mode that most needs a signalling layer. It's an option, not a launch feature. |
