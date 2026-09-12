@@ -37,6 +37,8 @@
        angles how many limb rotations to sweep (default 12)
        big    1 = limbs at the decided 2x3-tile character scale (default 0 = the old sub-tile size)
        map    1 = replace every surface with the (along, around) coordinate debug map
+       body   1 = draw the full humanoid rig through a walk cycle instead of the limb sweep
+       frames how many walk-cycle frames (default 8, with frame 0 the idle pose)
     Capture: tools/shot.sh 'scale=4' /tmp/entity.png labs/entity-lab.html -->
     <p>
       <b>Top row:</b> one limb swept through rotations — every angle is rasterized directly, never a

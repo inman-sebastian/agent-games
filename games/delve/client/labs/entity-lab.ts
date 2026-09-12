@@ -18,6 +18,8 @@ import {
   type PartShader,
 } from '../src/render/entity/limb';
 import { band, shadePart, partPalettes, type Part } from '../src/render/entity/part';
+import { drawRig, rigPalettes } from '../src/render/entity/rig';
+import { HUMANOID, HEIGHT, idlePose, walkPose } from '../src/render/entity/humanoid';
 
 const DEFAULT_SEED = 12345;
 const DEFAULT_ROW = 100;
@@ -41,6 +43,8 @@ const surfaceFor = (shader: PartShader): PartShader => (showMap ? surfaceMapSurf
 // The decided scale is 2x3 TILES (32x48px — cf. the 48x48 frames in the reference asset pack), so
 // `big=1` shows a limb at the real size, where there's room for the banding to actually read.
 const big = num('big', 0) === 1;
+// `body=1` swaps the limb sweep for the full humanoid rig through a walk cycle.
+const showBody = num('body', 0) === 1;
 
 // The contract's real test: a tapered limb carrying an armour BAND, swept through poses. The band is
 // declared in surface coordinates (`along` 0.55..0.8), so if the coordinate system works it stays
@@ -97,10 +101,37 @@ canvas.style.height = `${height * scale}px`;
 const ctx = canvas.getContext('2d')!;
 ctx.imageSmoothingEnabled = false;
 
-// ---- strip 1: one limb swept through rotations ------------------------------------------------
+const HUMANOID_PALETTES = rigPalettes(HUMANOID);
+
+// ---- strip 1 (body=1): the humanoid through a walk cycle --------------------------------------
+// The first time the rig, the part contract and the authored draw order are exercised together —
+// and the first time the shading can be judged on a whole figure rather than a floating limb.
+if (showBody) {
+  const h = STRIP_ROWS * T;
+  const img = ctx.createImageData(width, h);
+  const frames = num('frames', 8);
+  const step = width / frames;
+  const groundY = h - 6;
+  for (let i = 0; i < frames; i++) {
+    const phase = i / frames;
+    const pose = i === 0 ? idlePose() : walkPose(phase);
+    drawRig(
+      img,
+      HUMANOID,
+      pose,
+      HUMANOID_PALETTES,
+      step * (i + 0.5),
+      groundY,
+      showMap ? surfaceMapSurface : undefined,
+    );
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+// ---- strip 1 (default): one limb swept through rotations --------------------------------------
 // Every angle is rasterized from geometry, so none of them is a resampled bitmap. If rotation cost
 // crispness, this row is where it would show.
-{
+if (!showBody) {
   const h = STRIP_ROWS * T;
   const img = ctx.createImageData(width, h);
   const cy = h / 2;

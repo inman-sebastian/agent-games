@@ -203,6 +203,85 @@ export function rasterizeLimb(
   }
 }
 
+/**
+ * Rasterize an ellipse about the segment's midpoint — the `bulb` shape a head or torso uses.
+ *
+ * Same surface-coordinate contract as a limb, so a layer authored against (along, around) works on
+ * either without knowing which it got: `along` runs a→b through the bulb, `around` spans the
+ * silhouette. Same hard coverage threshold and the same body-anchored edge erosion, so a head sits
+ * in the same visual language as an arm.
+ */
+export function rasterizeBulb(
+  img: ImageData,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  rAcross: number,
+  alongScale: number,
+  shade: PartShader,
+  colors: RockColors,
+  erodePx = DEFAULT_ERODE,
+  lightDirX = 0,
+  lightDirY = -1,
+): void {
+  const mx = (a.x + b.x) / 2;
+  const my = (a.y + b.y) / 2;
+  const vx = b.x - a.x;
+  const vy = b.y - a.y;
+  const len = Math.hypot(vx, vy);
+  if (len === 0) return;
+  const ux = vx / len;
+  const uy = vy / len;
+  const rAlong = (len / 2) * alongScale;
+
+  const bound = Math.ceil(Math.max(rAlong, rAcross) + erodePx + 1);
+  const minX = Math.max(0, Math.floor(mx - bound));
+  const maxX = Math.min(img.width - 1, Math.ceil(mx + bound));
+  const minY = Math.max(0, Math.floor(my - bound));
+  const maxY = Math.min(img.height - 1, Math.ceil(my + bound));
+
+  for (let py = minY; py <= maxY; py++) {
+    for (let px = minX; px <= maxX; px++) {
+      const dx = px + 0.5 - mx;
+      const dy = py + 0.5 - my;
+      // Decompose into the bulb's own axes: along the segment, and across it.
+      const dAlong = dx * ux + dy * uy;
+      const dAcross = dx * -uy + dy * ux;
+      const bite = erodePx * vnoise(px * EDGE_NOISE_FREQ, py * EDGE_NOISE_FREQ, TEX_BODY + 31);
+      const ra = rAlong - bite;
+      const rc = rAcross - bite;
+      if (ra <= 0 || rc <= 0) continue;
+      const na = dAlong / ra;
+      const nc = dAcross / rc;
+      const radial2 = na * na + nc * nc;
+      if (radial2 > 1) continue; // hard coverage — no partial alpha, ever
+
+      // Surface normal on the ellipse, in world axes, for the same top-light convention as a limb.
+      const gx = (na / ra) * ux + (nc / rc) * -uy;
+      const gy = (na / ra) * uy + (nc / rc) * ux;
+      const glen = Math.hypot(gx, gy) || 1;
+      const lambert = ((gx / glen) * lightDirX + (gy / glen) * lightDirY + 1) * 0.5;
+
+      const rgb = shade({
+        along: clamp01(na * 0.5 + 0.5),
+        around: clamp01Signed(nc),
+        localX: px,
+        localY: py,
+        px,
+        py,
+        brightness: clamp01(0.18 + lambert * 0.82),
+        depth: 1 - Math.sqrt(radial2),
+        colors,
+      });
+
+      const i = (py * img.width + px) * 4;
+      img.data[i] = rgb[0];
+      img.data[i + 1] = rgb[1];
+      img.data[i + 2] = rgb[2];
+      img.data[i + 3] = 255;
+    }
+  }
+}
+
 /** Clamp to -1..1 (the signed sibling of `clamp01`). */
 const clamp01Signed = (v: number): number => (v < -1 ? -1 : v > 1 ? 1 : v);
 
