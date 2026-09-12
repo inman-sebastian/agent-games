@@ -1254,6 +1254,35 @@ for a reason worth recording precisely:
 > Cargo can't. DESIGN.md's pillar lumps the two together as one category, and **that
 > conflation is the error** — the pillar needs amending, not this idea.
 
+#### Capacity limits variety, not volume
+
+**Decided.** **One material = one slot, stacked without limit. There is no weight.** Capacity
+caps how many *kinds* of thing you can carry, never how much.
+
+This is what makes "everything is collectible"
+([§1](#everything-is-mineable-and-everything-is-collectible)) survivable: dirt and stone are one
+slot each forever, so **travelling never fills the bag**. What fills it is meeting materials you
+aren't already carrying.
+
+Three properties worth building on:
+
+- **The code already works this way.** Inventory is a count per material — one entry per type,
+  unbounded count. Capacity becomes a cap on the number of *entries*, which is close to a free
+  change rather than a new data model.
+- **The return trip is triggered by success, not by labour.** Grinding a known tunnel never fills
+  you; pushing into a new biome fills you fast. Most hauling games get this backwards, and it
+  means the expedition loop in
+  [What capacity buys](#what-capacity-buys-which-is-more-than-it-costs) fires on discovery rather
+  than on volume dug.
+- **"Larger backpack" now means "carry more *kinds* of things."** Far more evocative than
+  carrying more stuff, and it passes the
+  [discriminator](#the-more-useful-test-than-numbers-bad) cleanly: it changes what you can bring
+  home from a deep trip.
+
+**Consequence for rich veins.** A 3× material drop costs nothing to carry and therefore presents
+no decision, which weakens the case for **Fortune** considerably — see
+[Progression is layered](#progression-is-layered), where its survival is still open.
+
 #### Slot count is a fine upgrade on its own
 
 Worth stating plainly, because an earlier version of this doc argued otherwise on the strength
@@ -1547,12 +1576,19 @@ no space left turns the game's best moment into bad news, and the player learns 
 don't find anything* on the way out. That's the exact opposite of the feel target, and no
 amount of tuning the slot count removes it — it's structural.
 
-**It got worse when everything became collectible.** Digging is the traversal verb, so
-[every tile you move through produces an item](#everything-is-mineable-and-everything-is-collectible).
-The bag now fills from *travelling*, not from finding — the player arrives at the interesting
-place already full of dirt, and the full-bag moment arrives constantly for the most boring
-possible reason. Any answer to this tension has to handle common-material spam first, because
-that's where the volume is.
+**The rubble half is solved.** [Capacity limits variety, not
+volume](#capacity-limits-variety-not-volume), so dirt and stone occupy one slot each forever and
+travelling never fills the bag. Common-material spam — the worst version of this tension, created
+when everything became collectible — is gone.
+
+**What's left is sharper, and it's the interesting half.** The bag now fills at exactly the rate
+the player *discovers new kinds of material*. So the full-bag moment coincides precisely with the
+game's best moment: finding something you've never seen. The tax didn't disappear, it concentrated
+onto novelty.
+
+That's a much better problem than rubble spam, because the decision it forces is a real one
+("what do I abandon to take this?") rather than a chore. But it's still pointed at the pillar, and
+it's worth designing for rather than declaring solved.
 
 Things that reduce the tax, roughly in order of how much they cost to build:
 
