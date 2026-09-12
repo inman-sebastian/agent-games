@@ -412,8 +412,7 @@ authored-placed (the uniques).
 
 #### Scarcity tiers
 
-**The structure is decided** — three tiers, with uniques existing. **The specific assignment below
-is _an agent proposal_ pending confirmation:**
+**Decided**, tiers and assignment both:
 
 | Tier | Count per world | Proposed members | Why |
 | --- | --- | --- | --- |
@@ -424,6 +423,35 @@ is _an agent proposal_ pending confirmation:**
 Counts for the two scaling tiers follow the
 [per-player density](#player-cap-scales-with-world-size) invariant: a Large world gets **more of
 each** pocket, not more kinds, since the roster is fixed.
+
+### Biome boundaries: hard for tolls and destinations, blended for texture
+
+**Decided.** Boundary style is **a property of the biome**, set by its job:
+
+- **Tolls and destinations get hard boundaries.** Crossing into the Molten Core or breaking into the
+  Crystal Vault should be a *moment*. One block over and the rock is unmistakably different.
+- **Texture blends.** Terrain that isn't an event — a cave that happens to be flooded — would read
+  as an authored box if it had a hard line around it.
+
+Derived from the rule (correctable, but it's an application rather than a new proposal):
+
+| Boundary | Biomes |
+| --- | --- |
+| **Hard** | Ocean · Molten Core · Glowing Mushroom Cavern · The Works · Crystal Vault · Nullshade · Rime Hollow |
+| **Blended** | Root Zone · Stonework · The Deeps · Basalt Reach · The Mine Head · Woodland · Crags · Flooded Warren · Deadfall |
+
+#### What this costs the renderer
+
+- **Blended is already built.** The compositor does a feathered per-pixel blend across
+  material↔material boundaries ([MATERIALS.md](MATERIALS.md)), which is exactly this behaviour.
+  Blended biomes are close to free.
+- **Hard needs blend _suppression_**, which is new. The compositor currently always feathers, so a
+  hard boundary means: when two adjacent solid tiles belong to biomes whose boundary is hard, skip
+  the feather. Small, but it's a real change and it inverts the compositor's current assumption.
+- **Sealed pockets get their hard edge for free.** A [tool-gated shell](#breaking-into-structures-is-a-tool-gate-not-a-wall)
+  *is* a hard boundary, so The Works and the Crystal Vault need no special rendering to feel abrupt.
+- **Readability:** a hard boundary should change **texture or shape**, not only palette — the
+  workspace rule is never to rely on colour alone.
 
 #### The content gate gets a crisp claim
 
