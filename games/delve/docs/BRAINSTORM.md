@@ -386,11 +386,20 @@ assert.
 It also matches **Minecraft's Fortune semantics** (affects drops, never generation), so the name
 carries the right expectation for free.
 
-**Refinement, from the capacity model:** of the two payloads, **put the weight on the rare-drop
-chance, not the yield multiplier.** Volume costs nothing to carry now
-([capacity limits variety](#capacity-limits-variety-not-volume)), so tripling a stack changes no
-decision — whereas a rare item is a *new kind* of thing, which costs a slot and forces a choice.
-The rare-drop half also feeds the discovery pillar directly.
+**Both payloads have distinct jobs — keep both.** An earlier pass here argued the yield half was
+weak because volume costs nothing to carry. That conflated *carrying* with *mattering*: **crafting
+is a sink**, so if a recipe needs forty diamond, yield decides how many trips that is. The reason
+volume looked free is that **nothing consumes materials yet**, which is a gap in this document
+rather than a property of yield.
+
+- **Yield shortens deliberate farming.** A player grinding a known vein for a specific material
+  has stopped exploring — the mode where DELVE's pillars are least served. Yield makes that mode
+  *shorter*, so it actively serves the exploration pillar rather than being neutral toward it.
+- **The rare drop rewards incidental mining** with a discovery, feeding the discovery pillar
+  while the player is doing something else.
+
+**Caveat:** *how much* yield is worth can't be settled yet. It's entirely downstream of crafting
+costs — cheap recipes make it irrelevant, expensive ones make it a major lever.
 
 **New, small system implied:** mining a tile can yield something **other than** that tile's
 material. That's a loot table on a block, and it's the mechanism the "unexpected item" rides on.
@@ -812,7 +821,14 @@ rule is downgraded accordingly.
 #### The more useful test than "numbers bad"
 
 > **A number earns its place when it changes *what you can attempt*. It's filler when it only
-> changes *how fast you do what you already do*.**
+> changes *how fast you do what you already do* — and only when there's no real cost behind the
+> thing being sped up.**
+
+**The second clause matters and was missing at first.** Speed counts as *what you can attempt*
+whenever it's shortening a cost the player is genuinely paying. A recipe that needs forty units
+makes yield meaningful, because yield decides how many trips that is. A rate is filler only when
+the loop it accelerates has **no sink** behind it — which is exactly what was empty about Refinery
+and about Fortune-as-generation: they multiplied a resource that nothing consumed.
 
 This is a better discriminator, and it retroactively explains two calls already made without
 contradicting either:
@@ -1311,10 +1327,10 @@ Three properties worth building on:
   [discriminator](#the-more-useful-test-than-numbers-bad) cleanly: it changes what you can bring
   home from a deep trip.
 
-**Consequence for rich veins.** A 3× material drop costs nothing to carry and therefore presents
-no decision. This is why Fortune's payload is weighted toward a **rare unexpected item** rather
-than a yield multiplier — see
-[Fortune survives, re-pointed at extraction](#fortune-survives-re-pointed-at-extraction).
+**Consequence for rich veins.** A 3× material drop costs nothing to *carry*, but that doesn't make
+it worthless — **crafting is the sink that gives volume value**. See
+[Fortune survives, re-pointed at extraction](#fortune-survives-re-pointed-at-extraction), where
+both of Fortune's payloads are kept for different jobs.
 
 #### Slot count is a fine upgrade on its own
 
