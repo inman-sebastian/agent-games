@@ -192,6 +192,49 @@ Confirmed so far:
 **Discoverability and exploration are a headline pillar**, not a feature. The
 question "what's over there / down there?" is the engine of the game.
 
+### Biomes come in two kinds: bands and pockets
+
+**Decided.** Biome *type* determines its shape in the world, and both shapes are wanted:
+
+| Kind | Shape | Confirmed example |
+| --- | --- | --- |
+| **Band** | A horizontal layer at a given depth range. Everyone reaches it by digging deep enough. | **Molten core** — the bottom-most layers |
+| **Pocket** | A region placed *somewhere*. You find it or you don't. | **Glowing mushroom cavern** |
+
+**Scarcity varies by biome, deliberately.** Some make more sense as a *single* instance, which
+makes finding it an event and makes it a **landmark**; others work fine repeated. Which is which
+is per-biome, not a global rule.
+
+Three things follow immediately, without waiting for the full roster:
+
+- **Only bands can safely gate progression.** A band is guaranteed by construction — dig down far
+  enough and you're in it — so the content gate can assume it exists. A pocket's presence is a
+  placement outcome, so **no crafting-tree material may depend on a pocket biome** until pocket
+  guarantees are decided. That's an actionable rule now.
+- **Bands nearly ship on today's generator; pockets are what need the new one.** Depth bands with
+  their own palettes are what the **strata** system already is, so a band biome is an extension of
+  something that exists. Pockets are the thing that requires
+  [placement beyond depth](#both-of-these-need-a-placement-system-that-main-has-already-named)
+  (noise regions, proximity, features).
+- **Single-instance biomes are an answer to
+  [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame).** Wrapping removed the world's
+  absolute reference frame; a unique biome *is* a fixed landmark, so landmark-scarcity does
+  navigation work on top of its discovery value.
+
+#### Parked for a dedicated biome session
+
+Deliberately not answered here — this needs its own Q&A, starting from the **roster** and deriving
+the rest from it:
+
+1. **What biome types exist**, and which are bands vs pockets. Everything below depends on this.
+2. **How many pockets per world**, and whether the size preset scales the count (see the
+   [per-player density](#player-cap-scales-with-world-size) invariant, which implies a Large world
+   gets *more of each* biome rather than *more kinds*).
+3. **Per-biome scarcity** — which are single landmarks and which repeat.
+4. **Whether every world contains every biome.** Guaranteed presence is what would let a pocket
+   biome gate a material; variable presence makes worlds distinct and rerollable but forces the
+   gate to prove reachability without assuming any given biome.
+
 ### Both of these need a placement system that main has already named
 
 Structures and biomes are the same technical request: *something other than depth decides
@@ -1781,6 +1824,12 @@ occasionally throws away something you wanted.
   levels themselves still exist and nothing raises them
   ([T1](#t1-progression-is-layered-so-the-layers-must-do-different-jobs)). See
   [Recommendation](#the-one-thing-to-decide-before-building-anything) and issue #6.
+
+- **Q7. What is the biome roster, and how is each placed?** Parked for a dedicated session — the
+  taxonomy (band vs pocket) and per-biome scarcity are settled in principle, but the roster and the
+  counts aren't. Full agenda in
+  [§2](#parked-for-a-dedicated-biome-session). Blocks whether a pocket biome may gate any
+  crafting material.
 
 - **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
   at the top? A full surface layer with sky, weather and day/night is a large amount
