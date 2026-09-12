@@ -468,10 +468,41 @@ its Ocean biomes exactly there.
   lamp-only vision against a true void. Sky and daylight are a different register in both, and
   neither doc addresses it. Per the workspace rule, **the style guide gets updated before surface
   art is made**, not after.
-- **Day/night is the open fork.** Still undecided, and it's what decides how big the surface gets —
-  a cycle pulls in surface danger at night, light as an above-ground resource, sleeping, and a
-  second mood. Without it the surface stays small and safe no matter what's placed on it. It would
-  also make the above-ground scrim **dynamic**, where today it's simply off.
+#### Day/night: yes to the cycle, no to sleeping
+
+**Decided.** There is a **day/night cycle**. There is **no sleeping** and no way to skip time.
+
+**No sleeping is what gives the cycle teeth, and it serves the primary play space.** If night could
+be waited out, the surface would simply pause. Because it can't, **night is a pressure that pushes
+the player underground** — which is exactly where DELVE wants them. That's a reason to descend that
+isn't greed, and it reinforces
+[the mine as the primary space](#the-surface-is-real-content-subordinate-to-the-mine) rather than
+competing with it.
+
+It also fits [survival scoped to danger, not attrition](#survival-scoped): night is a *threat*, not
+a meter. Sleeping was the part that didn't fit, being closer to a timer than to danger.
+
+**It simplifies the lighting model rather than complicating it.** Today above-ground is a special
+case — the scrim is forced off entirely. With a cycle, the sun becomes an **ambient term that
+varies with time** and goes to zero at night, so there's one model everywhere: ambient is
+time-varying above ground and simply zero below. The lamp then matters on the surface at night by
+the same rule it matters underground, with no special-casing. ([LIGHTING.md](LIGHTING.md) needs
+updating — it currently documents the scrim as unconditionally off above the surface.)
+
+**Three consequences worth deciding rather than discovering:**
+
+- **The default surface respawn point must be safe at any hour.** Death sends the player to the
+  surface ([§1](#death-you-lose-the-trip-never-the-character)); if night is dangerous and respawn
+  isn't safe, that's a death spiral. The existing "determined safe area" fallback is the answer —
+  this just makes it a requirement rather than a nicety.
+- **Time is shared world state, and it's the first global world state that isn't terrain.** All
+  players in a world share the hour.
+- **What happens to time while a world [hibernates](#world-lifecycle-is-now-a-required-system)?**
+  Same shape as the fluid-on-resume question. Advancing in real time is the simplest and matches
+  "the world exists whether you're there or not," but it's unresolved.
+
+_(NPC routines are an obvious pairing but were **not** decided — noted as a possibility only.
+Cycle length is a tuning number, not needed yet.)_
 
 ### Hosted worlds
 
