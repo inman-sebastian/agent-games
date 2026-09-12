@@ -13,9 +13,10 @@ A moody, pixel-art **mining game**. You dig down and outward through an open,
 deepening world of rock strata, breaking and **collecting** the materials you find —
 delving deeper, where the rock is tougher and the materials are rarer.
 
-> This describes the game **as currently implemented**. DELVE is mid-evolution toward
-> a Terraria-like mining/exploration game — see [Direction & roadmap](#direction--roadmap)
-> for what's changing.
+> **How to read this doc.** Everything down to [Design pillars](#design-pillars) describes the game
+> **as currently implemented**. [The decided design](#the-decided-design) is what it's becoming —
+> settled, not yet built. Where the two disagree, the decision wins. The world's places are in
+> [BIOMES.md](BIOMES.md) and the interface is in [UI.md](UI.md).
 
 ## Core loop
 
@@ -24,6 +25,10 @@ delving deeper, where the rock is tougher and the materials are rarer.
    (rich veins yield 3× the material). There's no selling and no money — mined materials
    are simply kept.
 3. **Descend** — deeper rock has more hp and rarer materials.
+
+_A fourth beat is coming: **return**. Once inventory capacity is finite, a trip has a natural end
+and the loop becomes descend → fill → return, triggered by how much you've **found** rather than by
+how much you've dug. See [The decided design](#inventory-capacity-limits-variety-not-volume)._
 
 > **No economy.** There is no currency and nothing to buy. The old coins/selling/shop
 > loop was removed; what a player _does_ with collected materials, and how progression
@@ -43,6 +48,8 @@ from movement, so you can mine while running, jumping, or standing still:
 - **Start / pause:** the game opens on a **title screen** (Descend to play); **Esc** pauses and
   opens the pause menu (Esc again resumes). Opening Inventory / Collection pauses too — the whole
   screen flow is a small state machine (see [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)).
+  _**Pausing is being removed entirely** — it can't coherently exist in an online game on a
+  server-hosted world. See [UI.md](UI.md#nothing-pauses-ever)._
 
 ## Ore tiers
 
@@ -73,24 +80,30 @@ codex — lifetime count, deepest find, and blurb, with undiscovered tiers shown
 
 ## Upgradable stats
 
-A player carries **upgrade levels** that drive derived stats via `stats()` in
+> **Terminology:** these are **attributes**, not "upgrade levels" — the latter implies buying, which
+> is only one of several possible sources. See the [Glossary](#glossary).
+
+A player carries **attributes** that drive derived stats via `stats()` in
 `shared/src/engine.ts`:
 
 - **Pickaxe** (`up.pick`) — dig damage per hit.
 - **Agility** (`up.speed`) — dig / move speed.
-- **Fortune** (`up.fortune`) — chance of a **rich vein** (3× materials).
-- **Deep Lantern** (`tech.lantern`) — widened underground vision.
+- **Fortune** (`up.fortune`) — chance of a **rich vein** (3× materials). _Being re-pointed: Fortune
+  will affect what you **get from** a rich vein, not whether one exists — today it makes world
+  content depend on who's looking. See [Rich veins and Fortune](#rich-veins-and-fortune)._
+- **Deep Lantern** (`tech.lantern`) — widened **lamp reach**. _(An unlock, not an attribute.)_
 
-The plumbing is in place, but **nothing raises these levels right now** — the coin shop
-that used to buy them was removed with the economy. A future progression pass will wire
-non-monetary ways to earn them (see [Direction & roadmap](#direction--roadmap)); until
-then they sit at their base values, so dig power/speed/vision are effectively constant.
+The plumbing is in place, but **nothing raises these right now** — the coin shop that used to buy
+them was removed with the economy, so they sit at base values and dig power/speed/lamp are
+effectively constant. They were **kept deliberately**: they're the attribute layer, and `stats()` is
+the single place capability is resolved. See [Progression](#progression).
 
 ## Collection & progression
 
 - Everything mined is **held in the inventory** as per-type stacks — no selling, no
   money. Rich veins drop **3× the material** and get the disproportionate reward beat
-  (see [JUICE.md](JUICE.md)). _(No capacity cap.)_
+  (see [JUICE.md](JUICE.md)). _(No capacity cap **yet** — capacity becomes finite and
+  variety-limited; see [the decided design](#inventory-capacity-limits-variety-not-volume).)_
 - Base rock hp **grows with depth** (`rockHp` in `blocks.ts`). With upgrades currently
   fixed, this is a raw difficulty ramp rather than a tuned gate — the progression system
   that balances it against earnable power is the next major pass.
@@ -122,66 +135,338 @@ then they sit at their base values, so dig power/speed/vision are effectively co
 - **One saturated element.** Ore is the only vivid colour against deliberately muted
   rock, and depth reads by palette (see [PALETTE.md](PALETTE.md)).
 
+---
+
+# The decided design
+
+Everything above describes the game **as it exists today**. Everything below is **decided but not
+yet built** — the output of a full design session, with the reasoning preserved in the git history
+of `BRAINSTORM.md`. Where a decision here contradicts a section above, **the decision wins and the
+section above is what changes.**
+
+Two topics have their own docs because they're large catalogues rather than mechanics:
+**[BIOMES.md](BIOMES.md)** owns the world's places, and **[UI.md](UI.md)** owns the interface.
+
+## What DELVE is becoming
+
+**A Terraria-like.** The intersection of seven categories, which together are the fastest honest
+summary of the target:
+
+| Category | What it means here |
+| --- | --- |
+| **Exploration** | The primary driver. Digging is how you travel; finding is the reward |
+| **Open world** | Large and bounded, with hard edges. **Not** infinite |
+| **Incremental** | Continuous, compounding growth in player capability |
+| **Survival** | Enemies, health, situational breath. **No upkeep meters** |
+| **Crafting** | Tools, weapons and equipment are made, not bought |
+| **Base building** | Building is a mechanic; a base has four jobs (below) |
+| **Light RPG** | *Elements* of RPGs — equipment and skill trees. Not the genre |
+
+**"Light RPG" is deliberately narrow.** It was never a genre commitment. What's in: equipment that
+changes what you can do, and attributes the player invests in. What's out: classes, quests,
+dialogue trees, and a character sheet of numbers.
+
+**Mining stays the core verb, but its purpose moves.** It becomes **the means of exploration** —
+how you travel through and open up the world — rather than an end in itself.
+
+## Survival, death, and what the world can take from you
+
+**Survival means _danger_, not _attrition_.** Enemies are a real threat, the player has health and
+can die, and breath applies underwater.
+
+> **No meter is an _upkeep cost_. Meters as _hazard timers_ are fine.**
+>
+> An **upkeep cost** ticks down because you exist, and paying it is a chore with no decision in it.
+> Hunger, thirst, stamina, temperature, fatigue, torch fuel — **out, permanently.**
+>
+> A **hazard timer** runs only while you're in a state you **entered** and can **leave**. A danger
+> with an exit, which is the same shape as any other threat in the world.
+
+**Breath is a hazard timer**, not an exception to the rule — and it matters more than "situational"
+suggests, because fluid is simulated and the player's own digging moves it, so drowning is something
+that happens *to* you mid-core-verb rather than something you opt into. The
+[world-edge death timer](#the-world) is a hazard timer too.
+
+### Death costs the trip, never the character
+
+| | On death |
+| --- | --- |
+| **Inventory** | **Dropped** — and recoverable |
+| **Equipment** | Kept |
+| **Attributes** | Kept |
+
+The loss is scoped to **the expedition**, which is the unit inventory capacity already operates on.
+Nothing that took real investment is ever at risk, so an item's
+[investment arc](#equipment--the-loadout) survives.
+
+**The dropped bag emits light and bobs**, so it blooms on the rock face before it's visible —
+recovery with no HUD marker and no map dependency, using the same mechanism that makes lava
+telegraph itself. Motion is the most reliable "look here" signal.
+
+**Respawn, in priority order:** a base, else a player-placed **respawn beacon**, else a determined
+safe area or the surface. The default surface respawn point **must be safe at any hour**, because a
+dangerous night plus an unsafe respawn is a death spiral.
+
+## The world
+
+**Everything is mineable, and everything is collectible.** Dirt collects exactly like ore — there
+is no scenery tier of tile that exists only to be deleted. Everything collectible means everything
+is a **crafting input**, which is what makes mining serve exploration instead of being a slot
+machine. **Bedrock is the single exception.**
+
+**Bounded, with hard edges — not infinite, not wrapping.** Bounding is what makes guaranteed
+content density possible, which is the real answer to the empty-digging problem: a finite world has
+finite space to fill, so generation can place a known amount of content and be *sure* the player
+meets it.
+
+**But the world must never read as a literal box.** Bedrock is right for the floor; visible bedrock
+side walls are not. So the boundary is **layered**, because every equipment item exists to remove a
+traversal constraint and **any boundary made of traversal constraints gets defeated by design**:
+
+| Layer | Catches |
+| --- | --- |
+| **Ocean** at both surface ends | Most players, who never test it — it deepens, and nothing is out there |
+| **Breath** | Anyone swimming |
+| **A death timer at the true edge** | *Everything else* — building, flight, grapple, and anything added later |
+
+The death timer is the Destiny pattern: reach the true edge and a countdown says turn back or die.
+**Legible, recoverable, and fair.** The world must also **extend visually past the playable limit**,
+so the player never sees an edge.
+
+**The surface is real content**, Terraria-like — subordinate to the mine, but not a barren flat
+plane. That makes surface height a function of column rather than a constant.
+
+**There is a day/night cycle, and no sleeping.** No sleeping is what gives the cycle teeth: night
+can't be waited out, so **night is a pressure that pushes the player underground**, which is a
+reason to descend that isn't greed. Night is a threat, not a meter.
+
+**Size presets, fixed at creation.** A world's size — and therefore its player cap — is chosen once
+and never changes. A fifth friend can't join a Small world; they make a new one.
+
+**Buried structures are tool-gated, not sealed.** Their walls break with the right or upgraded
+tools, so a structure you can't open yet is a **promise the world makes and later keeps**. The gate
+only works if the shell is **complete** — gated walls with ordinary rock behind them just get
+tunnelled around. Demolishing a structure entirely is the player's call.
+
+The world's **places** — biomes, their roster, scarcity, placement and boundaries — are in
+**[BIOMES.md](BIOMES.md)**.
+
+## Progression
+
+**Progression is layered.** Several independent systems on top of one another, not one system that
+owns getting stronger.
+
+| Layer | Character | Job |
+| --- | --- | --- |
+| **Attributes** | Broad, slow, permanent, applies everywhere | Raise the floor |
+| **Equipment** | Specialized, swappable, situational | Change what's possible *this trip* |
+| **Environment** | Temporary, contextual, mostly subtractive | Create pressure in specific places |
+
+**Each layer must do a different job.** Layers that all scale the same number cancel out as *feel*:
+if an attribute, a pickaxe tier and an environmental modifier each multiply dig speed, every
+individual upgrade is imperceptible and three systems have to be tuned against each other forever.
+
+**The four values on `PlayerState` are the attribute layer**, kept deliberately when the economy was
+stripped. `stats()` stays the single place capability is resolved — which is why the layer is kept
+rather than deleted, since tuning stays centralized instead of scattering across item definitions.
+It wants building as a **modifier stack**: a base value plus contributions from many sources.
+
+**Environmental modifiers have a different lifetime**, so `stats()` needs **world context**, not
+just the player. Client and server must agree on it.
+
+**When a number is worth having:** a number earns its place when it changes *what you can attempt*,
+and is filler when it only changes *how fast you do what you already do* **and** nothing real is
+being sped up. Crafting is a sink, so yield matters; a multiplier on a loop with no sink does not.
+
+### Light
+
+Light gets a **floor the player can never trade away** — always enough lamp to not be lost in the
+dark. Everything above the floor is **earned and riskable**, coming from equipment. A deep biome may
+suppress light, and the diegetic mechanism is that the *place absorbs it*, not that the player's
+lamp is debuffed.
+
+There is **no fog of war and no seen-memory**: lighting is per-pixel illumination, and any world
+light source lights the player regardless of their own. A **map is therefore a memory system**, not
+a rendering of where you've been — which is what makes gating it apt.
+
+### Inventory capacity limits variety, not volume
+
+**One material, one slot, stacked without limit. No weight.** Capacity caps how many *kinds* of
+thing you carry. Dirt and stone are one slot each forever, so **travelling never fills the bag** —
+what fills it is meeting materials you aren't already carrying.
+
+Two properties worth building on: the **return trip is triggered by success, not labour** (grinding
+a known tunnel never fills you; pushing into a new biome fills you fast), and **"larger backpack"
+means carrying more _kinds_ of things**.
+
+### Rich veins and Fortune
+
+**Rich veins are a property of the world.** Generation decides where they are, they get their own
+effects, and a candidate touch is making them tougher than the ordinary variant so the reward
+announces itself.
+
+**Fortune does not influence whether a vein is rich** — it influences **what you get out of mining
+one**: higher yield, and an increased chance of a **rare, unexpected item**. It lives at the
+**equipment** layer.
+
+This matters beyond flavour: `isRich` currently takes the *player's* fortune, so **whether a tile is
+rich depends on who is looking at it** — which breaks under shared worlds and breaks the determinism
+the content gate relies on. Re-pointing Fortune at extraction makes generation player-independent
+again. (Same semantics as Minecraft's Fortune: drops, never generation.)
+
+It also implies a small system: **mining a tile can yield something other than that tile's
+material** — a loot table on a block.
+
+## Equipment & the loadout
+
+**The investment arc.** An item starts *sort of* useful and occasionally annoying, and ends up so
+good at its job you never want to unequip it. The payoff isn't a bigger number, it's a **changed
+relationship** — you remember the item that used to embarrass you and now carries you.
+
+**The failure mode to design against:** "bad now, good later" means nobody reaches later. Early-stage
+gear must be **useful but flawed**, not useless and irritating. The annoyance is the *texture* of the
+arc; the utility is what keeps the player on it.
+
+**Slots are scarce, and they grow.** Equipment starts at a **single slot**, with more unlocked
+through progression. One slot early makes the loadout decision maximally sharp — you pick exactly one
+thing — so the choice is hardest when the player has the fewest options.
+
+> **Your loadout is a declaration of which constraints you're accepting for this expedition.**
+
+**The invariant that keeps it alive late:** *slot count must grow more slowly than the item roster.*
+Gain slots faster than specialized items and "equip the best set" wins and the loop dies; let the
+roster outrun the slots and every new slot is a new *interesting* decision.
+
+**Irreplaceable is scoped to a purpose, never to the game.** A fully-upgraded excavation item is
+indispensable for bulk digging and dead weight in a fight. Done that way the choice gets *more*
+interesting at max level, not less.
+
+## Combat
+
+**A full parallel discipline** to mining, with its own crafting, its own progression and its own
+feel — not a mining-flavoured afterthought. Multiple weapons and multiple pieces of equipment, each
+differentiated by **what it lets you do** rather than by a damage number.
+
+## NPCs
+
+**NPCs exist.** Who they are is undetermined; their existence isn't. Interacting with them needs **at
+minimum a minimal dialogue system** — barks and one-shot lines carry most of the value, while
+branching trees and quest state are a much larger thing.
+
+## Base building
+
+**Building is a mechanic**, and a base has **four jobs** — which is what moved it from "decorated
+storage" to justified:
+
+1. **Housing** for NPCs.
+2. **Storage** for materials that don't fit a variety-limited bag.
+3. **A safe place to open panels**, since [nothing pauses](UI.md#nothing-pauses-ever).
+4. **A respawn point.**
+
+What's left is scope and shape, not justification — plus whether a base is shared or per-player in a
+multiplayer world.
+
+## Characters, worlds and multiplayer
+
+**A character belongs to the player, not the world.** Attributes, equipment, inventory and unlocks
+travel into any world you join, and **starting a fresh character is easy**. That's what makes
+drop-in play work: helping a friend costs you nothing.
+
+**Difficulty pacing therefore can't be guaranteed, and that's accepted.** A maxed character can
+enter a brand-new world and trivialize it. The testing consequence is explicit — the content gate
+asserts a *fresh character in a fresh world*, and the maxed case is **out of scope by design**.
+
+**The codex is a ledger and never mechanical** — a record of everything encountered: enemies fought,
+NPCs met, materials gathered. It's **account-scoped**, so it survives starting over. A **recipe book**
+for crafting is a separate system.
+
+**Nothing pauses, ever** — see [UI.md](UI.md#nothing-pauses-ever).
+
+Persistence scopes, world lifecycle and the protocol live in
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Glossary
+
+Nomenclature drift caused a real wrong decision during the design session, so these words are pinned.
+
+| Term | Means |
+| --- | --- |
+| **Stat** | A *resolved* number describing current capability, computed by `stats()`. Never stored |
+| **Attribute** | A persistent, player-owned value feeding a stat, grown independently of gear or location |
+| **Skill tree** | The structure through which the player *chooses* which attributes to grow |
+| **Modifier** | A contribution to a stat from something other than an attribute. Has a **source** and a **lifetime** |
+| **Unlock** | A binary capability gate rather than a graded value |
+| **Lamp** | The player's own light **emitter** — reach and intensity. One source among many |
+| **Equipment** | An item occupying a scarce slot. Has its own upgrade path; may contribute modifiers |
+| **Loadout** | The set of currently equipped items |
+| **Progression layer** | One independent system that grows over time. Layers **coexist by design** |
+
+**Retired — replace on sight:** *upgrade level* (implies buying, only one of several sources → use
+**attribute**); *progression spine* / *progression channel* (imply one system owns getting stronger,
+false by design → use **progression layer**, plural); *vision* (implies revealing tiles; there's no
+fog of war → use **lamp**, or **illumination**); *enhancement* (used loosely for all three of
+attribute, modifier and unlock).
+
 ## Direction & roadmap
 
-DELVE is evolving from the grid-locked, tunnel-straight-down incremental digger
-described above into a real, playable **Terraria-like game** built around mining,
-traversal, and exploration. This happens **incrementally**: the sections above
-describe the game as _currently implemented_, and each planned change below migrates
-into them as it ships. Tracked as an epic in
-[#7](https://github.com/inman-sebastian/agent-games/issues/7).
+DELVE is evolving from the grid-locked, tunnel-straight-down incremental digger described at the top
+of this doc into a real, playable **Terraria-like game**. That happens **incrementally**: the
+current-state sections migrate into [the decided design](#the-decided-design) as each piece ships.
 
-**Staying:** mining as the core mechanic; incremental / progression mechanics.
+Tracked as an umbrella epic in
+[#7](https://github.com/inman-sebastian/agent-games/issues/7), which indexes the epics below.
 
-**Changing** (one GitHub issue each):
+**Staying:** mining as the core verb; incremental / progression mechanics.
 
-- **Open, infinite world in all directions** — no more bounded fixed-column shaft; the
-  world generates infinitely horizontally as well as down.
-  [#1](https://github.com/inman-sebastian/agent-games/issues/1)
-- **Smooth platformer movement** _(shipped)_ — gravity, jumping and falling with
-  continuous sub-tile position + AABB tile collision, replacing grid-locked
-  omnidirectional no-gravity movement.
-  [#2](https://github.com/inman-sebastian/agent-games/issues/2)
-- **Mining decoupled from movement** _(shipped)_ — its own aim/target action (mouse
-  hold-to-mine or keyboard J), reach-limited, usable while moving; walking into rock no
-  longer digs. [#3](https://github.com/inman-sebastian/agent-games/issues/3)
-- **Inventory system** _(shipped)_ — mined ore is held as per-type stacks in a dedicated
-  Inventory panel, instead of auto-selling on break.
-  [#4](https://github.com/inman-sebastian/agent-games/issues/4)
-- **Ores as distinct collectibles** _(shipped)_ — first-class item defs, ore icons in
-  the inventory, and a Collection codex (lifetime mined / deepest, locked until found).
-  [#5](https://github.com/inman-sebastian/agent-games/issues/5)
-- **Economy removed** _(shipped)_ — coins, selling, and the coin-bought upgrade/tech shop
-  are gone; the only surviving loop is mine → collect into inventory. Ore `value` and the
-  `stats()` refine multiplier were deleted; upgrade _levels_ stay as plumbing (nothing
-  raises them yet). [#4](https://github.com/inman-sebastian/agent-games/issues/4)
-- **New progression system** _(planned)_ — a non-monetary way to earn the upgrade levels
-  (dig power/speed, fortune, vision) and give collected materials a purpose, replacing the
-  removed economy. This is the successor to the old economy rework.
-  [#6](https://github.com/inman-sebastian/agent-games/issues/6)
-- **Unify strata and ore into one material system** _(planned)_ — today strata
-  (`type:'strata'`: a depth band's background rock palette, no shader) and ores
-  (`type:'ore'`: a collectible, shaded, baked-in object) are separate shapes. The
-  direction is **one material shape and one system for everything mineable** —
-  dirt, clay, and stone become collectible too, sharing the same shader/surface-class
-  render path and inventory as ores. Phased: (1) strata visible in the material lab
-  _(shipped)_; (2) strata declare a surface class like ores, plain-rock render dispatches
-  through the shared system; (3) merge the resource types + make the background rock
-  collectible (pairs with the new progression system).
-- **Placement beyond depth** _(planned)_ — depth (`band` / strata `top`) is currently
-  the _only_ factor deciding where a material spawns, and that's a **placeholder**.
-  Future placement will layer in more signals (noise regions / biomes, proximity,
-  features) so material distribution isn't a pure function of row.
+### Shipped
 
-…and more to come — this is just the start.
+Smooth platformer movement ([#2](https://github.com/inman-sebastian/agent-games/issues/2)) ·
+mining decoupled from movement ([#3](https://github.com/inman-sebastian/agent-games/issues/3)) ·
+the inventory ([#4](https://github.com/inman-sebastian/agent-games/issues/4)) ·
+ores as distinct collectibles ([#5](https://github.com/inman-sebastian/agent-games/issues/5)) ·
+data-driven entity resources ([#9](https://github.com/inman-sebastian/agent-games/issues/9)) ·
+the Vite/TypeScript client, Node server and authoritative simulation
+([#10](https://github.com/inman-sebastian/agent-games/issues/10),
+[#11](https://github.com/inman-sebastian/agent-games/issues/11),
+[#12](https://github.com/inman-sebastian/agent-games/issues/12)) ·
+the state machine primitive and screen flow.
 
-**Also queued** (independent of the direction shift):
+**Economy removed** — coins, selling and the coin-bought shop are gone; ore `value` and the
+`stats()` refine multiplier were deleted. The only surviving loop is mine → collect. Attributes
+stayed as plumbing, deliberately.
 
+**Being reversed:** the infinite world
+([#1](https://github.com/inman-sebastian/agent-games/issues/1)) shipped, and is deliberately being
+undone — the world becomes bounded with hard edges, because bounding is what makes guaranteed
+content density possible.
+
+### Epics
+
+| Epic | What it delivers |
+| --- | --- |
+| [#25](https://github.com/inman-sebastian/agent-games/issues/25) | Migrate the design brainstorm into these docs _(this section's source)_ |
+| [#26](https://github.com/inman-sebastian/agent-games/issues/26) | Bound the world — hard edges, bedrock floor, surface, day/night |
+| [#27](https://github.com/inman-sebastian/agent-games/issues/27) | Biomes & placement — replace depth-only spawning ([BIOMES.md](BIOMES.md)) |
+| [#6](https://github.com/inman-sebastian/agent-games/issues/6) | New progression system — layered attributes, equipment & crafting |
+| [#28](https://github.com/inman-sebastian/agent-games/issues/28) | UI foundation & surfaces ([UI.md](UI.md)) |
+| [#29](https://github.com/inman-sebastian/agent-games/issues/29) | Entities, replication & combat |
+| [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava |
+| [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes |
+
+### Also queued
+
+- **[#45](https://github.com/inman-sebastian/agent-games/issues/45) — the server needs a fixed
+  tick.** `physicsStep` is input-driven rather than clocked, which blocks day/night, fluid, entities
+  and hibernation, and is why client-side pause currently works at all.
+- **[#46](https://github.com/inman-sebastian/agent-games/issues/46) — `rarityOf` is registration
+  order**, so "deepest find" and the break FX rank the wrong ores.
+- **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
+  (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
+  mineable**, so dirt, clay and stone become collectible too and share the shader/surface-class
+  render path. Phase 1 (strata visible in the material lab) shipped. This is now a *prerequisite*
+  for [everything is collectible](#the-world).
+- **Placement beyond depth.** Superseded in principle by [BIOMES.md](BIOMES.md): biome resolves from
+  several signals, then decides contents. `strata.top` and per-material `band` ranges become
+  obsolete.
 - **Rendering perf** — bake ore blocks / cheaper lighting for deep, fully-lit scenes.
 - **Miner sprite** — redraw + animate for the finer 32px grid.
-
-The earlier "horizontal camera" and "economy retune" passes are folded into
-[#1](https://github.com/inman-sebastian/agent-games/issues/1) and
-[#6](https://github.com/inman-sebastian/agent-games/issues/6) respectively — and the
-economy that #6 would have retuned has since been removed outright (above), so #6 is now
-the _new_ progression system rather than a retune.
