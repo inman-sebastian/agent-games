@@ -22,7 +22,7 @@ const css = readFileSync(UI_CSS, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
  * One stylesheet, every page. The game and the UI lab link the SAME file, so a lab cannot restyle
  * the chrome — which would be a second art direction, the exact thing this file exists to prevent.
  */
-const PAGES = ['index.html', 'labs/ui-lab.html'];
+const PAGES = ['index.html', 'labs/ui-lab.html', 'labs/font-lab.html'];
 
 const rootBlock = css.slice(css.indexOf(':root'), css.indexOf('}', css.indexOf(':root')));
 

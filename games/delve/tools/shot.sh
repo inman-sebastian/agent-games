@@ -1,5 +1,6 @@
 #!/bin/bash
 # shot.sh 'QUERY' [out.png] [page] — capture a game page to a tight PNG via headless Chrome
+# Env: SHOT_BASE=<dev server url>, WATCHDOG=<s>, BUDGET=<ms> (wait for network/idle before capture)
 # (no MCP, no Playwright). Window size is derived from the query's w,h,scale so the PNG is
 # exactly the rendered crop. The pages are ES modules bundled by Vite, so point at a running
 # dev server via SHOT_BASE (start `pnpm dev`) — `page` is a path under the Vite root (the client/ folder)
@@ -31,9 +32,16 @@ if [ -n "$SHOT_BASE" ]; then url="$SHOT_BASE/$page?$q"; else url="file://$dir/cl
 # `load` event works for those AND for the finite render harness — a `<script type=module>` finishes
 # executing (so render.ts has drawn) before `load` fires. Stock macOS has no `timeout`, so we
 # background Chrome and hard-kill it after WATCHDOG seconds as a safety net. Override WATCHDOG=<s>.
+# BUDGET=<ms> adds --virtual-time-budget, which waits for the page to go IDLE before capturing.
+# Off by default because it never completes on a continuously animating page (the game, the light
+# lab): a busy requestAnimationFrame loop means virtual time is never idle. Use it for a page that
+# finishes and then waits on the network — the font lab loads webfonts, and capturing at `load`
+# shot every candidate as an invisible fallback.
 WATCHDOG="${WATCHDOG:-15}"
+budget=()
+[ -n "$BUDGET" ] && budget=(--virtual-time-budget="$BUDGET")
 "$CHROME" --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=1 \
-  --no-first-run --no-default-browser-check \
+  --no-first-run --no-default-browser-check "${budget[@]}" \
   --screenshot="$out" --window-size="$ww,$wh" "$url" 2>/dev/null &
 cpid=$!
 ( sleep "$WATCHDOG"; kill "$cpid" 2>/dev/null ) & wpid=$!

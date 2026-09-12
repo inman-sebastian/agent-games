@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — font lab</title>
+    <!-- The game's own stylesheet, so the type is judged inside the real chrome. -->
+    <link rel="stylesheet" href="../src/ui/ui.css" />
+    <style>
+      /* Lab-only. Each candidate row overrides nothing but the FONT, so every other property the
+         surfaces have — colour, border, hard shadow, spacing — comes from ui.css unchanged. */
+      body {
+        overflow: auto;
+        touch-action: auto;
+        background: var(--c-void);
+      }
+      #board {
+        display: flex;
+        flex-direction: column;
+      }
+      .cand {
+        border-bottom: var(--px) solid var(--c-panel);
+        padding: var(--s4);
+        display: flex;
+        gap: var(--s5);
+        align-items: flex-start;
+      }
+      .head {
+        width: 260px;
+        flex: 0 0 260px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--s1);
+        font:
+          12px/1.4 ui-monospace,
+          monospace;
+      }
+      .head .nm {
+        font-family: var(--f), monospace;
+        font-size: 22px;
+        color: var(--c-gold);
+        -webkit-font-smoothing: none;
+      }
+      .head .meta {
+        color: var(--c-mute);
+      }
+      .head .note {
+        color: var(--c-dim);
+      }
+      /* the candidate face, applied to the chrome and nothing else */
+      .demo {
+        flex: 1;
+        min-width: 0;
+        font-family: var(--f), ui-sans-serif, system-ui, sans-serif;
+        font-size: var(--body);
+        /* pixel type is drawn ON the pixel grid; antialiasing it is what makes it look soft */
+        -webkit-font-smoothing: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--s3);
+      }
+      .demo .wordmark {
+        font-size: var(--display);
+        letter-spacing: 0.2em;
+        margin: 0;
+        color: var(--c-ink);
+        text-shadow: 0 var(--px) 0 var(--c-void);
+      }
+      .demo .wordmark b {
+        color: var(--c-gold);
+      }
+      .demo button {
+        font-size: var(--label);
+      }
+      .demo .hud {
+        font-size: var(--label);
+      }
+      .demo .panel {
+        max-width: 460px;
+      }
+      .demo .row .ds {
+        font-size: var(--body);
+      }
+      .demo .row .nm,
+      .demo .row .lv {
+        font-size: var(--label);
+      }
+      #foot {
+        padding: var(--s4);
+      }
+      .strip {
+        display: flex;
+        gap: var(--px);
+      }
+      .strip i {
+        width: var(--s5);
+        height: var(--s4);
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="board"></div>
+    <div id="foot"></div>
+    <script type="module" src="./font-lab.ts"></script>
+  </body>
+</html>

@@ -130,6 +130,49 @@ out at once against a banded stand-in for the rock, so the whole interface is on
 (`tools/shot.sh 'w=62&h=42&scale=1' out.png labs/ui-lab.html`). A lab that restyled its own chrome
 would be a second art direction — the exact thing this doc exists to prevent.
 
+### Typography — open, eight candidates on the bench
+
+The stylesheet work removed every soft material from the interface, which made the one remaining
+soft thing obvious: a **system sans** inside hard-edged boxes is now the loudest tell that the UI is
+not part of the game.
+
+`client/labs/font-lab.html` renders DELVE's real chrome in each candidate, because a font cannot be
+judged from a specimen sheet. What matters is whether it survives the **four jobs** the game actually
+asks of it, at the sizes they appear:
+
+1. the **wordmark** (display, ~44px)
+2. a **button label** (short, sentence case)
+3. a **tabular HUD number** (must align, must read at a glance)
+4. a **full sentence** of ore description
+
+Most pixel faces pass the first three and fail the fourth, so job 4 is the decision. Capture with
+`BUDGET=8000 tools/shot.sh 'only=silkscreen,vt323&w=58&h=46&scale=1' out.png labs/font-lab.html` —
+the budget flag is required, since capturing at `load` shoots every candidate as an invisible
+fallback.
+
+| Candidate | Grid | Reads as | Job 4 |
+| --- | --- | --- | --- |
+| Silkscreen | 8px | a classic 8px UI face, superb wordmark | lowercase renders as small caps, so prose SHOUTS |
+| Pixelify Sans | 5px | true lowercase, variable weight | the most prose-capable of the set |
+| Jersey 15 | 15px | blocky, substantial, stone-like | comfortable |
+| Jersey 10 | 10px | tall and condensed, fits a lot | comfortable, lighter |
+| VT323 | 8px | a CRT terminal — a machine, not stone | fine, but wrong genre for a mine |
+| Handjet | 8px | machine-stamped dot matrix, distinctive | thin and effortful |
+| Press Start 2P | 8px | the NES face | fails — one sentence costs four lines |
+| Micro 5 | 5px | the smallest legible pixel type | too small to be the body face |
+
+**A pairing is allowed and probably right**: a display face for the wordmark and headings, a
+prose-capable one for descriptions. Silkscreen plus Pixelify Sans is the obvious combination.
+
+The lab loads from Google Fonts **for the trial only**. Whichever wins gets **self-hosted**, because
+the game must not depend on a third party at boot and must keep working offline. Two strong
+candidates are not on Google Fonts and are worth adding if none of the eight land: **Departure
+Mono** (OFL) and **Pixel Operator** (CC0), both full families rather than single faces.
+
+Every candidate here is openly licensed (OFL or CC0). A licensed typeface is chrome, not a found
+game asset — the art direction's ban is on emoji, clip art and stock images standing in for art the
+agent should author, and it is satisfied by a font the way it is by a system sans.
+
 ### Panel frames
 
 Nine-slice `border-image` — the standard technique for a stylised panel in the DOM. **Draw the frame
