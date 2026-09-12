@@ -279,13 +279,33 @@ World generation parameters become **world-creation settings**:
 
 - **Size presets** — small / medium / large, each with its own
   [player cap](#player-cap-scales-with-world-size).
-- **Optional truly-infinite world** for players who explicitly want it and accept
-  the tradeoff: lower content density and duller stretches between discoveries.
-  (Deferred, not a launch feature — see [Defer deliberately](#defer-deliberately).)
+**Infinite mode is cut.** It was briefly kept as an optional world-creation setting for players
+who wanted it, with generation required to work in both modes. That requirement was the most
+expensive under-examined commitment in this document, and the mode undoes the exact thing bounding
+was adopted to deliver:
 
-This reframes "infinite vs finite" from a design argument into a **player-facing
-option with an honestly-stated tradeoff**, which is a much better place for it to
-live. It does mean generation and content placement must work in both modes.
+- **Guaranteed density is the whole argument for bounding**
+  ([above](#why-bounded-solves-the-empty-digging-problem)). Infinite reintroduces probabilistic
+  density — the empty-digging problem in full.
+- **The content gate can't assert anything about an infinite world.** Its invariants are per-world
+  content counts and per-player density, and neither is expressible without bounds. Infinite mode
+  would ship permanently unverifiable, without the guarantee every other mode gets.
+- **Wrapping is load-bearing elsewhere.** It's why the player can never be permanently lost, and
+  the map has to handle a seam. An infinite world has neither, so the navigation story would
+  differ between modes too.
+
+The real cost was never a second generator — it was that **every content system would be written
+twice, or written to the weaker of two contracts, with tests covering only one.** Cut, so there is
+exactly one world contract.
+
+> **Determinism stays; only infinity goes.** The world remains a pure `f(seed, c, r)` — that's
+> what makes content verifiable at all. DESIGN.md's pillar bundles the two words ("deterministic,
+> infinite world"); only the second is being dropped.
+
+**Docs consequence:** issue
+[#1](https://github.com/inman-sebastian/agent-games/issues/1) is currently scoped as *"open,
+infinite world in all directions."* That scope is now wrong and needs rewriting to **bounded,
+wrapping, open world** — the same kind of rescope that #6 needed.
 
 ---
 
@@ -672,15 +692,17 @@ genuinely fresh and asks players to re-earn a log that isn't really a mechanic.
 Small preset's cap ([above](#player-cap-scales-with-world-size)). That's the shape to
 build and tune for first.
 
-**Blue sky, explicitly not a goal:** dozens of players on an infinite world. Noted as
-something to revisit if it turns out to be reachable, not something to design toward.
+**Blue sky, explicitly not a goal:** dozens of players on a Large world. (This previously read
+"on an infinite world"; infinite is [cut](#hosted-worlds), so the blue-sky case is now the top of
+the size-preset range rather than an unbounded one.) Noted as something to revisit if it turns out
+to be reachable, not something to design toward.
 
 The gap between those two is bigger than the player counts suggest, and it's worth
 knowing why: **player count multiplies the simulated surface area, not just the
 bandwidth.** Fluid and entities are simulated in active regions around players, so
-two players scattered in a bounded world means two active regions, while dozens
-scattered across an infinite world means dozens of independent simulation
-neighbourhoods with nothing shared between them. Bandwidth is the easy half.
+two players scattered in a Small world means two active regions, while dozens scattered across a
+Large one means dozens of independent simulation neighbourhoods with nothing shared between them.
+Bandwidth is the easy half.
 
 The good news is that the real target is *dramatically* cheaper than the blue-sky
 one, and several things that would be mandatory at scale are optional at four
@@ -1644,8 +1666,8 @@ Consequences worth deciding on:
 Largely answered by bounding the world — guaranteed density beats any amount of
 signalling. Two residual cases:
 
-- The **optional infinite mode** reintroduces the original problem in full, and is
-  the mode that most needs a signalling layer.
+- ~~The optional infinite mode reintroduces the original problem in full.~~ **Moot — infinite
+  mode is [cut](#hosted-worlds)**, so guaranteed density now holds unconditionally.
 - Even at good density, the player needs *local* "there's something here" cues — a draft of air,
   a change in rock, ambient sound, a glow past the lamp radius. **The glow is already free**: every
   light source is an emitter under the same rules and light bleeds 2–3 tiles into solid rock, so
@@ -1957,7 +1979,7 @@ Not cuts — parked, with the reason:
 | **Large named-skill system** | Per-skill XP bars levelled by repeated use. The **attribute layer** is intended and not deferred; this is the much bigger version of it. |
 | **Branching dialogue** | NPCs are in scope, but barks and one-shot lines carry most of the value ([§9](#9-npcs--dialogue)). Trees and quest state are a much larger system. |
 | **Surface layer** | [Q4](#open-questions). A full sky/weather/day-night layer is a large amount of content and changes DELVE's subterranean identity. |
-| **Infinite mode** | Reintroduces the empty-digging problem in full and is the mode that most needs a signalling layer. It's an option, not a launch feature. |
+| ~~**Infinite mode**~~ | **Cut, not deferred** — see [§4](#hosted-worlds). It undoes guaranteed density, can't be covered by the content gate, and would have forced every content system to serve two contracts. |
 | **Medium/Large worlds, 8–16 players** | Where every naive implementation stops being acceptable. Earn them. |
 | **Breadcrumb/signalling layer** | Largely obviated by guaranteed density ([T9](#t9-exploration-still-needs-breadcrumbs)). Revisit only if playtesting shows local cues are still missing. |
 
