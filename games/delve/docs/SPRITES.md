@@ -292,14 +292,15 @@ following the body as it bobs, leans and turns. A new animation needs no attachm
 - **Attachment art is ours.** The imported pack supplies bodies only, so every item follows
   [PALETTE.md](PALETTE.md) and carries its own rim in the same darkest step the body uses.
 
-### Known limitation
+### Known limitation (#48)
 
 On the two walk frames where the torso leans hardest, its own back edge sits further inboard than the
 near arm, so the backpack lands underneath that arm and disappears. The anchor is right and the
 occlusion is right — a near-side arm really is in front of something on the back. What is wrong is
 expecting one part's extent to know about another's. Fixing it means either art that clears the arm's
 full swing, or resolving the anchor against the whole figure's silhouette rather than one part's.
-Both are decisions rather than tweaks.
+Both are decisions rather than tweaks, which is why this is tracked as #48 rather than fixed in
+passing.
 
 ## The outline
 

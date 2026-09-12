@@ -20,11 +20,11 @@ import { MINER_SKIN, PLAYER_LAMP } from './skin';
  *
  * The pack has far more animations than the sim has states — crouch, roll, push, pull, ledge climb,
  * air spin — and they stay unused until a mechanic asks for them. Mapping them speculatively would
- * be guessing at gameplay that does not exist yet.
+ * be guessing at gameplay that does not exist yet. Which animation waits on which mechanic: #50.
  *
  * `mine` has no dedicated animation in the pack, so it borrows the idle: the swing is already
  * carried by the pickaxe and the dig particles. That is a placeholder, and the honest fix is a
- * mining animation rather than a cleverer mapping.
+ * mining animation rather than a cleverer mapping (#49).
  */
 const FOR_STATE: Readonly<Record<MinerState, PlayerAnim>> = {
   idle: 'idle',

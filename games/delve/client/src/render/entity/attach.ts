@@ -169,7 +169,7 @@ export const BACKPACK: Attachment = {
   // The very back of the paint order, which is where a back-mounted item belongs: behind the far
   // arm as well as the torso.
   //
-  // KNOWN LIMITATION, and it is a real one rather than a bug to chase. On the two walk frames where
+  // KNOWN LIMITATION (#48), a real one rather than a bug to chase. On the two walk frames where
   // the torso leans hardest, the torso's own back edge sits further inboard than the near arm, so
   // the pack lands underneath that arm and disappears. The occlusion is correct — a near-side arm
   // IS in front of something on the back — and the anchor is correct too; what is wrong is expecting
