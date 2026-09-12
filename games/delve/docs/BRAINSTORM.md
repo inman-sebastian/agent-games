@@ -1641,6 +1641,16 @@ Two things follow, and both protect decisions already made:
   explicitly because someone will eventually be tempted to "balance" the game by limiting pages —
   that would be balancing the wrong layer.
 
+**It starts empty, and that's accepted.** A new player has one equipment slot, no consumables
+(the category doesn't exist yet), and placement only via beacons — which are equipment and compete
+for that one slot. Mining is deliberately off the bar. So the bar opens empty, and **empty slots
+are treated as a visible promise**: they say *things go here*.
+
+> **Design requirement that falls out of it:** the empty slots must read as **deliberately empty,
+> not broken**. An empty slot has to look like an affordance — a styled, inviting hole — rather
+> than a missing icon. That lands directly on the **slot widget**, which is the
+> [first UI thing being built](#build-order), so it's a requirement rather than a polish pass.
+
 Three things it needs:
 
 - **An enumerated assignable set**, because the slot widget has to know what it renders. The
@@ -1656,6 +1666,14 @@ Three things it needs:
 - **Paging must work on touch and gamepad**, not just number keys and a scroll wheel. Swipe across
   the bar and shoulder buttons are the natural mappings; the workspace rules require both to be
   real rather than afterthoughts.
+
+> **_Speculative (unratified)_ — a gap noticed while answering this, recorded so it isn't lost.**
+> **There is no early-game placeable light source.** Light is the game's atmosphere, its only
+> exploration cue, and now a day/night mechanic, yet the only light the player carries is the lamp
+> on their body. A placeable torch would fill the bar from minute one, let the player **mark where
+> they've been** (a partial answer to the
+> [no-seen-memory problem](#light-an-untradeable-floor-everything-above-it-earned)), and make a dug
+> tunnel *look* dug. Not adopted — the author accepted the empty bar without ruling on this.
 
 ### The slate splits on an axis that decides the technology
 
