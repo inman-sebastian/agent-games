@@ -8,6 +8,13 @@
 > get folded into [DESIGN.md](DESIGN.md) (what the game is) or the art docs, and
 > this file gets deleted.
 >
+> **Provenance matters here, and this doc got it wrong once.** Author decisions and agent
+> synthesis carry different weight and must stay distinguishable. **Decided** / **Resolved**
+> marks the author's call. **Guideline** marks something the agent derived from the
+> discussion: useful, advisory, and **overrulable without argument**. A guideline must never
+> harden into a constraint that blocks an idea on its own — if a synthesized principle starts
+> being cited as a reason something can't happen, that's the bug, not the idea.
+>
 > Baseline: DESIGN.md as of `ac8b07a`, re-baselined from `e5754f1` mid-session. Main shipped
 > two things this document had been arguing *for* — the coin economy's deletion and the move to
 > Vitest — so those passages now read as records of what happened rather than recommendations.
@@ -230,9 +237,16 @@ Named examples:
 
 An item doesn't add a number, it **removes a constraint the player has been living
 with.** Reach removes "I must be adjacent." The jetpack removes "I must dig my way
-out." This is worth adopting as an explicit, game-wide rule for equipment design —
-it's what separates memorable gear from a stat ladder, and it applies to weapons
-([§5](#5-combat)) as much as to tools.
+out." This is worth adopting for equipment design — it's what separates memorable gear from a
+stat ladder, and it applies to weapons ([§5](#5-combat)) as much as to tools.
+
+> **Provenance flag, unresolved.** This was synthesized by the agent from the author's two
+> examples and then written up as "an explicit, game-wide rule." That's the same overreach
+> that happened to the behaviour-over-numbers
+> [guideline](#provenance-and-why-this-is-a-guideline). It has not been ruled on: it may well
+> be a real rule the author endorses, but it shouldn't be *treated* as one until they say so.
+> Note that this framing is weaker than it looks — removing a constraint and raising a number
+> aren't opposites, since "more slots" removes "I must turn back when full."
 
 ---
 
@@ -561,11 +575,50 @@ tool, equipment or weapon — may take away from the core identity of the game, 
 is exploration.** Removing the boring, mundane and repetitive parts of exploring does
 more good than harm; removing the exploring does not.
 
-A second rule falls out of the drone-intelligence idea and generalizes just as well:
+A second idea falls out of the drone-intelligence case. **It is a guideline, not a rule** —
+see the note below on where it came from:
 
-> **Upgrade the behaviour, not the number.** Where an upgrade *can* change what a
-> thing does rather than how much it does, prefer that. It's more memorable, it's
-> more legible, and it produces an arc instead of a multiplier.
+> **Guideline: prefer upgrading behaviour over upgrading a number.** Where an upgrade *can*
+> change what a thing does rather than how much it does, that's usually the more memorable
+> and more legible choice, and it produces an arc instead of a multiplier. **Exceptions are
+> expected and fine.**
+
+#### Provenance, and why this is a guideline
+
+**The author never agreed to a hard rule here.** What was stated is narrower and weaker:
+*most* upgrades feel better and are more interesting when they fundamentally change how
+something works. A previous session generalized that into a game-wide rule and then began
+citing it as a constraint — including against "more storage space," which the author
+considers a perfectly acceptable number upgrade. That was the doc overreaching, and the
+rule is downgraded accordingly.
+
+**There are grounded reasons number-go-up is fine**, worth stating so this doesn't drift back:
+
+- **[§1](#1-what-delve-is-becoming) lists Incremental as a genre pillar**, defined as
+  "continuous, compounding growth in player capability." Compounding growth is *inherently
+  numeric*. A hard no-numbers rule contradicts a pillar the author actually set.
+- **Numbers are legible.** The player knows exactly what they got, immediately, with no
+  learning curve. A behaviour change has to be discovered and understood first.
+- **Numbers are the rhythm section.** If every upgrade is a paradigm shift, nothing reads as
+  a baseline and the player is never given a rest. Behaviour changes land harder when they're
+  punctuation rather than the whole text.
+- **Numbers let players plan.** "Two more levels and I can carry a full stack" is a goal.
+  Bespoke behaviour upgrades are surprises, which is great but can't be aimed at.
+- **Behaviour upgrades are expensive.** Each is bespoke design, code and tuning. A game where
+  every upgrade is unique has far fewer upgrades.
+
+#### The more useful test than "numbers bad"
+
+> **A number earns its place when it changes *what you can attempt*. It's filler when it only
+> changes *how fast you do what you already do*.**
+
+This is a better discriminator, and it retroactively explains two calls already made without
+contradicting either:
+
+- **More inventory slots — keep.** It lengthens an expedition, which changes how deep a trip
+  can go, which is a different decision ([§12](#gating-which-surfaces-are-earned)).
+- **Refinery and Fortune — cut.** Pure rate multipliers on a loop the player was already
+  running. Nothing new becomes attemptable ([T1](#t1-three-progression-channels-now-exist)).
 
 **Follow-the-player is therefore load-bearing, not flavour.** The moment drones can
 be parked somewhere and left to mine unattended, DELVE becomes an idle game and
@@ -697,9 +750,9 @@ identical execution.
 What makes this worth building the whole equipment system around: the payoff isn't a
 bigger number, it's a **changed relationship**. You remember the item that used to
 embarrass you and now carries you. That's a story, and stat ladders don't produce one.
-It's the natural partner of the two rules already adopted — removes a constraint
-([§6](#6-the-incremental-loop-rebuilt)) and upgrades behaviour, not numbers
-([§8](#the-rules-that-make-automation-safe-here)).
+It pairs naturally with removing a constraint ([§6](#6-the-incremental-loop-rebuilt)) and with
+the behaviour-over-numbers [guideline](#provenance-and-why-this-is-a-guideline) — noting that
+the guideline is advisory, so an arc that runs partly on numbers still qualifies.
 
 **The failure mode to design against:** "bad now, good later" means nobody reaches
 later. An item that's genuinely annoying early is an item players shelve and never
@@ -728,10 +781,15 @@ almost nothing to implement beyond the slot limit itself.
 
 ### Candidate equipment slate
 
-Ideas that fit the drone's identity. Each needs the same four properties: it
-**removes a constraint**, its early version is **useful but flawed**, its upgrades
-change **behaviour rather than numbers**, and it stays **specialized** so the loadout
-choice survives ([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)).
+Ideas that fit the drone's identity. Three properties are the actual bar: it **removes a
+constraint**, its early version is **useful but flawed**, and it stays **specialized** so the
+loadout choice survives
+([T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension)).
+
+A fourth is **preferred but not required**: that upgrades change behaviour rather than
+numbers. That's a [guideline](#provenance-and-why-this-is-a-guideline), so an item whose arc
+is partly or wholly numeric is not disqualified — it just needs the number to change what the
+player can attempt rather than only a rate.
 
 #### Design the slate by axis, not by item
 
@@ -979,9 +1037,7 @@ also a partial answer to [T9](#t9-exploration-still-needs-breadcrumbs).
 Today inventory is a count per material: no ordering, no positions, no capacity. Both the
 action bar and the decision below need the opposite — **ordered slots the player assigns**,
 with a finite number of them. See
-[T12](#t12-capacity-as-progression-taxes-the-discovery-pillar) for the cost this carries
-and [T13](#t13-larger-backpack-is-a-number-upgrade-in-a-design-committed-to-behaviour-upgrades)
-for the rule it collides with.
+[T12](#t12-capacity-as-progression-taxes-the-discovery-pillar) for the cost this carries.
 
 ### What blocks what
 
@@ -1026,6 +1082,28 @@ for a reason worth recording precisely:
 > traversal verb. Fuel genuinely can strand a player (no fuel → no digging → no movement).
 > Cargo can't. DESIGN.md's pillar lumps the two together as one category, and **that
 > conflation is the error** — the pillar needs amending, not this idea.
+
+#### Slot count is a fine upgrade on its own
+
+Worth stating plainly, because an earlier version of this doc argued otherwise on the strength
+of a rule the author never agreed to (see the
+[provenance note](#provenance-and-why-this-is-a-guideline)): **"larger backpack" is an
+acceptable number upgrade and needs no behavioural justification.** It passes the useful test
+anyway — more slots lengthens an expedition, which changes how deep a trip can go.
+
+Behavioural upgrades to the bag are available *in addition*, as enrichment rather than as a
+correction, and they're good ideas on their own merits:
+
+- **Compaction** — a pile of ore becomes a single ingot slot. Changes the shape of the
+  problem rather than the size of the container.
+- **Filtering** — auto-discard what the player has marked as junk. Removes the chore, not the
+  choice ([§8](#the-rules-that-make-automation-safe-here)).
+- **Sorting** — the bag organizes itself, so browsing it stops being work.
+- **Remote deposit** — overflow goes to base storage from wherever you are. **Caution:** this
+  removes the return trip and so deletes the expedition loop capacity was introduced to
+  create. That's [T10](#t10-the-jetpack-deletes-the-traversal-problem) in a different costume,
+  and it wants the same treatment — decide where in the arc it lands, and whether it's
+  absolute or metered.
 
 #### What capacity buys, which is more than it costs
 
@@ -1308,34 +1386,6 @@ Unresolved, and worth deciding deliberately: **does a full bag block the pickup,
 the least valuable thing?** The first is honest and annoying; the second is convenient and
 occasionally throws away something you wanted.
 
-### T13. "Larger backpack" is a number upgrade in a design committed to behaviour upgrades
-
-Two rules already adopted say an item should
-[remove a constraint](#6-the-incremental-loop-rebuilt) and
-[upgrade the behaviour, not the number](#the-rules-that-make-automation-safe-here). **A
-bigger backpack is the purest possible counterexample: it is literally a larger integer.**
-The rule applies here whether or not that's convenient, and slot count is also specifically
-called out as a poor progression reward in
-[T6](#t6-irreplaceable-gear-and-meaningful-loadout-choice-are-in-tension).
-
-**The resolution is the same trick the drone got.** Keep capacity growth as the *baseline*,
-but make the interesting upgrades change how the bag works:
-
-- **Compaction** — a pile of ore becomes a single ingot slot. Changes the shape of the
-  problem rather than the size of the container.
-- **Filtering** — auto-discard what the player has marked as junk. Removes the chore, not
-  the choice.
-- **Sorting** — the bag organizes itself, so browsing it stops being work.
-- **Remote deposit** — overflow goes to base storage from wherever you are.
-
-The early bag is small *and* dumb; the late bag is smart. Same investment arc as
-[§11](#the-investment-arc), same reason it's memorable.
-
-**Caution on that last one.** Remote deposit removes the return trip, which deletes the
-expedition loop capacity was introduced to create. That's
-[T10](#t10-the-jetpack-deletes-the-traversal-problem) in a different costume, and it wants
-the same treatment: decide *where in the arc* it lands, and whether it's absolute or metered.
-
 
 ---
 
@@ -1420,10 +1470,11 @@ loadout loop only exist if equipment is the spine. Specifically:
   mining serve exploration instead of being a slot machine: you mine because you need
   that material for the thing that gets you deeper, not because it converts to a
   number.
-- **Equipment satisfies the rules the design already committed to** — it removes
-  constraints ([§6](#6-the-incremental-loop-rebuilt)) and upgrades behaviour rather
-  than numbers ([§8](#the-rules-that-make-automation-safe-here)). The upgrade panel
-  can do neither.
+- **Equipment fits the design's stated direction** — it removes constraints
+  ([§6](#6-the-incremental-loop-rebuilt)) and it can carry behavioural arcs, which the
+  behaviour-over-numbers [guideline](#provenance-and-why-this-is-a-guideline) prefers where
+  they fit. The upgrade panel could do neither, and its levers were pure rate multipliers
+  rather than numbers that changed what was attemptable.
 - **Skills stay deferred.** "Light RPG" is satisfied by equipment alone for a long
   time. Add skills only if equipment turns out to be insufficient — a third channel
   added later is easy; a third channel removed later is not.
