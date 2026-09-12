@@ -60,5 +60,8 @@ If no cheap tool covers what you need, **build or extend one** (that's why `shot
 [tools/README.md](tools/README.md).
 
 - After any logic / world-gen / resource change, run **`pnpm test`** (and add/extend a test for it).
+- Follow the **testing policy** — [docs/TESTING.md](docs/TESTING.md#policy): logic is tested / feel is
+  eyeballed, red-before-green (see a new invariant fail first), invariants over cases, and every bug
+  gets a regression test. It's the default for your own work here, not just the human's.
 
 Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).

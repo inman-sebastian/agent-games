@@ -12,6 +12,28 @@ pnpm test         # run everything once (CI gate)
 pnpm test:watch   # watch mode while iterating
 ```
 
+## Policy
+
+The default going forward — deliberately lightweight, so it's a habit, not bureaucracy:
+
+1. **Logic is tested; feel is eyeballed.** The pure layers — sim, world-gen, protocol, and the
+   progression/economy when it returns — are deterministic and invariant-rich, so a change there
+   isn't done until a test covers it (ideally written first — see red-before-green). Rendering,
+   art, juice, lighting, and sprite motion are tuned **by eye** with `shot.sh`/`?debug`; don't
+   force assertions onto how something looks.
+2. **Red before green.** For any new invariant, watch it FAIL first (break the code it guards, or
+   write the test before the fix). A test that passes against a real bug is worse than none — this
+   is the only cheap guarantee it has teeth. (The ore-break conservation test exists precisely
+   because a near-vacuous property passed against an injected bug.)
+3. **Invariants over cases.** Prefer a fast-check property that holds for *all* inputs over a
+   hand-picked example — bounds, determinism, conservation, "never happens" rules.
+4. **Every bug gets a regression test.** When you find one, write the failing test, then fix it.
+   Each bug becomes permanent coverage.
+
+**Not** policy: coverage thresholds, and test-first on mechanics you haven't designed yet — game
+mechanics are discovered by playing and tuning, so encode a rule as a test once it's *decided*,
+not before.
+
 ## Layout
 
 Tests are **co-located** as `*.test.ts` next to the code they cover. `vitest.config.ts` defines
