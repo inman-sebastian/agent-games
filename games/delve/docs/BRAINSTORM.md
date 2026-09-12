@@ -142,16 +142,18 @@ built around.
   high chaos requires cheap failure. This penalty is *already* cheap, so the chaos question no
   longer has leverage over the death question.
 
-#### Recovering the bag — a proposal
+#### Recovering the bag
 
-> **_Guideline (agent proposal, not ratified)._** Recovery has a real problem: there's
-> **no seen-memory and no early map**, so finding where you died is a genuine navigation task.
->
-> **Make the dropped bag an emitter.** Light bleeds 2–3 tiles into rock
-> ([§6](#light-an-untradeable-floor-everything-above-it-earned)), so a glowing bag shows as a bloom
-> on the rock face before the bag itself is visible. No HUD marker, no map dependency, no new
-> system — the same mechanism that already makes lava and glowing caverns telegraph themselves. And
-> recovery gets *easier* the closer you get, which is the right gradient.
+**Decided.** Recovery has a real problem — there's **no seen-memory and no early map**, so finding
+where you died is a genuine navigation task. Two cheap answers, both adopted:
+
+- **The dropped bag emits light.** Light bleeds 2–3 tiles into rock
+  ([§6](#light-an-untradeable-floor-everything-above-it-earned)), so the bag **blooms on the rock
+  face before it's visible**. No HUD marker, no map dependency, no new system — the same mechanism
+  that makes lava and glowing caverns telegraph themselves — and recovery gets *easier* the closer
+  you get, which is the right gradient.
+- **The bag hovers and bobs.** Motion is the most reliable "look here" signal, and idle life is
+  already house style ([JUICE.md](JUICE.md)) — nothing on screen should be perfectly still.
 
 **Residual, multiplayer:** are beacons per-player or shared, and does a placed beacon keep occupying
 its equipment slot? Beacons are **world**-scoped state while respawn is a **character** concern, so
@@ -288,7 +290,9 @@ Three things follow immediately, without waiting for the full roster:
 Deliberately not answered here — this needs its own Q&A, starting from the **roster** and deriving
 the rest from it:
 
-1. **What biome types exist**, and which are bands vs pockets. Everything below depends on this.
+1. **What biome types exist**, and which are bands, pockets, or **surface** regions — a third
+   shape, since the surface is [real content](#the-surface-is-real-content-subordinate-to-the-mine).
+   Everything below depends on this.
 2. **How many pockets per world**, and whether the size preset scales the count (see the
    [per-player density](#player-cap-scales-with-world-size) invariant, which implies a Large world
    gets *more of each* biome rather than *more kinds*).
@@ -420,6 +424,54 @@ identifiable boundary rather than reappearing elsewhere.)_
 > direction ("the dungeon is west"), and they're a distinct biome in their own right.
 > A wrapping world gives that up in exchange for seamlessness — see
 > [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame).
+
+### The surface is real content, subordinate to the mine
+
+**Decided.** There *is* a surface and it **is content**, in the Terraria mould. The subterranean
+world remains the **primary play space**; the surface is not a second game, but it is not a barren
+flat plane either.
+
+**Half of this was already true in code and the doc didn't know it.** `SURFACE` is row 0, described
+in `blocks.ts` as "the open surface yard"; everything above is open sky, the player **spawns**
+there, and the darkness scrim is explicitly disabled above it so daylight is unaffected. A surface
+exists and has all along.
+
+#### What "not flat" actually costs
+
+**`SURFACE` stops being a constant and becomes a function of column.** That's the first real change
+to the generator's *shape*, and it touches:
+
+- world generation (a surface heightmap per column),
+- the solidity test (`row > SURFACE` becomes `row > surfaceAt(column)`),
+- spawn placement, camera framing, and the lighting's above-sky check.
+
+Contained, but not cosmetic.
+
+#### Why the surface earns investment
+
+It's where the most-visited non-mine activity already lands: **respawn** by default
+([§1](#death-you-lose-the-trip-never-the-character)), **bases** and their four jobs, and **NPC
+housing** ([§9](#9-npcs--dialogue)). Making the most-visited location the least interesting one
+would be the wrong trade.
+
+If the horizontal bound lands on [hard edges](#hard-edges-vs-wrapping), the surface is a **finite
+strip with two definite ends** — far more tractable to fill than an endless one, and Terraria puts
+its Ocean biomes exactly there.
+
+#### Consequences flagged rather than assumed
+
+- **Surface biomes are a third shape.** The [band/pocket taxonomy](#biomes-come-in-two-kinds-bands-and-pockets)
+  was designed underground; surface regions run *horizontally along the surface*. Added to the
+  parked biome session.
+- **The art direction is entirely subterranean and has to grow.** [PALETTE.md](PALETTE.md) is built
+  for muted rock with ore as the one saturated element, and [LIGHTING.md](LIGHTING.md) around
+  lamp-only vision against a true void. Sky and daylight are a different register in both, and
+  neither doc addresses it. Per the workspace rule, **the style guide gets updated before surface
+  art is made**, not after.
+- **Day/night is the open fork.** Still undecided, and it's what decides how big the surface gets —
+  a cycle pulls in surface danger at night, light as an above-ground resource, sleeping, and a
+  second mood. Without it the surface stays small and safe no matter what's placed on it. It would
+  also make the above-ground scrim **dynamic**, where today it's simply off.
 
 ### Hosted worlds
 
@@ -2031,10 +2083,11 @@ occasionally throws away something you wanted.
   [§2](#parked-for-a-dedicated-biome-session). Blocks whether a pocket biome may gate any
   crafting material.
 
-- **Q4. Is there a surface?** The world is bounded vertically at the bottom; what's
-  at the top? A full surface layer with sky, weather and day/night is a large amount
-  of content and changes the game's identity (DELVE is currently entirely
-  subterranean). A shallow "mouth of the mine" is much cheaper.
+- **Q4. Is there a surface?** **Answered: yes, and it is content** — Terraria-like. The
+  subterranean world stays the **primary play space** (as the name says), but the surface is
+  **not a barren flat plane**. Full treatment in
+  [§4](#the-surface-is-real-content-subordinate-to-the-mine). Residual: whether there's a
+  **day/night cycle**, which is the fork that decides how large the surface gets.
 
 - **Q5. What's the actual concurrency ceiling of the current stack?** The target is
   small parties ([§7](#7-multiplayer)), which is comfortable — but nothing has been
