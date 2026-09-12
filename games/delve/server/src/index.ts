@@ -55,12 +55,19 @@ const INPUT_CREDITS_PER_TICK = 1;
 const INPUT_BURST = 8;
 
 /**
- * How long the server keeps repeating a client's last input when nothing new has arrived.
+ * How long the server keeps repeating a client's last MOVEMENT when nothing new has arrived.
  *
  * Bridging a jitter gap with the previous input is what keeps the server agreeing with a client
  * that is still predicting — dropping straight to neutral would stutter every dropped packet. The
  * window is deliberately short: past it the player goes limp and only gravity acts on them, so a
  * client that closed its menu, backgrounded its tab or died on the network does not keep walking.
+ *
+ * The MINE TARGET IS NEVER REPEATED, which is not a detail. Movement is continuous, so repeating it
+ * across a gap is a good guess about intent. Mining is a discrete destructive act, and guessing at
+ * it means the server damages tiles nobody asked it to — it showed up immediately as the
+ * authoritative world having dug more than the client predicted. A held pick loses a tick or two of
+ * damage across a dropped packet, which the next snapshot reconciles; the alternative is the server
+ * breaking a tile on the player's behalf.
  */
 const INPUT_GRACE_TICKS = 6; // 100ms at 60Hz
 
@@ -144,9 +151,12 @@ function stepClient(client: Client): void {
   }
 
   // Nothing to spend. Time passes anyway — that is the whole point — but the player's intent goes
-  // stale, so it is repeated only briefly and then dropped.
+  // stale, so movement is repeated only briefly and then dropped, and the mine target not at all.
   client.starvedTicks++;
-  const intent = client.starvedTicks <= INPUT_GRACE_TICKS ? client.lastInput : NEUTRAL;
+  const stale = client.starvedTicks <= INPUT_GRACE_TICKS;
+  const intent: Input = stale
+    ? { left: client.lastInput.left, right: client.lastInput.right, jump: client.lastInput.jump }
+    : NEUTRAL;
   physicsStep(client.session, intent, TICK_DT);
 }
 

@@ -131,6 +131,20 @@ describe('P3 authoritative server', () => {
       physicsStep(local, input, TICK_DT); // identical logic + dt
     }
     await waitForAck(c1, STEPS);
+
+    // SETTLE BOTH SIDES before comparing. The server is clocked now (#45), so it does not stop when
+    // the scripted inputs run out — it keeps stepping, and how many extra ticks it has taken by the
+    // time a snapshot arrives is a race. Comparing at the instant of the ack was flaky for exactly
+    // that reason: it passed alone and failed under a loaded suite.
+    //
+    // Letting both come to REST makes the comparison exact again rather than approximate, because a
+    // player standing still is a fixed point of `physicsStep` — extra ticks are genuine no-ops. This
+    // is also what proved the mine target must not be repeated on a starved queue: while it was, the
+    // server's extra ticks kept digging and the dug sets diverged.
+    const SETTLE_TICKS = 120; // 2s, comfortably longer than the fall the last input leaves it in
+    for (let i = 0; i < SETTLE_TICKS; i++) physicsStep(local, {}, TICK_DT);
+    await delay(2000);
+
     const snap = lastState(c1)!;
     expect(snap.ackSeq, 'server applied all inputs').toBe(STEPS);
     expect(snap.player.x, 'server x == prediction').toBe(local.player.x);
