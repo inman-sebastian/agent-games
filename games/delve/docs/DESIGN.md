@@ -95,7 +95,8 @@ A player carries **attributes** that drive derived stats via `stats()` in
 - **Fortune** (`up.fortune`) — chance of a **rich vein** (3× materials). _Being re-pointed: Fortune
   will affect what you **get from** a rich vein, not whether one exists — today it makes world
   content depend on who's looking. See [Rich veins and Fortune](#rich-veins-and-fortune)._
-- **Deep Lantern** (`tech.lantern`) — widened **lamp reach**. _(An unlock, not an attribute.)_
+- **Deep Lantern** (`tech.lantern`) — widened **lamp reach** (`stats().lamp`). _(An unlock, not an
+  attribute.)_
 
 The plumbing is in place, but **nothing raises these right now** — the coin shop that used to buy
 them was removed with the economy, so they sit at base values and dig power/speed/lamp are

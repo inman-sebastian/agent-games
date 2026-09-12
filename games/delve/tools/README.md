@@ -49,7 +49,7 @@ SHOT_BASE=http://localhost:5199 tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none
 
 Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in tiles),
 `scale` (px per art px), `cave` (`shaft`|`none`), `lamp` (1 apply lighting / 0 raw art),
-`miner` (0/1), `vision` (lamp reach — crank it high to saturate the lighting). Window size
+`miner` (0/1), `lamp` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
 
 `shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root (client/)

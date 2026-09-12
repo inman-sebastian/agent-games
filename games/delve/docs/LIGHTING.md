@@ -67,8 +67,7 @@ real canvas — damage FX lives in `client/src/render/materials/fx.ts` (`drawDam
 
 > **Terminology: "vision" is retired.** It implies *revealing tiles*, and there is **no fog of war
 > and no seen-memory** here — only per-pixel illumination. The player's own light source is the
-> **lamp**; what's actually lit is **illumination**. _(The code still names the stat `vision`
-> (`stats()`, `LAMP_VISION_GAIN`); that rename is pending.)_
+> **lamp** (`stats().lamp` — reach in tiles); what's actually lit is **illumination**.
 
 Underground, **you see only what light currently reaches** — exploration and discovery are core, so
 unexplored space is a true **void**, not a dimly-previewed map. This falls out of the same field:
@@ -178,9 +177,10 @@ All constants live at the top of `client/src/render/lighting.ts`:
 | `ORE_GLOW` / `GLOW_CAP`     | Coloured-emitter seed strength and its per-channel anti-bloom ceiling. _(Idle — nothing emits yet.)_ |
 | `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
 
-The lamp's seed brightness scales gently with the player's lamp stat (`LAMP_VISION_GAIN` × the
-stat the code still calls `vision`), so the **Deep Lantern** unlock reaches further down the tunnel.
-The same stat also widens the dig-reach falloff in `cave-render`.
+The lamp's seed brightness scales gently with `stats().lamp` (`LAMP_REACH_GAIN` per tile of
+reach), so the **Deep Lantern** unlock reaches further down the tunnel. The same stat widens the
+lamp falloff used for tile shading, and the `render` lab exposes it as the `lamp` query param (see
+[tools/README.md](../tools/README.md)).
 
 ## Grounding
 

@@ -13,9 +13,9 @@ const DEFAULT_CENTER_ROW = 100;
 const DEFAULT_COLS = 18;
 const DEFAULT_ROWS = 14;
 const DEFAULT_SCALE = 3;
-const DEFAULT_VISION = 9;
-const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at vision 0
-const LAMP_VISION_GAIN = 0.16; // added per unit of vision
+const DEFAULT_LAMP = 9;
+const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
+const LAMP_REACH_GAIN = 0.16; // added per tile of lamp reach
 
 setStrata(STRATA);
 
@@ -31,7 +31,7 @@ const scale = num('scale', DEFAULT_SCALE);
 const cave = params.get('cave') || 'shaft';
 const applyLamp = num('lamp', 1);
 const showMiner = num('miner', 1);
-const vision = num('vision', DEFAULT_VISION);
+const lamp = num('lamp', DEFAULT_LAMP);
 // ore rendering style: 'crystal' = the faceted crystal blocks (current); 'strata' = ore rendered
 // through the shared rock shader in the ore's palette (the art-pass prototype — looks/functions
 // like a stratum tile). Only ore in solid, still-buried tiles gets the strata treatment.
@@ -129,7 +129,7 @@ if (applyLamp) {
     centerRow * T + 8,
     0,
     LAMP_COLOR,
-    LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * vision,
+    LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * lamp,
   );
   // (ore no longer emits its own light — matches the game; veins read by their lit surface alone)
   lighting.render({ g, LW, LH, T, camX, camY, SURFACE: -1, solidTile });

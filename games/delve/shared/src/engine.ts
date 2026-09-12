@@ -9,7 +9,7 @@
 // A `Session` bundles one world + one player; the sim steps a Session (its `.world` may be shared
 // across many players). Each function below takes exactly what it touches — world, player, or both.
 //
-// Upgrade levels (dig power/speed, rich-vein fortune, lantern vision) still drive derived stats via
+// Attributes (dig power/speed, rich-vein fortune, lantern reach) still drive derived stats via
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
@@ -58,8 +58,8 @@ const BASE_DIG_INTERVAL_MS = 200; // ms between dig hits at Agility 0
 const DIG_INTERVAL_FALLOFF = 0.9; // each Agility level multiplies the interval by this (faster digging)
 const FORTUNE_PER_LEVEL = 0.045; // +4.5% rich-vein chance per Fortune level
 const FORTUNE_CAP = 0.6; // maximum rich-vein chance
-const BASE_VISION = 3.4; // lamp reach in tiles with no lantern
-const LANTERN_VISION_BONUS = 3; // extra lamp reach from the Deep Lantern
+const BASE_LAMP = 3.4; // lamp reach in tiles with no lantern
+const LANTERN_LAMP_BONUS = 3; // extra lamp reach from the Deep Lantern
 
 const clamp = (value: number, min: number, max: number): number =>
   value < min ? min : value > max ? max : value;
@@ -127,7 +127,8 @@ interface Stats {
   power: number;
   interval: number;
   fortune: number;
-  vision: number;
+  /** Lamp reach in tiles. (Not a reveal radius — see docs/LIGHTING.md.) */
+  lamp: number;
 }
 
 export function stats(player: PlayerState): Stats {
@@ -135,7 +136,7 @@ export function stats(player: PlayerState): Stats {
     power: 1 + player.up.pick, // damage per hit
     interval: BASE_DIG_INTERVAL_MS * Math.pow(DIG_INTERVAL_FALLOFF, player.up.speed), // ms between dig hits
     fortune: Math.min(FORTUNE_CAP, FORTUNE_PER_LEVEL * player.up.fortune),
-    vision: BASE_VISION + (player.tech.lantern ? LANTERN_VISION_BONUS : 0),
+    lamp: BASE_LAMP + (player.tech.lantern ? LANTERN_LAMP_BONUS : 0),
   };
 }
 

@@ -432,8 +432,8 @@ function patchDig(c: number, r: number): void {
 const lighting = createLighting();
 
 // ---- render -----------------------------------------------------------------------------
-const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at vision 0
-const LAMP_VISION_GAIN = 0.16; // added lamp brightness per unit of vision (Deep Lantern reaches further)
+const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
+const LAMP_REACH_GAIN = 0.16; // added lamp brightness per tile of lamp reach (Deep Lantern reaches further)
 
 // idle dust motes that drift near the lamp (positions are seeded once, animated by time)
 const motes = Array.from({ length: 10 }, () => ({
@@ -515,10 +515,10 @@ function render(t: number): void {
     }
   }
 
-  // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the vision radius
+  // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the lamp's reach
   const lightAt = (c: number, r: number): number => {
     const dist = Math.hypot(c - px, r - py);
-    return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.vision + 0.5));
+    return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.lamp + 0.5));
   };
 
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
@@ -600,8 +600,8 @@ function render(t: number): void {
   // idle dust motes drifting near the lamp
   ctx.fillStyle = '#fff';
   for (const m of motes) {
-    const mx = (px + (m.x - 0.5) * st.vision * 1.4) * T + T / 2;
-    const my = (py + (((m.y + t * 0.03 * m.s) % 1) - 0.5) * st.vision * 1.3) * T + T / 2;
+    const mx = (px + (m.x - 0.5) * st.lamp * 1.4) * T + T / 2;
+    const my = (py + (((m.y + t * 0.03 * m.s) % 1) - 0.5) * st.lamp * 1.3) * T + T / 2;
     ctx.globalAlpha = 0.1 * m.s * (py > 0 ? 1 : 0);
     ctx.fillRect(Math.round(mx + Math.sin(t + m.x * 9) * 1.5), Math.round(my), 1, 1);
   }
@@ -655,7 +655,7 @@ function render(t: number): void {
   }
   ctx.restore();
 
-  // lighting: push the miner's lamp emitter (seed brightness scales with vision, so the Deep
+  // lighting: push the miner's lamp emitter (seed brightness scales with lamp reach, so the Deep
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
   // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
   // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
@@ -665,7 +665,7 @@ function render(t: number): void {
       (py - 0.1) * T,
       0,
       LAMP_COLOR,
-      LAMP_BASE_INTENSITY + LAMP_VISION_GAIN * st.vision,
+      LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * st.lamp,
     );
     lighting.render({
       g: ctx,
@@ -1029,7 +1029,7 @@ function updateDebug(): void {
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
     `held  ${engine.invCount(s.player)} materials\n` +
-    `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
+    `stats interval ${st.interval.toFixed(0)}ms  lamp ${st.lamp.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
     `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · fortune ${s.player.up.fortune}   tech ${s.player.tech.lantern ? 'lantern' : '—'}\n` +
     `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
     `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;

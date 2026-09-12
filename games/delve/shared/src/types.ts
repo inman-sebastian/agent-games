@@ -85,7 +85,7 @@ export interface UpgradeLevels {
 }
 
 export interface TechOwned {
-  lantern: boolean; // widened underground vision
+  lantern: boolean; // widened lamp reach
 }
 
 /** oreId → lifetime `{ mined, deepest }` (the discovery codex). */

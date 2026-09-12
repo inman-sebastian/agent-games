@@ -227,11 +227,11 @@ describe('#8 regression — horizontal movement is unbounded', () => {
 });
 
 describe('derived stats at base levels', () => {
-  it('a fresh player has sane base dig power/interval/vision (upgrades are neutral)', () => {
+  it('a fresh player has sane base dig power/interval/lamp (attributes are neutral)', () => {
     const st = stats(newSession(1).player);
     expect(st.power).toBe(1);
     expect(st.interval).toBeGreaterThan(0);
-    expect(st.vision).toBeGreaterThan(0);
+    expect(st.lamp).toBeGreaterThan(0);
     expect(st.fortune).toBe(0);
   });
 
