@@ -1,6 +1,6 @@
 // mythril.ts — Mythril (ore id 9). The shared stone surface in a legendary violet palette + a sparkle
 // and a magical, lively twinkle — the abyss's rarest ore.
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, facetSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -14,7 +14,7 @@ registerOreMaterial(9, {
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.26, minLit: 0.55 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 5)
     );
   },
   twinkle(ctx: TwinkleCtx): void {

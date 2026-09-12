@@ -1,6 +1,6 @@
 // emerald.ts — Emerald (ore id 6). Shared stone surface in a green palette + a baked sparkle, and a
 // livelier animated twinkle than the metals (faster, brighter, cooler) so the gem feels crystalline.
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, facetSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -14,7 +14,7 @@ registerOreMaterial(6, {
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.24, minLit: 0.56 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 5)
     );
   },
   twinkle(ctx: TwinkleCtx): void {

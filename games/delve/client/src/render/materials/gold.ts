@@ -1,6 +1,6 @@
 // gold.ts — Gold (ore id 5). Shared stone surface in a warm gold palette + a baked sparkle, and an
 // animated per-frame twinkle on its lit faces. "The same rock, made of gold," with life.
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, metalSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -14,7 +14,8 @@ registerOreMaterial(5, {
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.14, minLit: 0.66 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      // lustrous smooth metal (a touch of blotch keeps it from looking flat)
+      metalSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 0.34, 0.12)
     );
   },
   twinkle(ctx: TwinkleCtx): void {

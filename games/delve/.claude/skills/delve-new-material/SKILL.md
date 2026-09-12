@@ -11,15 +11,19 @@ and [`docs/PALETTE.md`](../../../docs/PALETTE.md) (Resurrect-64 + ramps) first �
 procedure; those own the rules. All paths below are under `games/delve/`.
 
 Core idea: the **compositor** owns geometry; your material owns **colour only** via
-`shade(ctx) => Rgb`, built on the shared `stoneSurface` primitive so it reads as "the same rock,
-made of X." Ore is **baked** into the rock chunks (no overlay), so once you register the material
-there is **no extra render wiring** — the game, worker, and labs all pick it up by ore id.
+`shade(ctx) => Rgb`, built on one of the shared **surface-class primitives** (`stoneSurface` /
+`metalSurface` / `facetSurface` / `glassSurface`) so it reads as "the same world, made of X." The
+texture is the material's *class* — pick it by what the material physically is, don't invent one.
+Ore is **baked** into the rock chunks (no overlay), so once you register the material there is **no
+extra render wiring** — the game, worker, and labs all pick it up by ore id.
 
 ## Step 1 — gameplay data (`shared/src/resources/<name>.ts`)
 
 Render-free (server + tools read it). Copy an existing ore file and edit. Pick a **new unique
 `id`** (existing ids: dirt 1, copper 2, iron 3, silver 4, gold 5, emerald 6, ruby 7, diamond 8,
-mythril 9 → new ore = 10+). Then add one import line to `shared/src/resources/index.ts`.
+mythril 9, platinum 10, obsidian 11, quartz 12, stonebricks 13 → new ore = 14+). Ids are
+append-only (saves reference them) — never renumber. Then add one import line to
+`shared/src/resources/index.ts`.
 
 ```ts
 import { register } from '../registry';
@@ -46,14 +50,16 @@ register({
 
 ## Step 2 — the material shader (`client/src/render/materials/<name>.ts`)
 
-Build a 6-stop **Resurrect-64** ramp (shadow→rim) via `colorsFor`, and `shade` on top of
-`stoneSurface`. Register with the **same id** as the resource. Pick the template by tier:
+Build a 6-stop **Resurrect-64** ramp (shadow→rim) via `colorsFor`, then `shade` on top of the
+**surface-class primitive** that matches what the material *is* (see MATERIALS.md for all four):
+`metalSurface` for metals, `facetSurface` for gems/crystals, `glassSurface` for glass,
+`stoneSurface` for ore-in-rock. Register with the **same id** as the resource. Pick the template:
 
-**Metal (sheen, no twinkle)** — copper/iron style:
+**Metal (`metalSurface` + sheen, no twinkle)** — copper/iron/silver/platinum style:
 
 ```ts
 import { vnoise } from '@delve/shared';
-import { TEX, hexRgb, colorsFor, stoneSurface } from '../palette';
+import { TEX, hexRgb, colorsFor, metalSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx } from './types';
@@ -61,20 +67,21 @@ import type { ShadeCtx } from './types';
 const COLORS = colorsFor(['#101a30', '#26305a', '#3a4f8a', '#4d65b4', '#7aa0e0', '#bfe0ff']);
 const SHEEN: Rgb = hexRgb('#eaf3ff');
 
-registerOreMaterial(10, {
+registerOreMaterial(14, {
   feather: 2.8,
   shade(ctx: ShadeCtx): Rgb {
     if (ctx.brightness > 0.74 && vnoise(ctx.worldX * 0.55, ctx.worldY * 0.55, TEX + 34) > 0.88)
       return SHEEN;
-    return stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS);
+    // blotch = low-freq patchiness, streak = fine brushing; lower both for a mirror finish
+    return metalSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 0.4, 0.12);
   },
 });
 ```
 
-**Gem (baked sparkle + animated twinkle)** — emerald/ruby/diamond style:
+**Gem (`facetSurface` + baked sparkle + animated twinkle)** — emerald/ruby/diamond/quartz style:
 
 ```ts
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, facetSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -83,12 +90,12 @@ import { sparkle, drawGlint, twinkleFlash } from './fx';
 const COLORS = colorsFor(['#0b241a', '#124430', '#1b6543', '#2c9660', '#57c584', '#a9eec6']);
 const GLINT: Rgb = hexRgb('#eafff4');
 
-registerOreMaterial(10, {
+registerOreMaterial(14, {
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.22, minLit: 0.56 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 5) // facet px
     );
   },
   twinkle(ctx: TwinkleCtx): void {
@@ -101,10 +108,13 @@ registerOreMaterial(10, {
 });
 ```
 
+For **glass**, swap in `glassSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)`
+(see `obsidian.ts`); for **ore-in-rock**, use `stoneSurface(…, COLORS)` (see `copper.ts`).
+
 Then **register it**: add `import './<name>';` to `client/src/render/materials/index.ts`.
 
 Rules that keep it cohesive (see MATERIALS.md):
-- **Always** build on `stoneSurface` in a `colorsFor([...])` ramp — never hand-roll a surface.
+- **Pick a surface-class primitive** in a `colorsFor([...])` ramp — never hand-roll a surface.
   Seed any noise with `ctx.worldX/worldY` (not px/py) so texture is stable + seamless.
 - **Palette**: all six ramp stops from Resurrect-64 (or a `mix()`/`desat()` of them). Dark shadow
   → bright rim. `GLINT`/`SHEEN` are near-white tinted toward the material.
@@ -117,15 +127,23 @@ Rules that keep it cohesive (see MATERIALS.md):
 
 Run from `games/delve/`. Assumes `pnpm dev` is running for shots (`SHOT_BASE=http://localhost:5173`).
 
+The **material lab** (`labs/material-lab.html`) is the dedicated harness — a sidebar grid of every
+material plus a **surface** preview and a **cave-system** preview. It's fully URL-driven, and
+`ui=0` renders one bare preview at the top-left framed by shot.sh's `w`/`h`/`scale`, so you can
+inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, spaces stripped),
+`view=surface|cave|both`, `depth=<row>`, `scale`, `lit=0|1`, `seed`, `w`/`h`.
+
 1. `pnpm verify` — the balance gate; run it because you changed gameplay data (band/weight/value/hp).
 2. `pnpm --filter @delve/client typecheck` and `pnpm build` — must be green.
-3. **Swatch** (top-lit isolated block; the new ore auto-appears in the grid):
-   `WATCHDOG=20 SHOT_BASE=http://localhost:5173 tools/shot.sh 'w=64&h=74&scale=1' /tmp/mat.png labs/material-lab.html` → `Read /tmp/mat.png`.
-4. **In world** (baked + feathered + lit), at a depth inside the ore's band:
-   `WATCHDOG=25 SHOT_BASE=http://localhost:5173 tools/shot.sh 'orestyle=strata&r=<bandMid>&cave=shaft&lamp=1&w=70&h=56&scale=5&miner=0' /tmp/mat-world.png labs/render.html`.
-   (Lamp off shows the raw surface; the `material-lab` field view shows twinkle animating.)
-5. Judge it against the value-gradient + shared-language conventions; tune the ramp/FX and re-shot.
-   Reach for Playwright only for live animation feel — never for a still a `shot.sh` crop can answer.
+3. **Surface** (the top-lit block, in isolation):
+   `SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=surface&ui=0&mat=<slug>&w=8&h=6&scale=4' /tmp/mat.png labs/material-lab.html` → `Read /tmp/mat.png`.
+4. **In a cave** (baked + feathered into rock + lamp-lit), the window auto-centres on a vein of the
+   selected material at a depth inside its band:
+   `WATCHDOG=8 SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=cave&ui=0&mat=<slug>&depth=<bandMid>&w=14&h=10&scale=3' /tmp/mat-cave.png labs/material-lab.html`.
+   (Change `seed=<n>` to see a different cave shape; drop `lit=0` to kill the lamp and see the raw surface.)
+5. Judge it against the value-gradient + surface-class conventions; tune the ramp/FX and re-shot. The
+   interactive lab (`ui=1`, the default) shows twinkle animating — reach for Playwright only for that
+   live feel, never for a still a `shot.sh` crop can answer.
 
 ## Gotchas
 

@@ -11,126 +11,151 @@
         --panel2: #1b2230;
         --ink: #e8eef5;
         --dim: #8494a8;
-        --line: #ffffff16;
-        --gold: #f2c14e;
+        --line: #ffffff1c;
+        --sel: #f2c14e;
       }
       * {
         box-sizing: border-box;
       }
+      html,
       body {
         margin: 0;
-        background: radial-gradient(1200px 800px at 50% -10%, #131a24, var(--bg));
+        height: 100%;
+        background: var(--bg);
         color: var(--ink);
-        font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-        padding: 18px 22px 48px;
+        font: 12px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       }
-      h1 {
-        font-size: 13px;
-        letter-spacing: 0.5em;
-        margin: 0 0 2px;
-        color: var(--dim);
-      }
-      h1 b {
-        color: var(--ink);
-      }
-      p.lede {
-        color: var(--dim);
-        margin: 0 0 16px;
-        max-width: 86ch;
-      }
-      .bar {
+      #ui {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px 18px;
+        gap: 6px 16px;
         align-items: center;
+        padding: 8px 14px;
         background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 12px 14px;
-        margin-bottom: 18px;
+        border-bottom: 1px solid var(--line);
       }
-      .bar label {
+      #ui.hidden {
+        display: none;
+      }
+      #ui label {
         display: inline-flex;
         gap: 6px;
         align-items: center;
         color: var(--dim);
         user-select: none;
-        cursor: pointer;
-      }
-      .bar label:hover {
-        color: var(--ink);
-      }
-      input[type='range'] {
-        width: 120px;
-        accent-color: var(--gold);
       }
       button {
         font: inherit;
         color: var(--ink);
         background: var(--panel2);
         border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 6px 10px;
+        border-radius: 7px;
+        padding: 4px 9px;
         cursor: pointer;
       }
-      button:hover {
-        border-color: #ffffff33;
+      input[type='range'] {
+        width: 120px;
+        accent-color: var(--sel);
       }
-      .card {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 14px;
-        margin-bottom: 18px;
+      .val {
+        color: var(--sel);
+        font-variant-numeric: tabular-nums;
+        min-width: 30px;
       }
-      .card h2 {
-        font-size: 11px;
+      #app {
+        display: flex;
+        gap: 16px;
+        padding: 16px;
+        align-items: flex-start;
+      }
+      /* left sidebar — scrollable grid of material swatches (selectors) */
+      #sidebar {
+        width: 208px;
+        flex: none;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+        max-height: calc(100vh - 90px);
+        overflow-y: auto;
+        padding-right: 4px;
+      }
+      .swatch {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        cursor: pointer;
+        border: 1px solid transparent;
+        border-radius: 6px;
+        padding: 3px;
+      }
+      .swatch.sel {
+        border-color: var(--sel);
+      }
+      .swatch .label {
+        color: var(--dim);
+        text-align: center;
+        font-size: 10px;
+      }
+      .swatch.sel .label {
+        color: var(--ink);
+      }
+      /* right — two equal, fixed-size preview panes; scale zooms the render inside, box stays fixed */
+      .pane {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .pane h2 {
+        font-size: 10px;
         letter-spacing: 0.16em;
         text-transform: uppercase;
         color: var(--dim);
-        margin: 0 0 12px;
+        margin: 0;
+      }
+      .box {
+        width: 520px;
+        height: 340px;
+        overflow: hidden;
+        background: #07070c;
+        border: 1px solid var(--line);
+        border-radius: 6px;
       }
       canvas {
         image-rendering: pixelated;
         display: block;
-        border-radius: 6px;
-        background: #07070c;
-      }
-      .val {
-        color: var(--gold);
-        font-variant-numeric: tabular-nums;
-        min-width: 26px;
-        display: inline-block;
-        text-align: right;
       }
     </style>
   </head>
   <body>
-    <h1>DE<b>L</b>VE · MATERIAL LAB</h1>
-    <p class="lede">
-      Every in-world material rendered through the <b>shared compositor</b> (geometry + top-light +
-      feathered boundaries), each coloured by its <b>own shader</b> in
-      <code>client/src/render/materials/</code>. The swatches show each material's surface in
-      isolation; the field below shows real world-gen veins feathering into the rock in context.
-    </p>
-
-    <div class="bar">
-      <label><input type="checkbox" id="lamp" checked /> lighting</label>
-      <label>zoom <input type="range" id="zoom" min="2" max="6" step="1" value="4" /><span class="val" id="zoomv">4×</span></label>
-      <label>field depth <input type="range" id="depth" min="20" max="230" step="1" value="120" /><span class="val" id="depthv">120</span></label>
-      <button id="regen">↻ new field</button>
+    <div id="ui">
+      <label
+        >view
+        <select id="view">
+          <option value="both">both</option>
+          <option value="surface">surface</option>
+          <option value="cave">cave</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="lit" /> lamp</label>
+      <label
+        >scale <input type="range" id="scale" min="2" max="12" step="1" /><span class="val" id="scalev"></span
+      ></label>
+      <label
+        >depth <input type="range" id="depth" min="4" max="640" step="2" /><span class="val" id="depthv"></span
+      ></label>
+      <button id="regen">↻ seed</button>
     </div>
-
-    <div class="card">
-      <h2>Materials — each swatch is one material, top-lit</h2>
-      <canvas id="swatches"></canvas>
+    <div id="app">
+      <div id="sidebar"></div>
+      <div class="pane" id="surfacePane">
+        <h2 id="surfaceLabel">Surface</h2>
+        <div class="box" id="surfaceBox"></div>
+      </div>
+      <div class="pane" id="cavePane">
+        <h2>Cave system</h2>
+        <div class="box" id="caveBox"></div>
+      </div>
     </div>
-
-    <div class="card">
-      <h2>Sample vein field — real world-gen, materials feathering into the rock</h2>
-      <canvas id="field"></canvas>
-    </div>
-
     <script type="module" src="./material-lab.ts"></script>
   </body>
 </html>

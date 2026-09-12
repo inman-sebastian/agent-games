@@ -44,13 +44,30 @@ interface Material {
   `litAt(t)` — one glint travels the whole **cluster edge** (adjacent same-material lit tiles).
 - `DamageCtx`: `g`, `x, y`, `scale`, `frac` (dig progress), `seed`, `lit`, `dirX, dirY` (mined-from side).
 
-## Shared visual language (non-negotiable)
+## Shared visual language — surface classes (non-negotiable)
 
-Every material's `shade` builds on the shared **`stoneSurface(worldX, worldY, px, py, brightness,
-colors)`** primitive (`palette.ts`) — the rock's exact craggy + Bayer-dithered recipe — just in
-its own palette. `colors` comes from **`colorsFor([6 hex stops, shadow→rim])`** on the
-[Resurrect-64](PALETTE.md) palette. This is why an ore reads as "the same rock, made of gold"
-rather than a foreign asset. Don't hand-roll a surface; layer FX _on top_ of `stoneSurface`.
+Every material's `shade` builds on **one of the shared surface primitives** in `palette.ts`,
+picked by what the material physically *is* — the texture is the material's class, not a per-ore
+invention. Each takes the same `(worldX, worldY, px, py, brightness, colors, …)` shape and returns
+a quantised, Bayer-dithered colour; `colors` always comes from **`colorsFor([6 hex stops,
+shadow→rim])`** on the [Resurrect-64](PALETTE.md) palette. Never hand-roll a surface — pick the
+class primitive and layer FX _on top_. The classes:
+
+- **`stoneSurface(wx, wy, px, py, b, colors)`** — the rock's craggy recipe. Plain rock and any
+  ore that reads as ore-in-rock (copper's veins, the strata). The default.
+- **`metalSurface(wx, wy, px, py, b, colors, blotch, streak)`** — smooth/brushed, no speckle.
+  `blotch` = low-freq patchiness, `streak` = fine directional brushing. Iron/silver/platinum/gold.
+- **`facetSurface(wx, wy, px, py, b, colors, facet)`** — cut-crystal planes: skewed cells of size
+  `facet` px each get a flat tone + faint grain. Emerald/ruby/diamond/mythril/quartz (gems).
+- **`glassSurface(wx, wy, px, py, b, colors)`** — smooth dark glossy, brightness pulled down so it
+  reads as glass even when lit. Obsidian.
+
+A material may also compose a *structured* surface on top of a class (e.g. `stonebricks.ts` lays a
+running-bond brick pattern over `stoneSurface`) — still Resurrect-64, still world-anchored.
+
+The through-line is unchanged: seed all noise with `worldX/worldY` (stable + seamless), quantise to
+the ramp, dither with `px/py`. This is why every material reads as the same world in a different
+material rather than a foreign asset.
 
 ## FX catalogue (`materials/fx.ts`) — opt-in
 

@@ -1,6 +1,6 @@
 // diamond.ts — Diamond (ore id 8). The shared stone surface in a bright cyan palette + the densest
 // sparkle and the fastest, most frequent twinkle — flawless and brilliant, the top of the value gradient.
-import { hexRgb, colorsFor, stoneSurface } from '../palette';
+import { hexRgb, colorsFor, facetSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
@@ -14,7 +14,7 @@ registerOreMaterial(8, {
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.3, minLit: 0.5 }) ??
-      stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS)
+      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 6)
     );
   },
   twinkle(ctx: TwinkleCtx): void {

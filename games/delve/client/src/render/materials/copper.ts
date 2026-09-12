@@ -1,7 +1,7 @@
 // copper.ts — Copper (ore id 2). The shared stone surface in a warm ruddy palette + a soft, common
 // sheen (no twinkle — it's the cheap starter metal, not a treasure). "The same rock, made of copper."
 import { vnoise } from '@delve/shared';
-import { TEX, hexRgb, colorsFor, stoneSurface } from '../palette';
+import { TEX, hexRgb, colorsFor, metalSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx } from './types';
@@ -15,6 +15,7 @@ registerOreMaterial(2, {
     // a broad, low-frequency warm sheen on the best-lit faces — duller + more common than gold's
     if (ctx.brightness > 0.74 && vnoise(ctx.worldX * 0.5, ctx.worldY * 0.5, TEX + 21) > 0.86)
       return SHEEN;
-    return stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS);
+    // ruddy ore-metal: rougher than the refined metals (higher blotch)
+    return metalSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 0.42, 0.14);
   },
 });
