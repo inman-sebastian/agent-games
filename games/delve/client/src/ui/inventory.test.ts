@@ -22,7 +22,11 @@ describe('buildInventoryRows', () => {
     const rows = buildInventoryRows({ 5: 3, 2: 40, 8: 1 }, ORES, stubIcon);
     expect(rows).toHaveLength(3);
     // sorted by ore id → Copper(2), Gold(5), Diamond(8)
-    expect(rows.map((r) => r.querySelector('.nm')!.textContent)).toEqual(['Copper', 'Gold', 'Diamond']);
+    expect(rows.map((r) => r.querySelector('.nm')!.textContent)).toEqual([
+      'Copper',
+      'Gold',
+      'Diamond',
+    ]);
     expect(rows.map((r) => r.querySelector('.lv')!.textContent)).toEqual(['×40', '×3', '×1']);
     expect(rows[0].querySelector('.ds')!.textContent).toBe('A ruddy metal.');
   });

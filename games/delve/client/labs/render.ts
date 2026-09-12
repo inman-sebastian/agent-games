@@ -2,7 +2,7 @@
 // modules into a canvas sized to the crop, so a visual check is one tiny image of precisely the
 // thing (captured headless via shot.sh). Driven entirely by URL params (see render.html).
 import { T, setStrata, composeBand } from '../src/render/cave-render';
-import { WIDTH, SURFACE, STRATA, blockAt, oreAt } from '@delve/shared';
+import { WIDTH, STRATA, blockAt, oreAt, surfaceAt } from '@delve/shared';
 import { ORE_ART, drawOreBlock } from '../src/render/ore-art';
 import { oreMaterial, drawDamage } from '../src/render/materials';
 import { drawPlayer, poseFor } from '../src/render/entity/player';
@@ -60,8 +60,11 @@ if (damage > 0) {
   for (let dy = -1; dy <= 1; dy++)
     for (let dx = -1; dx <= 1; dx++) dug.add(`${centerColumn + dx},${centerRow + dy}`); // chamber
 }
+// Per COLUMN, which is the whole point of the heightmap. A careless refactor briefly used the crop's
+// centre column for every column here, which is flat by construction and rendered a dead-level
+// horizon no matter what the generator produced.
 const solidTile = (column: number, row: number): boolean =>
-  row > SURFACE && !dug.has(`${column},${row}`);
+  row > surfaceAt(seed, column) && !dug.has(`${column},${row}`);
 
 const LW = cols * T;
 const LH = rows * T;
@@ -80,7 +83,9 @@ const materialAt =
   oreStyle === 'strata'
     ? (column: number, row: number) => oreMaterial(oreAt(seed, column, row))
     : undefined;
-composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, SURFACE, materialAt);
+// The real per-column surface, so a crop that includes the surface shows the actual terrain.
+const surfaceOf = (column: number): number => surfaceAt(seed, column);
+composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, surfaceOf, materialAt);
 
 // crystal style only: draw the faceted ore blocks on top (the harness always reveals ore).
 if (oreStyle !== 'strata') {
@@ -148,7 +153,8 @@ if (applyLamp) {
     LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * lamp,
   );
   // (ore no longer emits its own light — matches the game; veins read by their lit surface alone)
-  lighting.render({ g, LW, LH, T, camX, camY, SURFACE: -1, solidTile });
+  // The real surface, so the lighting's sky check follows the terrain like the compositor's does.
+  lighting.render({ g, LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
 }
 
 document.title = 'ready'; // signal for headless capture

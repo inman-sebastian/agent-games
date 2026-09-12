@@ -1,7 +1,7 @@
 // light-lab.ts — a sandbox for the real lighting system with many coloured emitters, to see how
 // they blend (additive per-channel, max-propagated flood-fill) and how the additive cap reads.
 // Keys: [H] hue-preserving vs per-channel cap · [Space] pause · [O] occluders. Pure dev tool.
-import { T, setStrata, composeBand } from '../src/render/cave-render';
+import { T, setStrata, composeBand, NO_SKY } from '../src/render/cave-render';
 import { STRATA } from '@delve/shared';
 import { create as createLighting } from '../src/render/lighting';
 import type { LightColor } from '@delve/shared';
@@ -123,13 +123,13 @@ addEventListener('keydown', (e: KeyboardEvent) => {
 
 function frame(now: number): void {
   const t = (paused ? pauseT : (pauseT = now)) / 1000;
-  composeBand(g, solidTile, 0, 0, COLS, ROWS, Infinity, -1); // rock chamber backdrop
+  composeBand(g, solidTile, 0, 0, COLS, ROWS, Infinity, NO_SKY); // rock chamber backdrop
   for (const L of LIGHTS) {
     const x = (L.bx + Math.cos(t * 0.6 + L.ph) * L.orbit) * T + T / 2;
     const y = (L.by + Math.sin(t * 0.6 + L.ph) * L.orbit) * T + T / 2;
     lighting.addLight(x, y, 0, L.col, L.i);
   }
-  lighting.render({ g, LW, LH, T, camX: 0, camY: 0, SURFACE: -1, solidTile, hueCap });
+  lighting.render({ g, LW, LH, T, camX: 0, camY: 0, surfaceAt: () => -1, solidTile, hueCap });
 
   (document.getElementById('hud') as HTMLElement).textContent =
     `DELVE · light lab\n` +

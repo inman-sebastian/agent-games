@@ -15,10 +15,12 @@ import {
   stats,
   key,
   unstick,
+  bodyFits,
   PHYS,
   TICK_DT,
   WIDTH,
-  SURFACE,
+  SURFACE_BASE,
+  surfaceAt,
   blockAt,
   oreAt,
   type Input,
@@ -250,8 +252,13 @@ describe('derived stats at base levels', () => {
     expect(st.fortune).toBe(0);
   });
 
-  it('SURFACE rows are open', () => {
-    expect(blockAt(1, 0, SURFACE).solid).toBe(false);
+  it("the row at a column's own surface is open", () => {
+    // Per column, not at row 0: the surface is a heightmap (#44), so a hill puts rock above row 0
+    // and a valley puts sky below it.
+    for (const column of [-40, -1, 0, 7, 123]) {
+      expect(blockAt(1, column, surfaceAt(1, column)).solid, `column ${column}`).toBe(false);
+      expect(blockAt(1, column, surfaceAt(1, column) + 1).solid, `column ${column}`).toBe(true);
+    }
   });
 });
 
@@ -260,7 +267,7 @@ describe('the player body is taller than one tile (#47)', () => {
   // longer fits, so a tunnel has to be dug two tiles tall. None of the existing physics tests noticed
   // the change, because every one of them was written against a body that fitted inside a tile —
   // which is exactly why these exist.
-  const ROW = SURFACE + 20; // well below the surface, where every tile is solid until dug
+  const ROW = SURFACE_BASE + 20; // well below the surface, where every tile is solid until dug
   const COL = WIDTH >> 1;
 
   /**
@@ -378,7 +385,7 @@ describe('the player body is taller than one tile (#47)', () => {
 
   it('spawns a fresh player standing on the surface, not inside it', () => {
     // The body is derived from the character art, so the spawn height has to be derived from the
-    // body. At the old size `SURFACE + 0.5` was fine; at 1.82 tiles it buried the feet in the first
+    // body. At the old size `SURFACE_BASE + 0.5` was fine; at 1.82 tiles it buried the feet in the first
     // solid row and let the physics eject the player over the following frames.
     const session = newSession(99);
     expect(unstick(session.world, session.player, 0)).toBe(true);
@@ -397,5 +404,58 @@ describe('the player body is taller than one tile (#47)', () => {
     session.player.x = COL + 0.5;
     session.player.y = ROW;
     expect(unstick(session.world, session.player, 3)).toBe(false);
+  });
+});
+
+describe('walking over terrain (#44)', () => {
+  it('steps up a one-tile rise instead of stopping at it', () => {
+    // The heightmap's slope is bounded to one tile per column, and one tile is a WALL to a walker
+    // with no assist — which is how this was found: the movement regression test stopped dead at
+    // the first hill.
+    const session = newSession(4242);
+    const startX = session.player.x;
+    for (let i = 0; i < 600; i++) {
+      physicsStep(session, { left: false, right: true, jump: false }, TICK_DT);
+    }
+    expect(session.player.x - startX).toBeGreaterThan(20);
+  });
+
+  it('does not let step-up climb more than one tile', () => {
+    // The assist must not become a ladder. Tested UNDERGROUND, where geometry can actually be built
+    // by digging: above ground, solidity comes from the heightmap and a hand-built wall is not
+    // possible — the first version of this test "walled off" columns that were never dug, so
+    // nothing changed and the player strolled past it.
+    const ROW = SURFACE_BASE + 30;
+    const COL = 0;
+    const session = newSession(4242);
+    // A three-tall corridor running right, whose floor rises by two tiles half way along.
+    for (let c = COL; c <= COL + 20; c++) {
+      const floor = c < COL + 10 ? ROW : ROW - 2;
+      for (let r = floor - 3; r < floor; r++) session.world.dug[key(c, r)] = true;
+    }
+    session.player.x = COL + 0.5;
+    session.player.y = ROW - PHYS.HH;
+    session.player.vx = 0;
+    session.player.vy = 0;
+    expect(bodyFits(session.world, session.player.x, session.player.y)).toBe(true);
+    for (let i = 0; i < 600; i++) {
+      physicsStep(session, { left: false, right: true, jump: false }, TICK_DT);
+    }
+    // Stopped at the two-tile step rather than climbing it.
+    expect(session.player.x).toBeLessThan(COL + 10.5);
+  });
+
+  it('spawns standing on the ground whatever the terrain does', () => {
+    for (const seed of [1, 2, 3, 77, 4242, 999999]) {
+      const session = newSession(seed);
+      expect(bodyFits(session.world, session.player.x, session.player.y), `seed ${seed}`).toBe(
+        true,
+      );
+      // And resting on it, not hovering above it.
+      expect(
+        bodyFits(session.world, session.player.x, session.player.y + 0.2),
+        `seed ${seed} is airborne`,
+      ).toBe(false);
+    }
   });
 });

@@ -59,7 +59,11 @@ export interface LightingConfig {
   T: number;
   camX?: number;
   camY?: number;
-  SURFACE?: number;
+  /**
+   * The surface row at a column. A FUNCTION, because the surface is a heightmap (#44) — the sky
+   * boundary follows the terrain rather than cutting straight across the screen.
+   */
+  surfaceAt?: (column: number) => number;
   solidTile: (column: number, row: number) => boolean;
   /** true (default): cap RGB together (keep hue); false: clamp per channel (washes to white). */
   hueCap?: boolean;
@@ -155,7 +159,7 @@ export function create(): LightingInstance {
     const { LW, LH, T } = cfg;
     const camX = cfg.camX ?? 0;
     const camY = cfg.camY ?? 0;
-    const surface = cfg.SURFACE ?? -1;
+    const surfaceAt = cfg.surfaceAt ?? ((): number => -1);
     const solidTile = cfg.solidTile;
     const hueCap = cfg.hueCap !== false;
 
@@ -322,7 +326,13 @@ export function create(): LightingInstance {
 
     // ---- scrim: per-pixel dithered darkness from the 1-channel brightness field ----
     const scrim = scrimImg.data;
-    const skyY = (surface + 1) * T;
+    // Sky boundary PER SCREEN COLUMN, precomputed once per frame. It used to be one number, which
+    // was fine when the surface was a constant row; with a heightmap (#44) the boundary follows the
+    // terrain, and recomputing it inside the pixel loop would call the noise field a million times.
+    const skyY = new Float32Array(LW);
+    for (let x = 0; x < LW; x++) {
+      skyY[x] = (surfaceAt(Math.floor((x + camX) / T)) + 1) * T;
+    }
     for (let x = 0; x < LW; x++) {
       const fx = (x + camX) / T - tileLeft - 0.5;
       let gx = fx | 0;
@@ -343,8 +353,8 @@ export function create(): LightingInstance {
       const rowTop = gy * gridW;
       const rowBottom = rowTop + gridW;
       const rowByteBase = y * LW * 4;
-      const aboveSky = y + camY <= skyY;
       for (let x = 0; x < LW; x++) {
+        const aboveSky = y + camY <= skyY[x];
         const gx = colIndex[x];
         const tx = colWeight[x];
         const tx1 = colWeightInv[x];

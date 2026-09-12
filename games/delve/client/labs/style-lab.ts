@@ -1,7 +1,7 @@
 // style-lab.ts — the art style lab. Every panel renders through the EXACT shared modules the game
 // uses (cave-render / ore-art / sprites / lighting), so what you tune here is what ships. Pure dev
 // tool; not part of the game bundle. See style-lab.html for the surrounding chrome.
-import { T, setStrata, composeBand, hexRgb, mulberry } from '../src/render/cave-render';
+import { T, setStrata, composeBand, hexRgb, mulberry, NO_SKY } from '../src/render/cave-render';
 import { ORE_ART, SHAPES, drawOreBlock } from '../src/render/ore-art';
 import { drawPlayer, poseFor } from '../src/render/entity/player';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
@@ -148,7 +148,7 @@ function renderScene(): void {
     return c < 0 || c >= COLS || y < 0 || y >= ROWS ? true : grid[y][c];
   };
   // rock + background + sky + stalactites — the exact game renderer, at this stratum's depth
-  composeBand(lb, solidTile, 0, top, COLS, ROWS, COLS, -1);
+  composeBand(lb, solidTile, 0, top, COLS, ROWS, COLS, NO_SKY);
   // ore veins — the exact game vein renderer
   if (o.ore) {
     for (let y = 0; y < ROWS; y++) {
@@ -206,7 +206,7 @@ function renderScene(): void {
         }
       }
     }
-    lighting.render({ g: lb, LW: PW, LH: PH, T, camX, camY, SURFACE: -1, solidTile });
+    lighting.render({ g: lb, LW: PW, LH: PH, T, camX, camY, surfaceAt: () => -1, solidTile });
   }
   present(scene, sctx, PW, PH, S);
   if (o.grid) {
@@ -264,7 +264,7 @@ function renderMine(): void {
       lbuf.width = T;
       lbuf.height = T;
       lb.imageSmoothingEnabled = false;
-      composeBand(lb, solidTile, 0, 1, 1, 1, 1, -1); // single lit rock tile
+      composeBand(lb, solidTile, 0, 1, 1, 1, 1, NO_SKY); // single lit rock tile
       drawOreBlock(lb, art, 0, 0, 0, 1, d, () => false); // isolated block, cracks by damage
       blit(labelW + i * (cell + gx), y);
     });
@@ -304,7 +304,7 @@ function renderAtlas(): void {
     lbuf.width = T;
     lbuf.height = T;
     lb.imageSmoothingEnabled = false;
-    composeBand(lb, solidTile, 0, top, 1, 1, 1, -1);
+    composeBand(lb, solidTile, 0, top, 1, 1, 1, NO_SKY);
     actx.drawImage(lbuf, 0, 0, T, T, i * (T * S + gap), 0, T * S, T * S);
   });
 }

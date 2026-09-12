@@ -43,7 +43,6 @@ export function rampAt(row: number): string[] {
   return near.ramp.map((hex, stop) => mix(hex, far.ramp[stop], t));
 }
 
-
 interface BgColors {
   top: string;
   bot: string;
@@ -165,8 +164,10 @@ function buildMask(
       // so the outline is never perfectly square. Distance is to that corner's tile vertex.
       let cornerDist = 99;
       if (openU && openL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, localY + 0.5));
-      if (openU && openR) cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, localY + 0.5));
-      if (openD && openL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, T - localY - 0.5));
+      if (openU && openR)
+        cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, localY + 0.5));
+      if (openD && openL)
+        cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, T - localY - 0.5));
       if (openD && openR)
         cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, T - localY - 0.5));
       const roundRadius = CORNER_ROUND_BASE + CORNER_ROUND_NOISE * noise;
@@ -252,7 +253,8 @@ function shadeRock(
   const materialOfTile = (column: number, row: number): Material | null => {
     const c = column - bandLeft;
     const r = row - bandTop;
-    if (c < -1 || c > cols || r < -1 || r > rows) return materialAt ? materialAt(column, row) : null;
+    if (c < -1 || c > cols || r < -1 || r > rows)
+      return materialAt ? materialAt(column, row) : null;
     return tileMaterials[(r + 1) * paddedW + (c + 1)] ?? null;
   };
 
@@ -414,6 +416,18 @@ const BG_SILHOUETTE_THRESHOLD = 0.42;
  * (destination top-left, colsW×rowsH tiles). `W` is legacy (the world is unbounded); solidTile
  * handles any column.
  */
+/**
+ * "No sky in this crop" — every row is underground.
+ *
+ * The dev labs render isolated rock samples with no surface in view, and passing this says so,
+ * where a bare `() => -1` at each call site just looked like a magic number.
+ */
+export const NO_SKY = (): number => -1;
+
+/** The world columns a band spans, for whole-band queries like the sky boundary. */
+const columnsOf = (bandLeft: number, colsW: number): number[] =>
+  Array.from({ length: colsW }, (_, i) => bandLeft + i);
+
 export function composeBand(
   g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   isSolid: SolidTile,
@@ -422,7 +436,11 @@ export function composeBand(
   colsW: number,
   rowsH: number,
   _legacyWidth: number,
-  surface: number,
+  /**
+   * The surface row at a column. A FUNCTION, not a number: the surface is a heightmap (#44), so the
+   * sky boundary follows the terrain instead of cutting straight across the band.
+   */
+  surfaceAt: (column: number) => number,
   materialAt?: (column: number, row: number) => Material | null,
 ): void {
   const width = colsW * T;
@@ -451,6 +469,32 @@ export function composeBand(
     }
   }
 
+  // Sky fills the open space above the ground, PER COLUMN, so a hillside's sky follows its ridge
+  // instead of cutting straight across the band.
+  //
+  // Drawn BEFORE the rock, which is the ordering that actually matters. It used to come after, which
+  // was harmless while the surface was one flat row — nothing solid existed above it. With a
+  // heightmap the sky then painted straight over every hillside and the horizon came out dead flat,
+  // which is exactly how this bug announced itself.
+  const deepestSky = (Math.max(...columnsOf(bandLeft, colsW).map(surfaceAt)) + 1) * T;
+  if (originY < deepestSky) {
+    for (let i = 0; i < colsW; i++) {
+      const columnBottom = (surfaceAt(bandLeft + i) + 1) * T;
+      for (let py = 0; py < height; py++) {
+        const worldY = originY + py;
+        if (worldY >= columnBottom) break;
+        // The gradient spans the band, not the column, so adjacent columns of different height
+        // still share one continuous sky rather than each running its own ramp.
+        g.fillStyle = mix(
+          SKY_TOP,
+          SKY_HORIZON,
+          clamp01((worldY - originY) / (deepestSky - originY)),
+        );
+        g.fillRect(i * T, py, T, 1);
+      }
+    }
+  }
+
   // foreground rock — where materialAt assigns a material, that material's shader colours the pixel
   // through this SAME top-lit geometry, with the boundary feathered by world noise (see shadeRock).
   g.drawImage(
@@ -459,23 +503,12 @@ export function composeBand(
     0,
   );
 
-  // sky fills the open space above the ground (world rows ≤ surface)
-  const skyBottom = (surface + 1) * T;
-  if (originY < skyBottom) {
-    for (let py = 0; py < height; py++) {
-      const worldY = originY + py;
-      if (worldY >= skyBottom) break;
-      g.fillStyle = mix(SKY_TOP, SKY_HORIZON, clamp01((worldY - originY) / (skyBottom - originY)));
-      g.fillRect(0, py, width, 1);
-    }
-  }
-
   // stalactites / stalagmites where open tiles meet rock (deterministic per world tile)
   const pen = (x: number, y: number, w: number, h: number, color: string): void => {
     g.fillStyle = color;
     g.fillRect(x, y, w || 1, h || 1);
   };
-  for (let row = Math.max(surface + 1, bandTop); row < bandTop + rowsH; row++) {
+  for (let row = bandTop; row < bandTop + rowsH; row++) {
     for (let column = bandLeft; column < bandLeft + colsW; column++) {
       if (isSolid(column, row)) continue;
       const x = (column - bandLeft) * T;

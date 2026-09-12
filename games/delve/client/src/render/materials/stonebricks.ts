@@ -37,6 +37,13 @@ registerOreMaterial(13, {
     const brickId = hashXY(Math.floor(bx / BRICK_W), course, 61);
     const jitter = ((brickId & 31) / 31 - 0.5) * 0.14;
     const bevel = yInCourse <= 1 ? 0.16 : yInCourse >= BRICK_H - 1 ? -0.12 : 0;
-    return stoneSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness + jitter + bevel, COLORS);
+    return stoneSurface(
+      ctx.worldX,
+      ctx.worldY,
+      ctx.px,
+      ctx.py,
+      ctx.brightness + jitter + bevel,
+      COLORS,
+    );
   },
 });

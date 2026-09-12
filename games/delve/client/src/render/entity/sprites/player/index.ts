@@ -44,6 +44,15 @@ export type PlayerAnim = keyof typeof PLAYER_SPRITES;
  * Normalised at import precisely so a skin or material authored once applies to every animation —
  * the source pack calls the same body part by several different names across its files.
  */
-export const PLAYER_SLOTS = ['arm.far', 'leg.far', 'torso', 'leg.near', 'arm.near', 'head', 'weapon', 'fx.damage'] as const;
+export const PLAYER_SLOTS = [
+  'arm.far',
+  'leg.far',
+  'torso',
+  'leg.near',
+  'arm.near',
+  'head',
+  'weapon',
+  'fx.damage',
+] as const;
 
 export type PlayerSlot = (typeof PLAYER_SLOTS)[number];

@@ -12,7 +12,50 @@ import type { Block, OreResource, StrataResource } from './types';
 // is retained only as a convenient default view span for the dev tools; it does NOT bound the
 // world.
 export const WIDTH = 82;
-export const SURFACE = 0; // row 0 is the open surface yard; row > SURFACE is solid rock
+
+/**
+ * The MEAN surface row. The actual surface undulates around it per column — see `surfaceAt`.
+ *
+ * Kept as the reference for everything measured in absolute depth: strata tops, ore bands and rock
+ * HP are all rows counted from here, and they stay horizontal while the ground above them rolls.
+ * That is deliberate and it is how real geology reads — a hill has more topsoil above the same clay,
+ * it does not carry the clay up with it.
+ */
+export const SURFACE_BASE = 0;
+
+// ---- the surface heightmap ---------------------------------------------------------------------
+//
+// `SURFACE` used to be a constant, which made the whole world a flat plane with open sky above one
+// row. The design ruled that the surface is real content and not a barren plane (#44), so it is a
+// function of column now.
+//
+// Two octaves, and the amplitudes are picked against a HARD CONSTRAINT rather than by eye: the
+// player must be able to walk up the terrain. Smoothstep-interpolated value noise has a maximum
+// slope of 1.5 * amplitude * frequency per octave, so the sum of those products has to stay under
+// one tile per column — otherwise a hillside is a wall, and with no step-up assist the player would
+// simply be stopped by open ground. A test measures the real worst case rather than trusting the
+// arithmetic.
+const SURFACE_OCTAVES: readonly { readonly amplitude: number; readonly frequency: number }[] = [
+  { amplitude: 7, frequency: 0.05 }, // broad hills, ~20 tiles across
+  { amplitude: 2, frequency: 0.13 }, // finer undulation so the hills are not featureless curves
+];
+const SURFACE_SALT = 0x5a17; // decorrelates the heightmap from the ore and damage fields
+
+/**
+ * The surface row at `column`: rows AT OR ABOVE it are open sky, rows below it are solid rock.
+ *
+ * Pure `f(seed, column)` like everything else in this file — nothing is stored, and two clients
+ * given the same seed agree without exchanging a heightmap.
+ */
+export function surfaceAt(seed: number, column: number): number {
+  let height = 0;
+  for (const [i, octave] of SURFACE_OCTAVES.entries()) {
+    // Centred on zero, so the octaves cancel rather than all pushing the terrain one way.
+    const n = vnoise(column * octave.frequency, i * 31.7, (seed ^ SURFACE_SALT) >>> 0) - 0.5;
+    height += n * octave.amplitude;
+  }
+  return SURFACE_BASE + Math.round(height);
+}
 
 // Entity definitions come from the resource registry (resources/*.ts). This file owns only
 // the world-generation logic; the data lives with the resources, sorted for us by the registry.
@@ -43,7 +86,7 @@ const DEEP_COVERAGE_BONUS = 0.14; // extra coverage added by depth (capped) — 
 const COVERAGE_PER_ROW = 0.0003; // how fast the depth coverage bonus grows per row
 
 export function oreAt(seed: number, column: number, row: number): number {
-  if (row <= SURFACE) return 0;
+  if (row <= surfaceAt(seed, column)) return 0;
 
   const eligible = ORES.filter((ore) => row >= ore.band[0] && row <= ore.band[1]);
   if (eligible.length === 0) return 0;
@@ -92,7 +135,7 @@ const OPEN: Block = Object.freeze({
  * surface is solid rock (no side walls). Dynamic dug/damage state is layered on by the sim.
  */
 export function blockAt(seed: number, column: number, row: number): Block {
-  if (row <= SURFACE) return OPEN;
+  if (row <= surfaceAt(seed, column)) return OPEN;
   const ore = oreAt(seed, column, row);
   const oreDef = ore ? ORE_BY_ID[ore] : null;
   return {
@@ -107,6 +150,6 @@ export function blockAt(seed: number, column: number, row: number): Block {
 
 /** Cheap boolean solidity for the per-pixel rock field. Static only — callers combine it with
  * the dug overlay: `solidAt(...) && !isDug(...)`. */
-export function solidAt(_seed: number, _column: number, row: number): boolean {
-  return row > SURFACE;
+export function solidAt(seed: number, column: number, row: number): boolean {
+  return row > surfaceAt(seed, column);
 }

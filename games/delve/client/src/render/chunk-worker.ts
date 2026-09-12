@@ -6,7 +6,7 @@
 // is baked INTO the chunk (via each ore's material shader) so veins feather into the rock exactly
 // as they do everywhere else — so the Worker also carries the world seed + the material registry.
 import { composeBand, setStrata } from './cave-render';
-import { oreAt } from '@delve/shared';
+import { oreAt, surfaceAt } from '@delve/shared';
 import { oreMaterial } from './materials';
 import type { Material } from './materials';
 import type { StrataResource } from '@delve/shared';
@@ -15,7 +15,6 @@ interface WorkerConfig {
   T: number;
   CW: number;
   CH: number;
-  SURFACE: number;
   MARGIN: number;
   strata?: readonly StrataResource[];
 }
@@ -26,7 +25,7 @@ type IncomingMessage =
 
 const worker = self as unknown as DedicatedWorkerGlobalScope;
 
-let cfg: WorkerConfig = { T: 16, CW: 12, CH: 6, SURFACE: 0, MARGIN: 1 };
+let cfg: WorkerConfig = { T: 16, CW: 12, CH: 6, MARGIN: 1 };
 let worldSeed: number | null = null; // set by the 'world' message; ore is baked once it's known
 let scratch: OffscreenCanvas | null = null;
 let scratchCtx: OffscreenCanvasRenderingContext2D | null = null;
@@ -46,7 +45,7 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
   }
   if (message.type !== 'chunk') return;
 
-  const { T, CW, CH, SURFACE, MARGIN } = cfg;
+  const { T, CW, CH, MARGIN } = cfg;
   const paddedWidth = (CW + 2 * MARGIN) * T;
   const paddedHeight = (CH + 2 * MARGIN) * T;
   const coreWidth = CW * T;
@@ -61,11 +60,14 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
   }
 
   const dug = message.dug; // Set of "column,row" keys dug within this chunk's region
+  // The surface is a heightmap, so the worker computes it from the seed rather than being handed a
+  // row — a function cannot cross a postMessage boundary.
+  const seed = worldSeed;
+  const surface = (column: number): number => (seed === null ? 0 : surfaceAt(seed, column));
   const solidTile = (column: number, row: number): boolean =>
-    row > SURFACE && !dug.has(`${column},${row}`);
+    row > surface(column) && !dug.has(`${column},${row}`);
 
   // each solid tile's ore (if any) → its material, baked into the band so it feathers into the rock
-  const seed = worldSeed;
   const materialAt: ((column: number, row: number) => Material | null) | undefined =
     seed === null ? undefined : (column, row) => oreMaterial(oreAt(seed, column, row));
 
@@ -79,7 +81,7 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
     CW + 2 * MARGIN,
     CH + 2 * MARGIN,
     Infinity,
-    SURFACE,
+    surface,
     materialAt,
   );
   coreCtx!.clearRect(0, 0, coreWidth, coreHeight);

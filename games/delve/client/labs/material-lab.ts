@@ -4,7 +4,7 @@
 // materials feathering into rock and each other. The panes are a fixed size; `scale` zooms the render
 // INSIDE them (never resizes the box). Fully URL-param driven, and `?ui=0` renders a single bare
 // preview at the top-left framed by shot.sh's w/h/scale — so material shots need no Playwright.
-import { T, setStrata, composeBand } from '../src/render/cave-render';
+import { T, setStrata, composeBand, NO_SKY } from '../src/render/cave-render';
 import { STRATA, all, oreAt, hashXY, vnoise } from '@delve/shared';
 import { oreMaterial, collectTwinkleEdges } from '../src/render/materials';
 import type { Material, TwinkleEdge } from '../src/render/materials';
@@ -88,7 +88,7 @@ function lamp(
     T,
     camX: bandLeft * T,
     camY: bandTop * T,
-    SURFACE: -1,
+    surfaceAt: () => -1,
     solidTile: solid,
   });
 }
@@ -106,7 +106,7 @@ function renderSurface(
   const g = canvas.getContext('2d')!;
   g.imageSmoothingEnabled = false;
   const solid = (_c: number, r: number): boolean => r >= depth + 1;
-  composeBand(g, solid, 0, depth, cols, rows, cols, -1, m.materialAt);
+  composeBand(g, solid, 0, depth, cols, rows, cols, NO_SKY, m.materialAt);
   if (state.lit) lamp(g, cols * T, rows * T, (cols >> 1) * T, (depth + 1) * T, 0, depth, solid);
 }
 
@@ -145,7 +145,7 @@ function renderCave(
   const solid = (c: number, r: number): boolean => r > 0 && !open(c, r);
   const materialAt = (c: number, r: number): Material | null =>
     oreMaterial(oreAt(state.seed, c, r));
-  composeBand(g, solid, bandLeft, depth, cols, rows, cols, -1, materialAt);
+  composeBand(g, solid, bandLeft, depth, cols, rows, cols, NO_SKY, materialAt);
   const litRadius = Math.max(6, Math.min(cols, rows) * 0.6);
   const litOf = (c: number, r: number): number =>
     Math.max(0, 1 - Math.hypot(c - cx, r - cy) / litRadius);

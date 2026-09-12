@@ -246,6 +246,16 @@ so the player never sees an edge.
 **The surface is real content**, Terraria-like — subordinate to the mine, but not a barren flat
 plane. That makes surface height a function of column rather than a constant.
 
+**Built.** `surfaceAt(seed, column)` is two octaves of value noise around `SURFACE_BASE`, so rows at
+or above a column's own surface are sky and everything below is rock. Strata and ore bands stay
+HORIZONTAL at absolute depths while the ground rolls above them — a hill has more topsoil above the
+same clay rather than carrying the clay up with it.
+
+The amplitudes are chosen against a constraint rather than by eye: terrain must never rise faster
+than the player can walk up. It rises at most one tile per column, and the player gained a one-tile
+**step-up** assist to match, because one tile is a wall to a walker with no assist. That was not a
+prediction — the movement regression test stopped dead at the first hill.
+
 **There is a day/night cycle, and no sleeping.** No sleeping is what gives the cycle teeth: night
 can't be waited out, so **night is a pressure that pushes the player underground**, which is a
 reason to descend that isn't greed. Night is a threat, not a meter.

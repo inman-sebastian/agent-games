@@ -193,7 +193,8 @@ export function drawDamage(ctx: DamageCtx): void {
       // tally the crack core; drawn afterwards so crossings can deepen (a single accumulated pass)
       const cx = Math.floor(ax);
       const cy = Math.floor(ay);
-      if (cx >= 0 && cy >= 0 && cx < T && cy < T && crackAccum[cy * T + cx] < 9) crackAccum[cy * T + cx]++;
+      if (cx >= 0 && cy >= 0 && cx < T && cy < T && crackAccum[cy * T + cx] < 9)
+        crackAccum[cy * T + cx]++;
     }
   }
   // draw crack cores in one pass, deepening where arms overlap — crossings read as deeper fractures
@@ -357,7 +358,9 @@ export function collectTwinkleEdges(s: EdgeScan): TwinkleEdge[] {
         const tiles: Array<[number, number]> = [];
         for (let r = row; r <= end; r++) tiles.push([column, r]);
         const x =
-          dc < 0 ? (column - s.bandLeft) * T + EDGE_INSET : (column + 1 - s.bandLeft) * T - EDGE_INSET;
+          dc < 0
+            ? (column - s.bandLeft) * T + EDGE_INSET
+            : (column + 1 - s.bandLeft) * T - EDGE_INSET;
         emit(
           material,
           tiles,

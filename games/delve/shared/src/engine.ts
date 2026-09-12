@@ -13,7 +13,7 @@
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
-import { blockAt, solidAt, rockHp, WIDTH, SURFACE } from './blocks';
+import { blockAt, solidAt, rockHp, WIDTH, SURFACE_BASE, surfaceAt } from './blocks';
 import { tileRand } from './rng';
 import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from './types';
 
@@ -41,6 +41,7 @@ const FRICTION = 60;
 // its head, so jumping indoors needs a three-tall tunnel.
 const JUMP_VELOCITY = 10.7;
 const REACH = 1; // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
+const STEP_UP_TILES = 1; // how high a rise the player walks over unaided — see `stepUp`
 const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
 const MAX_STEP_DT = 1 / 30; // clamp per-step dt so fast motion can't tunnel a tile
@@ -62,6 +63,8 @@ export const PHYS = {
 } as const;
 
 // --- derived-stat tuning ---
+void SURFACE_BASE;
+
 const FORTUNE_SALT = 0x9e3779b9; // golden-ratio hash constant; decorrelates the rich-vein roll from placement
 const RICH_ORE_MULTIPLIER = 3; // a rich vein yields 3× the ore into the inventory
 const MS_PER_SECOND = 1000;
@@ -97,17 +100,25 @@ export function newWorld(seed: number): WorldState {
   return { seed: seed >>> 0 || 1, dug: {}, dmg: {} };
 }
 
-/** A fresh player, spawned on the surface at the centre column. */
-export function newPlayer(): PlayerState {
+/**
+ * A fresh player, standing on the surface at the centre column.
+ *
+ * Takes the seed because the surface is a heightmap: where the ground is depends on the world.
+ */
+export function newPlayer(seed = 1): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
     x: startColumn + 0.5, // player CENTRE (tile units); starts on the surface
     // Feet resting exactly on the first solid row, DERIVED from the body height rather than picked.
     // `SURFACE + 0.5` was right while the body fitted inside one tile; at 1.82 tiles it put the feet
-    // inside row 1 and the player spawned overlapping rock, to be ejected upward over the next few
-    // frames. Self-correcting, but it is a pop at best and an ejection in the wrong direction in a
-    // tighter spot.
-    y: SURFACE + 1 - HALF_HEIGHT,
+    // inside the first solid row and the player spawned overlapping rock, to be ejected upward over
+    // the next few frames. Self-correcting, but it is a pop at best and an ejection in the wrong
+    // direction in a tighter spot.
+    //
+    // The surface is a heightmap now (#44), so this reads the actual ground under the spawn column
+    // rather than a constant — on a hill or in a valley the old expression would have buried or
+    // dropped the player.
+    y: surfaceAt(seed, startColumn) + 1 - HALF_HEIGHT,
     vx: 0,
     vy: 0,
     grounded: false,
@@ -134,17 +145,20 @@ export function newPlayer(): PlayerState {
  * then downward, then gives up so the caller can fall back to a fresh spawn rather than teleporting
  * someone across the map.
  */
+/** Whether the player's body would be clear of rock centred at `(x, y)`. */
+export function bodyFits(world: WorldState, x: number, y: number): boolean {
+  const left = Math.floor(x - HALF_WIDTH + EPSILON);
+  const right = Math.floor(x + HALF_WIDTH - EPSILON);
+  const top = Math.floor(y - HALF_HEIGHT + EPSILON);
+  const bottom = Math.floor(y + HALF_HEIGHT - EPSILON);
+  for (let row = top; row <= bottom; row++) {
+    if (anySolidInRow(world, left, right, row)) return false;
+  }
+  return true;
+}
+
 export function unstick(world: WorldState, player: PlayerState, maxTiles = 6): boolean {
-  const fits = (y: number): boolean => {
-    const left = Math.floor(player.x - HALF_WIDTH + EPSILON);
-    const right = Math.floor(player.x + HALF_WIDTH - EPSILON);
-    const top = Math.floor(y - HALF_HEIGHT + EPSILON);
-    const bottom = Math.floor(y + HALF_HEIGHT - EPSILON);
-    for (let row = top; row <= bottom; row++) {
-      if (anySolidInRow(world, left, right, row)) return false;
-    }
-    return true;
-  };
+  const fits = (y: number): boolean => bodyFits(world, player.x, y);
   if (fits(player.y)) return true;
   for (let step = 1; step <= maxTiles; step++) {
     for (const y of [player.y - step, player.y + step]) {
@@ -160,13 +174,13 @@ export function unstick(world: WorldState, player: PlayerState, maxTiles = 6): b
 
 /** A fresh single-player session (world + player) for `seed`. */
 export function newSession(seed: number): Session {
-  return { world: newWorld(seed), player: newPlayer() };
+  return { world: newWorld(seed), player: newPlayer(seed) };
 }
 
 export const key = (column: number, row: number): string => `${column},${row}`;
 
 export const isDug = (world: WorldState, column: number, row: number): boolean =>
-  row <= SURFACE || !!world.dug[key(column, row)];
+  row <= surfaceAt(world.seed, column) || !!world.dug[key(column, row)];
 
 /** A cell blocks the player when it's static-solid and not yet dug. */
 export const solidCell = (world: WorldState, column: number, row: number): boolean =>
@@ -205,8 +219,9 @@ export function mineTile(
   dt: number,
   events: SimEvent[],
 ): boolean {
-  if (row <= SURFACE) return false;
   const { world, player } = session;
+  // Above the ground in THIS column — the surface is a heightmap, so this is not one row any more.
+  if (row <= surfaceAt(world.seed, column)) return false;
   const block = blockAt(world.seed, column, row);
   const cellKey = key(column, row);
   if (player.digKey !== cellKey) {
@@ -309,19 +324,41 @@ export function physicsStep(
   // --- gravity ---
   player.vy = Math.min(MAX_FALL, player.vy + GRAVITY * dt);
 
+  /**
+   * STEP-UP: walk over a one-tile rise instead of being stopped by it.
+   *
+   * Required by the surface heightmap (#44), not a nicety. The terrain's slope is bounded to about
+   * one tile per column, and one tile is a WALL to a walker with no assist — the regression test
+   * that drives the player right stopped dead at the first hill. Terraria and every other tile
+   * platformer does this for the same reason.
+   *
+   * Only while grounded, and only if the body actually fits up there, so it can never be used to
+   * climb a shaft or phase into a low ceiling.
+   */
+  const stepUp = (x: number): boolean => {
+    if (!player.grounded) return false;
+    for (let step = 1; step <= STEP_UP_TILES; step++) {
+      if (bodyFits(world, x, player.y - step)) {
+        player.y -= step;
+        return true;
+      }
+    }
+    return false;
+  };
+
   // --- integrate + resolve X (stop at walls; mining no longer happens here) ---
   let nextX = player.x + player.vx * dt;
   const rowTop = Math.floor(player.y - HALF_HEIGHT + EPSILON);
   const rowBottom = Math.floor(player.y + HALF_HEIGHT - EPSILON);
   if (player.vx > 0) {
     const column = Math.floor(nextX + HALF_WIDTH);
-    if (anySolidInColumn(world, column, rowTop, rowBottom)) {
+    if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
       nextX = column - HALF_WIDTH - EPSILON;
       player.vx = 0;
     }
   } else if (player.vx < 0) {
     const column = Math.floor(nextX - HALF_WIDTH);
-    if (anySolidInColumn(world, column, rowTop, rowBottom)) {
+    if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
       nextX = column + 1 + HALF_WIDTH + EPSILON;
       player.vx = 0;
     }
@@ -415,4 +452,6 @@ function anySolidInRow(
   return false;
 }
 
-export const atSurface = (player: PlayerState): boolean => player.y <= SURFACE + 1;
+/** Whether the player is standing at ground level. Needs the world, since the surface undulates. */
+export const atSurface = (world: WorldState, player: PlayerState): boolean =>
+  player.y <= surfaceAt(world.seed, Math.floor(player.x)) + 1;

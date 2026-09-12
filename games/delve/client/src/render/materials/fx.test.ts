@@ -16,7 +16,10 @@ describe('pickAway', () => {
         expect(p, `in range: ${p}`).toBeLessThanOrEqual(1);
         // when the safe zone doesn't cover the whole edge, the pick must respect the gap
         const roomExists = prev - gap > 0 || prev + gap < 1;
-        if (roomExists) expect(Math.abs(p - prev), `keeps gap: ${p} vs ${prev}`).toBeGreaterThanOrEqual(gap - 1e-9);
+        if (roomExists)
+          expect(Math.abs(p - prev), `keeps gap: ${p} vs ${prev}`).toBeGreaterThanOrEqual(
+            gap - 1e-9,
+          );
       }
     }
   });
@@ -28,7 +31,12 @@ describe('collectTwinkleEdges', () => {
 
   // row 5 = a horizontal vein (cols 2..5) with open space above; col 3 is a different plain material.
   const vein = new Set(['2,5', '3,5', '4,5', '5,5']);
-  const mats: Record<string, Material> = { '2,5': twinkler, '3,5': plain, '4,5': twinkler, '5,5': twinkler };
+  const mats: Record<string, Material> = {
+    '2,5': twinkler,
+    '3,5': plain,
+    '4,5': twinkler,
+    '5,5': twinkler,
+  };
   const scan = {
     bandLeft: 0,
     bandTop: 0,

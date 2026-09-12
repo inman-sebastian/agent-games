@@ -282,7 +282,7 @@ if (canOffloadChunks) {
     worker = new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
     worker.postMessage({
       type: 'init',
-      cfg: { T, CW, CH, SURFACE: engine.SURFACE, MARGIN, strata: engine.STRATA },
+      cfg: { T, CW, CH, MARGIN, strata: engine.STRATA },
     });
     worker.postMessage({ type: 'world', seed: s.world.seed }); // seed to bake ore into chunks
     worker.onmessage = (e: MessageEvent<ChunkResult>) => {
@@ -346,7 +346,7 @@ function renderChunkSync(cx: number, cy: number): Chunk {
     CW + 2 * MARGIN,
     CH + 2 * MARGIN,
     Infinity,
-    engine.SURFACE,
+    surfaceOf,
     materialAt,
   );
   const key = ckey(cx, cy);
@@ -388,7 +388,7 @@ function patchDig(c: number, r: number): void {
     coreR - coreL + 1 + 2 * MARGIN,
     coreB - coreT + 1 + 2 * MARGIN,
     Infinity,
-    engine.SURFACE,
+    surfaceOf,
     materialAt,
   );
   // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
@@ -432,6 +432,10 @@ function patchDig(c: number, r: number): void {
 const lighting = createLighting();
 
 // ---- render -----------------------------------------------------------------------------
+// The surface is a heightmap (#44), so everything that used to take the constant row now takes this
+// — one closure over the live seed, so the renderer, the lighting and the compositor agree.
+const surfaceOf = (column: number): number => engine.surfaceAt(s.world.seed, column);
+
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
 const LAMP_REACH_GAIN = 0.16; // added lamp brightness per tile of lamp reach (Deep Lantern reaches further)
 
@@ -674,7 +678,7 @@ function render(t: number): void {
       T,
       camX,
       camY,
-      SURFACE: engine.SURFACE,
+      surfaceAt: surfaceOf,
       solidTile,
       scrim: debugFlags.fog,
     });
