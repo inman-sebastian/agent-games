@@ -145,7 +145,7 @@ into them as it ships. Tracked as an epic in
   render path and inventory as ores. Phased: (1) strata visible in the material lab
   _(shipped)_; (2) strata declare a surface class like ores, plain-rock render dispatches
   through the shared system; (3) merge the resource types + make the background rock
-  collectible (pairs with the new progression system + `verify.ts` rework).
+  collectible (pairs with the new progression system).
 - **Placement beyond depth** _(planned)_ — depth (`band` / strata `top`) is currently
   the *only* factor deciding where a material spawns, and that's a **placeholder**.
   Future placement will layer in more signals (noise regions / biomes, proximity,

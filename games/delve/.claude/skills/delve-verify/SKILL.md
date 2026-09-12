@@ -14,29 +14,27 @@ something, **extend the tool** rather than defaulting to Playwright. Full refere
 
 Pick the cheapest rung that answers your question:
 
-## 1. Logic / world-gen → pure Node, no browser
+## 1. Logic / world-gen / protocol → `pnpm test` (Vitest — the gate)
 
-- **`pnpm verify`** — the content gate. There's no economy to pace; it asserts resource conformance,
-  that every ore tier is discoverable within its band (world-gen scan), and the #8 movement
-  regression. **Run after ANY logic / world-gen / resource change** (e.g. adding/retuning an ore,
-  changing `blocks.ts`/`engine.ts`).
-- **`pnpm sim <cmd>`** (`tools/sim.ts`) — inspect the pure engine in text:
+- **`pnpm test`** runs the whole suite: property/fuzz tests over the sim + world-gen (fast-check —
+  no tunneling, determinism, material conservation, ore-always-in-band…), the **real client↔server
+  protocol e2e** (spawns the server), and the client save/DOM under happy-dom. `pnpm test:watch`
+  while iterating. **Run after ANY logic / world-gen / protocol / resource change**, and add or
+  extend a co-located `*.test.ts` for what you changed. Full picture: [`docs/TESTING.md`](../../../docs/TESTING.md).
+- Favor an **invariant/property** (holds for all inputs) over a curated case, and give a new
+  invariant **teeth**: break the code it guards and confirm the test goes red before trusting it.
+- **`pnpm sim <cmd>`** (`tools/sim.ts`) — interactive inspection of the pure engine (not a gate):
   - `pnpm sim state [--seed N] [--from save.json]` — raw state as JSON.
   - `pnpm sim probe --seed N --c C --r R` — tileInfo at one cell.
   - `pnpm sim map --seed N [--c C --r R --w W --h H]` — ASCII ore/cluster map + coverage %/tier counts.
   - `pnpm sim play --seed N --do "d600 r120"` — run an action script through real physics, dump result.
 
-## 2. Client/server protocol → `pnpm server:check`
-
-Spawns the real server and drives the WS join / state-sync / reconnect roundtrip headlessly. Run
-after touching `shared/src/protocol.ts`, `@delve/server`, or the client net/prediction/reconcile code.
-
-## 3. Types + build → always
+## 2. Types + build → always
 
 `pnpm --filter @delve/client typecheck` (or `pnpm typecheck` for all three packages) and `pnpm build`.
 Green before shipping.
 
-## 4. How something LOOKS → `tools/shot.sh` (one tiny cropped PNG)
+## 3. How something LOOKS → `tools/shot.sh` (one tiny cropped PNG)
 
 Headless Chrome, no MCP. Needs a running dev server: `pnpm dev`, then `SHOT_BASE=http://localhost:5173`
 (use the port `pnpm dev` printed). Then `Read` the PNG.
@@ -60,7 +58,7 @@ SHOT_BASE=http://localhost:5173 tools/shot.sh 'QUERY' /tmp/out.png [page]
 In the running game, the **`?debug`** panel (F3) has live toggle buttons — **Lighting / Fog /
 Twinkle / Damage / Tiles** — to isolate a render pass while diagnosing.
 
-## 5. Last resort — live feel only (Playwright/MCP)
+## 4. Last resort — live feel only (Playwright/MCP)
 
 Only for things a still can't answer: real input feel, real FPS, animation timing. Even then:
 - Load `?debug` and read the overlay **text** via `browser_evaluate` — never a full-viewport shot.
@@ -73,6 +71,6 @@ Only for things a still can't answer: real input feel, real FPS, animation timin
 
 ## Rule of thumb
 
-Match the tool to the question, cheapest first. Logic → `verify`/`sim`. Protocol → `server:check`.
-Look → `shot.sh` + `?debug`. Feel → Playwright (text). Never a full-viewport screenshot when a
-`shot.sh` crop or an overlay text read would do. Missing coverage → extend a tool.
+Match the tool to the question, cheapest first. Logic / world-gen / protocol → `pnpm test` (+ `sim`
+to inspect). Look → `shot.sh` + `?debug`. Feel → Playwright (text). Never a full-viewport screenshot
+when a `shot.sh` crop or an overlay text read would do. Missing coverage → add a test or extend a tool.

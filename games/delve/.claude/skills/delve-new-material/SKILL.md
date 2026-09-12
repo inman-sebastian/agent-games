@@ -133,8 +133,9 @@ material plus a **surface** preview and a **cave-system** preview. It's fully UR
 inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, spaces stripped),
 `view=surface|cave|both`, `depth=<row>`, `scale`, `lit=0|1`, `seed`, `w`/`h`.
 
-1. `pnpm verify` — the content gate; run it because you changed gameplay data (band/weight/hp) — it
-   checks resource conformance + that the ore is discoverable within its band.
+1. `pnpm test` — the gate; run it because you changed gameplay data (band/weight/hp). The resource
+   + world-gen suites check conformance and that the ore is discoverable within its band; if you
+   added a placement/mechanic rule, add a co-located `*.test.ts` for it (see docs/TESTING.md).
 2. `pnpm --filter @delve/client typecheck` and `pnpm build` — must be green.
 3. **Surface** (the top-lit block, in isolation):
    `SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=surface&ui=0&mat=<slug>&w=8&h=6&scale=4' /tmp/mat.png labs/material-lab.html` → `Read /tmp/mat.png`.

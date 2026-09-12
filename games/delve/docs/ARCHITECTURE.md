@@ -17,8 +17,8 @@ DELVE is a small **pnpm workspace of three TypeScript packages**, plus the tools
 - **`@delve/server`** (`server/`) — the Node + `ws` server (`src/`). Bundled with **esbuild** →
   `server/dist`.
 
-The `tools/` (verify / sim / server-check / shot.sh) and `docs/` sit alongside, owned by the
-thin root **`delve`** package that orchestrates `pnpm dev` / `build` / `verify` across the
+The `tools/` (sim / shot.sh), the Vitest suites (co-located `*.test.ts`), and `docs/` sit
+alongside, owned by the thin root **`delve`** package that orchestrates `pnpm dev` / `build` / `test` across the
 three. In dev, `@delve/shared` resolves straight to **source** (a Vite alias for the client;
 package `exports` → `src` for tsx/tsc/esbuild), so there is no prebuild step; each package
 still emits its own `dist/`. There are no runtime globals and no hand-written bundle — the
@@ -40,8 +40,8 @@ the default spawn column, not a wall.)
 Movement is a **gravity platformer** (issue #2): you fall, jump, and run, and mining is a
 separate aim/target action (#3). There is **no economy** — everything mined goes into the
 inventory (no coins, no selling); digging is free and unconditional, so the loop can't
-strand you. Upward-traversal tools are a future pass. [`tools/verify.ts`](#verification)
-covers content/world-gen invariants.
+strand you. Upward-traversal tools are a future pass. The [Vitest suites](#verification)
+cover the sim/world-gen invariants.
 
 ## Modules
 
@@ -87,8 +87,8 @@ all: it only renders rock, and the strata palette is posted in its init message
 (`setStrata`).
 
 **Adding an entity:** create `shared/src/resources/<name>.ts` (self-registering), add its import to
-`shared/src/resources/index.ts`, done — `verify.ts` validates the schema and that the index matches
-the directory (no drift).
+`shared/src/resources/index.ts`, done — the resource tests (`shared/src/resources/resources.test.ts`)
+validate the schema and that the index matches the directory (no drift).
 
 ## Who composes what
 
@@ -98,8 +98,9 @@ the directory (no drift).
   game uses** so they can't drift: `style-lab.ts` (art tuning over a sample cave),
   `render.ts` (the one-region render harness `shot.sh` captures), `light-lab.ts` (coloured-
   light blending). Iterate a module and the game and the labs move together.
-- **`tools/`** — the CLI dev tools (`verify.ts`, `sim.ts`, `shot.sh`) read the same modules
-  for cheap headless checks — see [`tools/README.md`](../tools/README.md).
+- **`tools/`** — the interactive CLI dev tools (`sim.ts`, `shot.sh`) read the same modules
+  for cheap headless inspection — see [`tools/README.md`](../tools/README.md). Automated testing
+  lives in the co-located Vitest suites — see [`docs/TESTING.md`](TESTING.md).
 
 ## The rock chunk pipeline
 
@@ -153,20 +154,20 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
 **Fixed tick:** both sides step the sim at `TICK_DT` (`TICK_HZ` = 60), so a replayed input on the
 client reproduces the server's result. **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
 WS-only) via `concurrently`; Vite proxies `/ws`. **Prod:** `pnpm build` → dist, then `pnpm start`
-serves the built client (`sirv`) + the WebSocket from one process. `tools/server-check.ts`
-(`pnpm server:check`) is the headless authority gate — it proves the server's state equals the
-client's prediction for a scripted input stream, that out-of-reach mining is rejected, and that
-reconnect hydrates the persisted world.
+serves the built client (`sirv`) + the WebSocket from one process. `server/src/protocol.e2e.test.ts`
+is the authority gate — it spawns the real server and proves its state equals the client's
+prediction for a scripted input stream, that out-of-reach mining is rejected, and that reconnect
+hydrates the persisted world.
 
 Deferred to **P4** (real multiplayer): multiple concurrent players sharing one `WorldState`,
 remote-avatar interpolation, area-of-interest culling at scale, rooms.
 
 ## Verification
 
-`tools/verify.ts` is the content gate. There is no economy to pace, so it asserts the
-invariants that still hold without one: every ore tier is **discoverable within its band**
-(world-gen scan), horizontal movement is unbounded (the #8 regression), and static
-conformance of the ore table + resource registry (index↔directory drift). Run `pnpm verify`.
-The old greedy-bot balance/pacing gate was economy-coupled and was removed; a new
-progression gate will replace it once the replacement progression system lands. The other
-`tools/` give cheaper, more targeted checks.
+Testing is **Vitest**, `pnpm test` — see [`docs/TESTING.md`](TESTING.md) for the full picture.
+The philosophy is **invariants over curated scenarios**: instead of one hand-scripted "perfect"
+playthrough (the retired `verify.ts`), property/fuzz tests (fast-check) assert what must hold
+across many random seeds and input streams — no tunneling, deterministic replay, material
+conservation, ore-always-in-band — plus the real client↔server protocol e2e (a spawned server)
+and the client's save/DOM under happy-dom. The interactive `tools/` (`sim`, `shot.sh`) remain for
+inspection, not gating.

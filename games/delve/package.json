@@ -11,9 +11,9 @@
     "preview": "pnpm --filter @delve/client preview",
     "typecheck": "pnpm --filter @delve/shared typecheck && pnpm --filter @delve/client typecheck && pnpm --filter @delve/server typecheck && tsc --noEmit",
     "format": "prettier --write \"**/*.{ts,html,css,md,json}\"",
-    "verify": "tsx tools/verify.ts",
-    "sim": "tsx tools/sim.ts",
-    "server:check": "tsx tools/server-check.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "sim": "tsx tools/sim.ts"
   },
   "dependencies": {
     "@delve/shared": "workspace:*"
@@ -22,9 +22,12 @@
     "@types/node": "^22.10.0",
     "@types/ws": "^8.18.1",
     "concurrently": "^10.0.5",
+    "fast-check": "^4.9.0",
+    "happy-dom": "^20.14.3",
     "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vitest": "^5.0.0",
     "ws": "^8.21.3"
   }
 }
