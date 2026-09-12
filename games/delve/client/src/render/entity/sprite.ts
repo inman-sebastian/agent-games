@@ -18,9 +18,9 @@
 // Frames are UPSCALED at draw time by an integer factor, never resampled, so every edge stays hard.
 import type { Rgb } from '../palette';
 import { TEMPLATE_PALETTE } from './sprites/palette';
-import { partCtx, surfaceOf, type SpriteMaterial } from './surface';
+import { OVERHEAD, partCtx, surfaceOf, type SpriteLight, type SpriteMaterial } from './surface';
 
-export type { SpriteMaterial };
+export type { SpriteLight, SpriteMaterial };
 
 /** One layer's pixels for one frame. `x`/`y` place the cel in the frame; indices are row-major. */
 export interface SpriteCel {
@@ -142,12 +142,18 @@ export function drawSprite(
     /** Mirror horizontally. Flipping INDICES is exact; flipping drawn pixels is not. */
     readonly flip?: boolean;
     readonly skin?: SpriteSkin;
+    /**
+     * Where the light is, in SPRITE-LOCAL pixels. Only materials use it; a flat colour table has
+     * nothing to light. Defaults to overhead.
+     */
+    readonly light?: SpriteLight;
   } = {},
 ): void {
   const scale = Math.max(1, Math.round(options.scale ?? 1));
   const f = ((frame % anim.frames) + anim.frames) % anim.frames;
   const skin = options.skin;
   const colors = rampFor(skin);
+  const light = options.light ?? OVERHEAD;
   const hidden = skin?.hide;
   // Anchor on the animation's GROUND ROW, not the canvas edge — see `SpriteAnim.ground`.
   const baseX = originX - Math.floor((anim.w * scale) / 2);
@@ -172,7 +178,11 @@ export function drawSprite(
         const rgb =
           skin?.tint ??
           (map && material
-            ? material.shade(partCtx(map, i, sx, sy, material.colors))
+            ? // Shading is computed in the sprite's OWN space, never the mirrored one: the light
+              // position, the pixel position and the surface normal all live there. Mirroring the
+              // light and the position but NOT the normal — which is what happened first — flips the
+              // lambert's sign and lights the wrong side of a turned-around character.
+              material.shade(partCtx(map, i, cel.x + x, sy, material.colors, light))
             : colors[index - 1]);
         if (!rgb) continue; // an index past the template palette — a hole, not a crash
         // Rasterize the upscale: fill the whole destination block, never sample a source pixel.

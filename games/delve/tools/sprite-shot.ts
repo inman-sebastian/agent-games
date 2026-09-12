@@ -2,6 +2,7 @@
 //
 //   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip]
 //                                                     [--template|--plate|--steel] [--hide slot]
+//                                                     [--light x,y,reach | --overhead]
 //
 // Draws with the authored miner skin by default. `--template` shows the pack's raw colour codes
 // instead, which is the view to use when checking an import or reasoning about which part is which.
@@ -13,7 +14,8 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { PLAYER_SPRITES, type PlayerAnim } from '../client/src/render/entity/sprites';
 import { drawSprite, type SpriteSkin } from '../client/src/render/entity/sprite';
-import { ALL_STEEL, MINER_SKIN, PLATE_ARMOUR } from '../client/src/render/entity/skin';
+import { ALL_STEEL, MINER_SKIN, PLATE_ARMOUR, PLAYER_LAMP } from '../client/src/render/entity/skin';
+import { OVERHEAD, type SpriteLight } from '../client/src/render/entity/surface';
 
 const args = process.argv.slice(2);
 const [name, out] = args;
@@ -47,6 +49,15 @@ const base: SpriteSkin = args.includes('--template')
       : MINER_SKIN;
 const skin: SpriteSkin = { ...base, hide: [...(base.hide ?? []), ...hide] };
 
+// The carried lamp by default — that is what the game actually has. `--overhead` is the flat
+// comparison, and an explicit position covers an entity lit from outside.
+const lightArg = flag('--light');
+const light: SpriteLight = args.includes('--overhead')
+  ? OVERHEAD
+  : lightArg
+    ? (([x, y, reach]) => ({ x, y, reach: reach || undefined }))(lightArg.split(',').map(Number))
+    : PLAYER_LAMP;
+
 const W = anim.w * anim.frames * scale;
 const H = anim.h * scale;
 const img = { width: W, height: H, data: new Uint8ClampedArray(W * H * 4) };
@@ -57,7 +68,7 @@ for (let f = 0; f < anim.frames; f++) {
     f,
     Math.round((f * anim.w + anim.w / 2) * scale),
     anim.h * scale,
-    { scale, flip, skin },
+    { scale, flip, skin, light },
   );
 }
 

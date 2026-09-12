@@ -10,10 +10,12 @@ import {
   ALL_STEEL,
   MINER_RAMPS,
   PLATE_ARMOUR,
+  PLAYER_LAMP,
   buildSkin,
   type SkinPart,
   type SkinRamps,
 } from '../src/render/entity/skin';
+import { OVERHEAD, type SpriteLight } from '../src/render/entity/surface';
 
 const SCALE = 6;
 const STRIP_SCALE = 2;
@@ -38,6 +40,9 @@ const MODES: readonly Mode[] = ['flat', 'template', 'plate', 'steel'];
 let mode: Mode = 'flat';
 // Per-part ramps, seeded from the shipped miner. Editing one is authoring equipment.
 let ramps: SkinRamps = MINER_RAMPS;
+// Where the light is, in sprite-local pixels. Only the material modes use it.
+let light: SpriteLight = { ...PLAYER_LAMP };
+let overhead = false;
 
 const stripCtx = strip.getContext('2d')!;
 const liveCtx = live.getContext('2d')!;
@@ -93,6 +98,41 @@ side.append(modeBtn);
 
 const rampBox = document.createElement('div');
 side.append(rampBox);
+
+// Light position, in sprite-local pixels. Off-canvas values are valid and are how an entity lit from
+// outside is expressed — drag x past the edges to see it.
+heading('light');
+const overheadBtn = document.createElement('button');
+overheadBtn.onclick = (): void => {
+  overhead = !overhead;
+  rebuild();
+};
+side.append(overheadBtn);
+for (const [key, min, max] of [
+  ['x', -60, 108],
+  ['y', -40, 100],
+  ['reach', 8, 160],
+] as const) {
+  const row = document.createElement('label');
+  const text = document.createElement('span');
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = '1';
+  input.value = String(key === 'reach' ? (light.reach ?? 34) : light[key]);
+  const sync = (): void => {
+    text.textContent = `${key} ${input.value}`;
+  };
+  input.oninput = (): void => {
+    light = { ...light, [key]: Number(input.value) };
+    sync();
+    rebuild();
+  };
+  sync();
+  row.append(text, input);
+  side.append(row);
+}
 
 const resetBtn = document.createElement('button');
 resetBtn.textContent = 'Reset layers & colours';
@@ -175,6 +215,7 @@ function rebuild(): void {
   const anim = PLAYER_SPRITES[current];
   for (const [name, b] of animButtons) b.setAttribute('aria-pressed', String(name === current));
   flipBtn.textContent = `facing: ${flip ? 'left' : 'right'}`;
+  overheadBtn.textContent = overhead ? 'light: overhead' : 'light: positional';
   modeBtn.textContent = `colours: ${
     { flat: 'authored skin', template: 'pack template', plate: 'plate armour', steel: 'all steel' }[
       mode
@@ -190,10 +231,11 @@ function rebuild(): void {
 
   const img = stripCtx.createImageData(strip.width, strip.height);
   for (let f = 0; f < anim.frames; f++) {
-    drawSprite(img, anim, f, (f * anim.w + anim.w / 2) * STRIP_SCALE, anim.h * STRIP_SCALE, {
+    drawSprite(img, anim, f, (f * anim.w + anim.w / 2) * STRIP_SCALE, anim.ground * STRIP_SCALE, {
       scale: STRIP_SCALE,
       flip,
       skin: skinFor(),
+      light: overhead ? OVERHEAD : light,
     });
   }
   stripCtx.putImageData(img, 0, 0);
@@ -209,10 +251,11 @@ function tick(t: number): void {
   if (!t0) t0 = t;
   const anim = PLAYER_SPRITES[current];
   const img = liveCtx.createImageData(live.width, live.height);
-  drawSprite(img, anim, frameAt(anim, t - t0), live.width / 2, live.height, {
+  drawSprite(img, anim, frameAt(anim, t - t0), live.width / 2, anim.ground * SCALE, {
     scale: SCALE,
     flip,
     skin: skinFor(),
+    light: overhead ? OVERHEAD : light,
   });
   liveCtx.putImageData(img, 0, 0);
   requestAnimationFrame(tick);

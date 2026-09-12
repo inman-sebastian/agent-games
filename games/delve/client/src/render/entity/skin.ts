@@ -17,7 +17,7 @@ import { bandsOf } from './limb';
 import type { PartCtx } from './limb';
 import { TEMPLATE_PALETTE } from './sprites/palette';
 import { vnoise } from '@delve/shared';
-import type { SpriteMaterial, SpriteSkin } from './sprite';
+import type { SpriteLight, SpriteMaterial, SpriteSkin } from './sprite';
 
 /**
  * Which body part each template colour identifies, and how light it is within that part.
@@ -210,3 +210,23 @@ export const ALL_STEEL: SpriteSkin = {
     ]),
   ),
 };
+
+// ---- where the light is -------------------------------------------------------------------------
+
+/**
+ * The player's own lamp, in sprite-local pixels.
+ *
+ * The game seeds its lamp emitter at the player's centre, slightly above (`py - 0.1` tiles), so the
+ * light is ON the character rather than above the scene. In sprite space that is the chest: x at the
+ * canvas centre, y a little above the figure's middle.
+ *
+ * `reach` is deliberately short — about a body's height. A lamp at chest height genuinely does leave
+ * the boots dimmer than the shoulders, and that falloff is most of what makes a carried light read as
+ * carried rather than as ambient.
+ */
+export const PLAYER_LAMP: SpriteLight = { x: 24, y: 24, reach: 34 };
+
+/** An external light, for entities the player lights from outside: pass the lamp's offset from them. */
+export function lampFrom(dx: number, dy: number, reach = 64): SpriteLight {
+  return { x: 24 + dx, y: 24 + dy, reach };
+}

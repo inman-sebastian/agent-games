@@ -197,6 +197,33 @@ assumed limb axis, so a fist, a thigh and a curled-up roll pose all shade correc
 declaring which way they point. Derived on first draw and cached, so it costs nothing per frame and
 adds nothing to the committed data.
 
+**The light is a POSITION, in the sprite's own pixels.** A material's relief is computed against it,
+per pixel, so the direction varies across the body:
+
+```
+PLAYER_LAMP           the carried lamp — chest height, short reach
+lampFrom(dx, dy)      an external light, for an entity the player lights from outside
+OVERHEAD              a plain fixed overhead light
+```
+
+A position rather than a direction because both interesting cases are radial. The player **carries**
+the lamp — the game seeds its emitter at the player's own centre — so an overhead light is wrong in a
+specific, visible way: the body should radiate from the lamp and fall off toward the boots. An enemy
+is lit from outside, from somewhere off its own canvas, so one vector cannot describe it either.
+
+Two rules here were each arrived at by getting them wrong first.
+
+Distance **flattens the relief toward mid**, it does not darken toward black. The material owns form;
+darkness is the lighting pass's job, compositing over the whole frame after the character is drawn.
+Multiplying brightness down here made a lamp-lit figure read dimmer than the same figure lit from
+overhead, which is the wrong relationship between the two systems.
+
+Shading is computed in the sprite's **own** space, never the mirrored one — light position, pixel
+position and surface normal all together. Mirroring the first two but not the normal flips the
+lambert's sign, so a character that turned around was lit on the wrong side. Keeping it all in sprite
+space also means the light is attached to the body and turns with it, which is what a carried lamp
+does; a caller wanting a world-fixed light negates its x offset when the sprite is flipped.
+
 **Materials for characters are calibrated separately.** Use `armourSurface` / `plateArmourSurface`
 from `skin.ts`, not `clothSurface` / `plateSurface` from `limb.ts`. The latter were tuned against a
 16px tile; pointed at a 3-5px imported limb, their noise swings across most of the band ladder and
@@ -228,9 +255,14 @@ The step-by-step procedure, including how to read an import failure, is the
 - **Ramp tuning.** The shipped miner skin reads correctly but runs dark on the far side, and the
   steel material runs light. Both are lab jobs rather than code changes — `sprite-lab.html` edits
   every part's ramp live and switches between the flat and material modes.
-- **Materials do not know about world light yet.** A material shades from its own surface normal
-  against a fixed overhead light, so a character does not darken as it walks into an unlit tunnel the
-  way the rock does. Wiring the lighting pass into `partCtx` is the obvious next step and is the
-  thing that would make a character sit properly in the world.
+- **The world light field does not reach the material.** Characters already darken correctly in unlit
+  space, because `lighting.render` composites over the whole frame after they are drawn — the same
+  post-pass the rock gets. What a material cannot see is the per-tile light field, so it cannot pick
+  a darker BAND in a dim pool, only be scrimmed darker afterwards. The rock has exactly the same
+  limitation (its own brightness is geometric, from distance to the nearest open edge), so fixing
+  this is one change to both or neither.
+- **Nothing reads the light position from the game yet.** `PLAYER_LAMP` is the carried lamp expressed
+  in sprite space, but the game still draws the placeholder miner; wiring it up comes with the
+  player-scale change.
 - **Animations the pack flattened.** Slide, Dash, Katana Walk, side Climb and running Shoot have no
   per-part layers and cannot be imported into this format as-is.

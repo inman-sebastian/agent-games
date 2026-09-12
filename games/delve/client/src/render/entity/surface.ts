@@ -170,6 +170,37 @@ export interface SpriteMaterial {
 }
 
 /**
+ * Where the light is, in SPRITE-LOCAL pixels. Off-canvas is fine and expected.
+ *
+ * A POSITION rather than a direction, because the interesting cases are both radial. The player
+ * CARRIES the lamp — the game's emitter sits at the player's own centre — so a fixed overhead light
+ * is wrong in a visible way: the body should radiate from the lamp and fall off toward the feet. And
+ * an enemy is lit from outside, by a lamp somewhere off its own canvas, so the direction has to vary
+ * across its body rather than being one vector.
+ *
+ * Coordinates are the sprite's OWN, never the mirrored ones, so the light is attached to the body and
+ * turns with it — which is what a carried lamp does. A caller wanting a WORLD-fixed light on a
+ * sprite that can face either way negates its x offset when the sprite is flipped.
+ *
+ * `reach` is the distance over which brightness falls to nothing, in sprite pixels. Without it a
+ * lamp held at the chest lights the boots as strongly as the shoulders.
+ */
+export interface SpriteLight {
+  readonly x: number;
+  readonly y: number;
+  readonly reach?: number;
+}
+
+/**
+ * The value a part settles to where the light does not reach: the middle of the band ladder, so a
+ * far-from-the-lamp part reads as flat rather than as black.
+ */
+const AMBIENT = 0.46;
+
+/** A plain overhead light, for callers that do not care — the old fixed behaviour. */
+export const OVERHEAD: SpriteLight = { x: 0, y: -1e6, reach: Infinity };
+
+/**
  * Build the `PartCtx` a material shader expects for one pixel.
  *
  * `localX`/`localY` and `px`/`py` are FRAME-space, not cel-space, so noise and the Bayer dither ride
@@ -182,10 +213,19 @@ export function partCtx(
   frameX: number,
   frameY: number,
   colors: RockColors,
-  lightX = 0,
-  lightY = -1,
+  light: SpriteLight = OVERHEAD,
 ): PartCtx {
-  const lambert = (map.normalX[i] * lightX + map.normalY[i] * lightY + 1) * 0.5;
+  // Direction from this pixel TOWARD the light, so a surface facing the lamp is brightest.
+  let lx = light.x - frameX;
+  let ly = light.y - frameY;
+  const dist = Math.hypot(lx, ly) || 1;
+  lx /= dist;
+  ly /= dist;
+  const lambert = (map.normalX[i] * lx + map.normalY[i] * ly + 1) * 0.5;
+  // Falloff, smooth rather than linear so a carried lamp does not put a hard ring across the body.
+  const reach = light.reach ?? Infinity;
+  const near = reach === Infinity ? 1 : clamp01(1 - dist / reach);
+  const fall = near * near * (3 - 2 * near); // smoothstep
   return {
     along: map.along[i],
     around: map.around[i],
@@ -193,7 +233,11 @@ export function partCtx(
     localY: frameY,
     px: frameX,
     py: frameY,
-    brightness: clamp01(0.18 + lambert * 0.82),
+    // Distance FLATTENS the relief toward mid rather than darkening toward black. The material's
+    // job is form; actual darkness is the lighting pass's job, compositing over the whole frame —
+    // multiplying here instead made the figure read dimmer than the same figure lit from overhead,
+    // which is the wrong relationship between the two systems.
+    brightness: clamp01(AMBIENT + (0.18 + lambert * 0.82 - AMBIENT) * fall),
     depth: map.depth[i],
     colors,
   };

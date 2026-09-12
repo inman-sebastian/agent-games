@@ -18,10 +18,12 @@ import {
   ALL_STEEL,
   MINER_SKIN,
   MINER_RAMPS,
+  PLAYER_LAMP,
   TEMPLATE_PARTS,
   buildSkin,
+  lampFrom,
 } from '../client/src/render/entity/skin';
-import { surfaceOf } from '../client/src/render/entity/surface';
+import { OVERHEAD, surfaceOf, type SpriteLight } from '../client/src/render/entity/surface';
 
 // One directory per entity under sprites/, so the registry check walks the entity's own folder.
 const SPRITE_DIR = join(
@@ -363,5 +365,132 @@ describe('surface coordinates', () => {
       return seen.size;
     };
     expect(shades({ skin: ALL_STEEL })).toBeGreaterThan(shades({ skin: MINER_SKIN }));
+  });
+});
+
+describe('lighting a material', () => {
+  const anim = PLAYER_SPRITES.walk;
+  const blank = () =>
+    ({
+      width: anim.w,
+      height: anim.h,
+      data: new Uint8ClampedArray(anim.w * anim.h * 4),
+    }) as unknown as ImageData;
+  const draw = (light?: SpriteLight): ImageData => {
+    const img = blank();
+    drawSprite(img, anim, 2, Math.floor(anim.w / 2), anim.ground, { skin: ALL_STEEL, light });
+    return img;
+  };
+  const lit = (img: ImageData): number => {
+    let n = 0;
+    for (let i = 3; i < img.data.length; i += 4) if (img.data[i]) n++;
+    return n;
+  };
+  const differing = (a: ImageData, b: ImageData): number => {
+    let n = 0;
+    for (let i = 0; i < a.data.length; i += 4) {
+      if (a.data[i + 3] === 0) continue;
+      if (a.data[i] !== b.data[i] || a.data[i + 1] !== b.data[i + 1]) n++;
+    }
+    return n;
+  };
+
+  it('changes shading without changing the silhouette', () => {
+    // A light must only decide colour. If moving it changed which pixels are lit, the character
+    // would visibly reshape as it walked past a lamp.
+    const a = draw(OVERHEAD);
+    const b = draw(PLAYER_LAMP);
+    const c = draw(lampFrom(-30, 0));
+    expect(lit(b)).toBe(lit(a));
+    expect(lit(c)).toBe(lit(a));
+    expect(differing(a, b)).toBeGreaterThan(0);
+    expect(differing(a, c)).toBeGreaterThan(0);
+  });
+
+  it('lights the side the light is on', () => {
+    // The clearest thing a positional light must get right, and the reason it is a position rather
+    // than a fixed direction.
+    const lum = (img: ImageData, from: number, to: number): number => {
+      let sum = 0;
+      let n = 0;
+      for (let y = 0; y < anim.h; y++) {
+        for (let x = from; x < to; x++) {
+          const i = (y * anim.w + x) * 4;
+          if (img.data[i + 3] === 0) continue;
+          sum += 0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2];
+          n++;
+        }
+      }
+      return n ? sum / n : 0;
+    };
+    const fromLeft = draw(lampFrom(-40, 0, 90));
+    const fromRight = draw(lampFrom(40, 0, 90));
+    const half = Math.floor(anim.w / 2);
+    expect(lum(fromLeft, 0, half) - lum(fromLeft, half, anim.w)).toBeGreaterThan(
+      lum(fromRight, 0, half) - lum(fromRight, half, anim.w),
+    );
+  });
+
+  it('flattens toward mid with distance instead of darkening', () => {
+    // The material owns FORM; the lighting pass owns darkness, compositing over the whole frame.
+    // Multiplying brightness down here made a lamp-lit figure read dimmer than an overhead-lit one,
+    // which is the wrong relationship between the two systems.
+    const mean = (img: ImageData): number => {
+      let sum = 0;
+      let n = 0;
+      for (let i = 0; i < img.data.length; i += 4) {
+        if (img.data[i + 3] === 0) continue;
+        sum += 0.299 * img.data[i] + 0.587 * img.data[i + 1] + 0.114 * img.data[i + 2];
+        n++;
+      }
+      return sum / n;
+    };
+    const near = mean(draw(PLAYER_LAMP));
+    const far = mean(draw(lampFrom(0, 0, 4))); // reach so short nothing is lit
+    expect(Math.abs(near - far)).toBeLessThan(near * 0.35);
+  });
+
+  it('carries the light with the sprite when it turns around', () => {
+    // The light lives in the sprite's own space, so it is attached to the body. Mirror the flipped
+    // render back and it must match the unflipped one exactly: same light relative to the body.
+    //
+    // This caught a real bug. Mirroring the light position and the pixel position but NOT the
+    // surface normal flips the lambert's sign, so a turned-around character was lit on the wrong
+    // side. Doing all the shading in sprite space removes the chance of that entirely.
+    const img = (flip: boolean): ImageData => {
+      const out = blank();
+      drawSprite(out, anim, 2, Math.floor(anim.w / 2), anim.ground, {
+        skin: ALL_STEEL,
+        light: lampFrom(-40, 0, 90),
+        flip,
+      });
+      return out;
+    };
+    const a = img(false);
+    const b = img(true);
+    // Mirror b back and it should match a: same light relative to the body, opposite facing.
+    let same = 0;
+    let total = 0;
+    for (let y = 0; y < anim.h; y++) {
+      for (let x = 0; x < anim.w; x++) {
+        const i = (y * anim.w + x) * 4;
+        const j = (y * anim.w + (anim.w - 1 - x)) * 4;
+        if (a.data[i + 3] === 0) continue;
+        total++;
+        if (a.data[i] === b.data[j] && a.data[i + 1] === b.data[j + 1]) same++;
+      }
+    }
+    expect(same / total).toBe(1);
+  });
+
+  it('does nothing to a flat colour table', () => {
+    // Only materials sample the light. A skin with no materials must be unaffected, or moving a lamp
+    // would recolour a character that has no shading to change.
+    const flat = (light: SpriteLight): ImageData => {
+      const img = blank();
+      drawSprite(img, anim, 2, Math.floor(anim.w / 2), anim.ground, { skin: MINER_SKIN, light });
+      return img;
+    };
+    expect(differing(flat(OVERHEAD), flat(lampFrom(-40, 10)))).toBe(0);
   });
 });

@@ -109,6 +109,11 @@ noise swings across most of the band ladder and the figure comes out as speckle 
 dissolved. Same lesson the procedural rig learned about edge erosion: a treatment sized for a tile is
 most of a small part.
 
+Materials are lit by a **position** in sprite-local pixels — `PLAYER_LAMP` for a carried lamp,
+`lampFrom(dx, dy)` for an entity lit from outside, `OVERHEAD` for a fixed light. Distance flattens
+the relief toward mid rather than darkening it; darkness belongs to the lighting post-pass, which
+already composites over characters exactly as it does over rock.
+
 Features are placed by coordinate, not by colour — a trim at `along > 0.8`, a belt across the torso —
 so they are authored once and fit every animation, because the coordinates are derived per frame from
 that frame's own silhouette.
