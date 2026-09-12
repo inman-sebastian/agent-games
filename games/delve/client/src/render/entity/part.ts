@@ -95,6 +95,15 @@ export interface Part {
    * view flat and head-on the way a platformer needs. Negative sits a part behind.
    */
   readonly shadeBias?: number;
+  /**
+   * Flat colour for CODED mode — the silhouette-tuning view.
+   *
+   * The reference asset pack ships its template as flat, distinct colours per body part, and that
+   * is the right way to judge a silhouette: shading and texture actively hide part boundaries and
+   * proportion errors. These are the pack's EXACT measured colours for the matching part, so a
+   * coded render can be diffed against a reference frame numerically instead of by eye.
+   */
+  readonly coded?: Rgb;
 }
 
 /**

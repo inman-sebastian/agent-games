@@ -11,6 +11,9 @@ import { clamp01, type Rgb } from '../palette';
 import { rasterizeLimb, rasterizeBulb, snap, type PartCtx } from './limb';
 import { shadePart, partPalettes, type Part } from './part';
 
+/** Magenta, so a part that forgot to declare a coded colour is impossible to miss. */
+const CODED_FALLBACK: Rgb = [255, 0, 255];
+
 export interface Joint {
   x: number;
   y: number;
@@ -47,6 +50,14 @@ export function drawRig(
   originX: number,
   originY: number,
   override?: (ctx: PartCtx) => Rgb,
+  /**
+   * CODED mode: every part renders as its flat `coded` colour, no shading and no texture.
+   *
+   * This is the silhouette view, and it's the mode to work in while proportions are being settled —
+   * shading hides exactly the errors you're looking for. It mirrors how the reference asset pack
+   * ships its template.
+   */
+  coded = false,
 ): void {
   const ordered = [...rig.parts].sort((a, b) => a.order - b.order);
   for (const part of ordered) {
@@ -57,12 +68,15 @@ export function drawRig(
     const b = { x: snap(originX + to.x), y: snap(originY + to.y) };
     const pal = palettes[part.id];
     const bias = part.shadeBias ?? 0;
+    const flat = part.coded ?? CODED_FALLBACK;
     const shade =
       override ??
-      ((ctx: PartCtx): Rgb =>
-        bias === 0
-          ? shadePart(part, ctx, pal.layers)
-          : shadePart(part, { ...ctx, brightness: clamp01(ctx.brightness + bias) }, pal.layers));
+      (coded
+        ? (): Rgb => flat
+        : (ctx: PartCtx): Rgb =>
+            bias === 0
+              ? shadePart(part, ctx, pal.layers)
+              : shadePart(part, { ...ctx, brightness: clamp01(ctx.brightness + bias) }, pal.layers));
 
     if (part.shape.kind === 'limb') {
       rasterizeLimb(

@@ -32,6 +32,25 @@ const SKIN = ['#2e222f', '#694f62', '#966c6c', '#ab947a', '#cd683d', '#e6904e'];
 const HELMET = ['#2e222f', '#7a3045', '#9e4539', '#cd683d', '#e6904e', '#f9c22b'];
 const BOOT = ['#2e222f', '#3e3546', '#4c3e24', '#676633', '#a2a947', '#cddf6c'];
 
+// ---- coded colours: the reference template's EXACT per-part colours -----------------------------
+//
+// Measured off the pack's idle frame, so a coded render of our rig can be diffed against a
+// reference frame numerically rather than judged by eye. Not Resurrect-64 and not meant to be —
+// these never ship, they're a measuring instrument.
+const CODED = {
+  head: [0x5f, 0xcd, 0xe4],
+  chest: [0xdf, 0x71, 0x26],
+  pelvis: [0xb3, 0x5b, 0x20],
+  armFarU: [0x6a, 0xbe, 0x30],
+  armFarL: [0x99, 0xe5, 0x50],
+  armNearU: [0x95, 0x17, 0x99],
+  armNearL: [0xaf, 0x1a, 0xb2],
+  legFar: [0xd1, 0xcc, 0x60],
+  legNearU: [0xce, 0x50, 0x50],
+  legNearL: [0xac, 0x32, 0x32],
+  foot: [0xfb, 0xf2, 0x36],
+} as const satisfies Record<string, readonly [number, number, number]>;
+
 /**
  * Build the rig for a config.
  *
@@ -53,21 +72,21 @@ export function buildHumanoid(cfg: HumanoidConfig = DEFAULT_CONFIG): Rig {
   return {
     parts: [
       // far side
-      { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: far },
-      { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: far },
-      { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: far },
-      { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: far },
+      { id: 'armFar.upper', from: 'shoulderFar', to: 'elbowFar', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 0, shadeBias: far, coded: [...CODED.armFarU] as [number, number, number] },
+      { id: 'armFar.fore', from: 'elbowFar', to: 'handFar', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 0, shadeBias: far, coded: [...CODED.armFarL] as [number, number, number] },
+      { id: 'legFar.thigh', from: 'hipFar', to: 'kneeFar', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 1, shadeBias: far, coded: [...CODED.legFar] as [number, number, number] },
+      { id: 'legFar.shin', from: 'kneeFar', to: 'ankleFar', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 1, shadeBias: far, coded: [...CODED.legFar] as [number, number, number] },
 
       // body — two torso segments, because one bulb has no waist and that is what read as "fat"
-      { id: 'pelvis', from: 'hip', to: 'waist', shape: { kind: 'bulb', rAcross: cfg.rPelvis, alongScale: 1.15 }, ramp: CLOTH, surface: clothSurface, order: 2 },
-      { id: 'chest', from: 'waist', to: 'shoulder', shape: { kind: 'bulb', rAcross: cfg.rChest, alongScale: 1.1 }, ramp: CLOTH, surface: clothSurface, order: 3 },
-      { id: 'head', from: 'neck', to: 'headTop', shape: { kind: 'bulb', rAcross: cfg.rHead, alongScale: 1.0 }, ramp: SKIN, surface: clothSurface, layers: [helmetLayer], order: 4, shadeBias: cfg.headBias },
+      { id: 'pelvis', from: 'hip', to: 'waist', shape: { kind: 'bulb', rAcross: cfg.rPelvis, alongScale: 1.15 }, ramp: CLOTH, surface: clothSurface, order: 2, coded: [...CODED.pelvis] as [number, number, number] },
+      { id: 'chest', from: 'waist', to: 'shoulder', shape: { kind: 'bulb', rAcross: cfg.rChest, alongScale: 1.1 }, ramp: CLOTH, surface: clothSurface, order: 3, coded: [...CODED.chest] as [number, number, number] },
+      { id: 'head', from: 'neck', to: 'headTop', shape: { kind: 'bulb', rAcross: cfg.rHead, alongScale: 1.0 }, ramp: SKIN, surface: clothSurface, layers: [helmetLayer], order: 4, shadeBias: cfg.headBias, coded: [...CODED.head] as [number, number, number] },
 
       // near side
-      { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 5 },
-      { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5 },
-      { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 6 },
-      { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 6 },
+      { id: 'legNear.thigh', from: 'hipNear', to: 'kneeNear', shape: { kind: 'limb', rFrom: cfg.rThigh, rTo: cfg.rThigh * taper }, ramp: CLOTH, surface: clothSurface, order: 5, coded: [...CODED.legNearU] as [number, number, number] },
+      { id: 'legNear.shin', from: 'kneeNear', to: 'ankleNear', shape: { kind: 'limb', rFrom: cfg.rShin, rTo: cfg.rShin * 0.72 }, ramp: CLOTH, surface: clothSurface, layers: [bootLayer], order: 5, coded: [...CODED.legNearL] as [number, number, number] },
+      { id: 'armNear.upper', from: 'shoulderNear', to: 'elbowNear', shape: { kind: 'limb', rFrom: cfg.rUpperArm, rTo: cfg.rUpperArm * taper }, ramp: CLOTH, surface: clothSurface, order: 6, coded: [...CODED.armNearU] as [number, number, number] },
+      { id: 'armNear.fore', from: 'elbowNear', to: 'handNear', shape: { kind: 'limb', rFrom: cfg.rForearm, rTo: cfg.rForearm * taper }, ramp: SKIN, surface: clothSurface, order: 6, coded: [...CODED.armNearL] as [number, number, number] },
     ],
   };
 }

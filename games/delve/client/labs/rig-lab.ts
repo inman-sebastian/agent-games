@@ -99,6 +99,10 @@ const save = (cfg: HumanoidConfig): void => {
 let cfg = load();
 let ghost: HTMLImageElement | null = null;
 let ghostFrames = 1;
+// CODED mode is the DEFAULT, because silhouette comes before texture: shading and noise actively
+// hide the proportion errors you're trying to see. Same reason the reference pack ships a flat
+// colour-coded template.
+let coded = true;
 
 const side = document.getElementById('side') as HTMLDivElement;
 const strip = document.getElementById('strip') as HTMLCanvasElement;
@@ -168,6 +172,21 @@ for (const key of ['kneeBend', 'elbowBend'] as const) {
   bendRow.append(b);
 }
 side.append(bendRow);
+
+const modeRow = document.createElement('div');
+modeRow.className = 'row';
+const modeBtn = document.createElement('button');
+const renderMode = (): void => {
+  modeBtn.textContent = coded ? 'mode: coded' : 'mode: shaded';
+};
+modeBtn.onclick = (): void => {
+  coded = !coded;
+  renderMode();
+  rebuild();
+};
+renderMode();
+modeRow.append(modeBtn);
+side.append(modeRow);
 
 const actions = document.createElement('div');
 actions.className = 'row';
@@ -245,7 +264,7 @@ function drawFrame(
   idle: boolean,
 ): void {
   const img = ctx.createImageData(FRAME_W, FRAME_H);
-  drawRig(img, rig, idle ? idlePose(cfg) : walkPose(phase, cfg), palettes, FRAME_W / 2, oy);
+  drawRig(img, rig, idle ? idlePose(cfg) : walkPose(phase, cfg), palettes, FRAME_W / 2, oy, undefined, coded);
   // Composite so the ghost underlay stays visible through uncovered pixels.
   const scene = ctx.getImageData(ox, 0, FRAME_W, FRAME_H);
   for (let i = 3; i < img.data.length; i += 4) {
@@ -274,12 +293,76 @@ function rebuild(): void {
     drawFrame(stripCtx, i / STRIP_FRAMES, ox, ground, i === 0);
   }
 
-  const span = cfg.yHip - cfg.yAnkle;
+  // Ankle minus hip, not the reverse: y increases downward, so hip - ankle is negative and every
+  // comparison against it inverts. Same class of sign error as the negative bone lengths.
+  const span = cfg.yAnkle - cfg.yHip;
   const reach = cfg.femur + cfg.tibia;
   readout.textContent =
     `figure ${Math.abs(cfg.yHeadTop)}px tall · leg span ${span}px vs bone reach ${reach}px` +
     (reach <= span ? '  ⚠ no slack — the knee cannot bend' : '') +
-    (reach > span + 3 ? '  ⚠ too much slack — reads as a crouch' : '');
+    (reach > span + 3 ? '  ⚠ too much slack — reads as a crouch' : '') +
+    silhouetteReport();
+}
+
+/**
+ * Numeric silhouette comparison against the loaded reference frame.
+ *
+ * This is the payoff of using the pack's exact coded colours: "is the silhouette right" stops being
+ * a judgement and becomes intersection-over-union of the two masks, plus a height and width
+ * comparison. Eyeballing a 48px figure at 6x is how five iterations went by without converging.
+ */
+function silhouetteReport(): string {
+  if (!ghost) return '  ·  load a reference PNG to compare';
+  const fw = Math.round(ghost.width / ghostFrames);
+  const probe = document.createElement('canvas');
+  probe.width = fw;
+  probe.height = ghost.height;
+  const pc = probe.getContext('2d')!;
+  pc.drawImage(ghost, 0, 0, fw, ghost.height, 0, 0, fw, ghost.height);
+  const refData = pc.getImageData(0, 0, fw, ghost.height).data;
+
+  // Reference mask + its bbox.
+  let rMinX = 1e9, rMaxX = -1, rMinY = 1e9, rMaxY = -1, rCount = 0;
+  for (let y = 0; y < ghost.height; y++) {
+    for (let x = 0; x < fw; x++) {
+      if (refData[(y * fw + x) * 4 + 3] < 8) continue;
+      rCount++;
+      rMinX = Math.min(rMinX, x); rMaxX = Math.max(rMaxX, x);
+      rMinY = Math.min(rMinY, y); rMaxY = Math.max(rMaxY, y);
+    }
+  }
+  if (rCount === 0) return '  ·  reference frame is empty';
+
+  // Ours, at idle, measured the same way.
+  const mine = stripCtx.createImageData(FRAME_W, FRAME_H);
+  drawRig(mine, rig, idlePose(cfg), palettes, FRAME_W / 2, FRAME_H - 2, undefined, coded);
+  let mMinX = 1e9, mMaxX = -1, mMinY = 1e9, mMaxY = -1, mCount = 0;
+  for (let y = 0; y < FRAME_H; y++) {
+    for (let x = 0; x < FRAME_W; x++) {
+      if (mine.data[(y * FRAME_W + x) * 4 + 3] < 8) continue;
+      mCount++;
+      mMinX = Math.min(mMinX, x); mMaxX = Math.max(mMaxX, x);
+      mMinY = Math.min(mMinY, y); mMaxY = Math.max(mMaxY, y);
+    }
+  }
+  if (mCount === 0) return '  ·  nothing drawn';
+
+  const rh = rMaxY - rMinY + 1;
+  const rw = rMaxX - rMinX + 1;
+  const mh = mMaxY - mMinY + 1;
+  const mw = mMaxX - mMinX + 1;
+  // Compare SHAPE, not size: the reference figure is ~29px and ours is ~48px by decision, so the
+  // meaningful numbers are the aspect ratio and the fill density, both scale-free.
+  const rAspect = rw / rh;
+  const mAspect = mw / mh;
+  const rFill = rCount / (rw * rh);
+  const mFill = mCount / (mw * mh);
+  const pct = (v: number): string => `${(v * 100).toFixed(0)}%`;
+  return (
+    `  ·  ref ${rw}x${rh} aspect ${rAspect.toFixed(2)} fill ${pct(rFill)}` +
+    `  ·  ours ${mw}x${mh} aspect ${mAspect.toFixed(2)} fill ${pct(mFill)}` +
+    `  ·  aspect off by ${pct(Math.abs(mAspect - rAspect) / rAspect)}`
+  );
 }
 
 let t = 0;
