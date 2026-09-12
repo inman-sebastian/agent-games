@@ -233,6 +233,39 @@ Named examples:
 - **Jetpack.** Hold jump to fly, letting the player ascend a vertical shaft directly
   instead of having to dig their way back out.
 
+### The stat layer: what progression writes to
+
+**Decided.** The four values still on the player (`up.pick`, `up.speed`, `up.fortune`,
+`tech.lantern`) were **kept deliberately** when the economy was stripped, not left behind by
+accident. They stand in for a general concept: **stats / skills / enhancements that can be
+influenced and incremented by outside forces.**
+
+The sources are **plural and open-ended** — equipment, unlocks, environmental factors, and
+whatever else later wants a say. Equipment is *one* input, not the owner.
+
+Three consequences that shape how this gets built:
+
+- **It's a modifier stack, not a set of levels.** "Upgrade level" implies buying or leveling,
+  which is now only one of several possible sources. The shape wanted is a base value plus
+  contributions from many sources, resolved in one place. That's a standard, well-understood
+  pattern, and it should be built as one rather than as four integers that unrelated systems
+  reach in and poke.
+- **`stats()` stays the single place capability is computed.** This is why the layer is kept
+  rather than deleted: it's already the one spot where derived values live, so tuning doesn't
+  scatter across item definitions. Equipment writes inputs; `stats()` resolves them.
+- **Environmental factors have a different lifetime from the rest.** Equipment applies while
+  equipped; an environmental effect applies while you're *somewhere*. That means temporary,
+  contextual modifiers with duration and stacking, and it means `stats()` needs **world
+  context**, not just the player. That's a signature change in the shared ruleset, so the
+  client and server have to agree on it — see [ARCHITECTURE.md](ARCHITECTURE.md).
+
+**Still open:** whether **Fortune** survives at all (it's rich-vein chance, a world-gen roll
+rather than a player capability, and a pure rate multiplier — the
+[discriminator](#the-more-useful-test-than-numbers-bad) calls that filler), and whether
+**lantern vision** is gear-driven or a baseline the player can never trade away (light is the
+game's atmosphere *and* its only current exploration cue, so a slot that costs you sight is
+either an excellent hard choice or a miserable one).
+
 ### The design rule behind both
 
 An item doesn't add a number, it **removes a constraint the player has been living
@@ -1187,17 +1220,24 @@ deletes. Not objections — things to decide deliberately rather than discover l
 
 ### T1. Three progression channels now exist
 
-Progression can arrive by three different routes: the **orphaned upgrade levels**
+Progression can arrive by three different routes: the **stat layer**
 (`up.pick` / `up.speed` / `up.fortune`, plus `tech.lantern`), **crafted or looted equipment**,
-and **levelable skills**. Each is a complete progression system on its own.
+and **levelable skills**. The original worry was that each is a complete progression system on
+its own, competing to own "the player gets stronger."
 
-**Partly resolved by main, not by this document.** The coin economy is deleted — coins, selling,
-ore `value`, the Refinery multiplier and the Upgrades panel that bought levels are all gone. The
-*levels* survive on `PlayerState` and still feed `stats()`, and **nothing raises them**, so dig
-power, speed, fortune and vision are constants. The first channel is therefore no longer a rival
-design competing for the spine; it's live plumbing with no owner. The question it leaves behind is
-sharper than the original three-way one: does equipment **replace** those levels outright, or
-**become the thing that raises them**?
+**Resolved — and the premise was partly wrong.** The coin economy is deleted (coins, selling,
+ore `value`, the Refinery multiplier and the Upgrades panel), but the four levels were **kept on
+purpose**, not stranded. They are the intended **stat layer**: values that other systems
+*influence*, rather than a rival channel. See
+[The stat layer](#the-stat-layer-what-progression-writes-to).
+
+So these were never three competing channels. There's **one layer and many sources**: equipment
+writes into it, unlocks write into it, environmental factors write into it. `stats()` stays the
+single place capability is resolved, which is exactly why keeping the layer beats deleting it —
+tuning stays centralized instead of scattering across item definitions.
+
+What remains genuinely open is **which sources exist and which owns the bulk of the growth**,
+which is a much smaller question than the original one.
 
 Reach is the concrete case: it reads equally naturally as a purchased upgrade level,
 a crafted pickaxe's stat, or a mining-skill rank. Whichever it is, the other two
