@@ -105,6 +105,30 @@ That closed loop is now **gone rather than replaced**: mining drops materials in
 and nothing consumes them. So the reframing here isn't a course correction away from a working
 loop, it's the design for the hole where one used to be.
 
+### Everything is mineable, and everything is collectible
+
+**Decided.** Every material in the world can be destroyed and goes into the inventory. Dirt is
+collected exactly like stone, exactly like ore — there is no "scenery" tier of tile that exists
+only to be deleted.
+
+**This confirms main's material-unification direction and supplies its missing reason.** The
+roadmap's phase 3 ("merge the resource types + make the background rock collectible") was
+already planned; what it lacked was a *why*. This is it: **everything collectible means
+everything is a crafting input**, which is what links material unification to the progression
+rebuild rather than leaving it a rendering refactor.
+
+**One exception: bedrock.** The world's vertical bound ([§4](#4-world-topology--hosting)) is
+expressed as unbreakable rock, Minecraft-style. Simple, honest, and a single special case in a
+system that's otherwise uniform.
+
+**Structures are gated, not exempt** — see
+[Breaking into structures](#breaking-into-structures-is-a-tool-gate-not-a-wall).
+
+**Consequence, and it's a real one:** digging is the traversal verb, so *travelling* now
+produces items continuously. Combined with finite capacity that makes the bag fill from
+movement rather than from discovery — see
+[T12](#t12-capacity-as-progression-taxes-the-discovery-pillar).
+
 > **Honest state of the prototype:** there is no real game loop yet. That's expected
 > and fine — everything to date has been prototyping (world gen, rendering,
 > lighting, movement, client/server). This session is where the actual game gets
@@ -129,6 +153,27 @@ that was built, with intent, by someone.
 - They can contain **enemies**.
 - They can contain **loot**.
 - Their age and abandonment is part of the appeal — implied history, no exposition.
+
+### Breaking into structures is a tool-gate, not a wall
+
+**Decided.** Structure walls are breakable **with the right or upgraded tools**. They're not
+permanently unbreakable; they're a progression gate. And if a player chooses to demolish a
+structure entirely, **that's their call** — no machinery to prevent it.
+
+Two things fall out that are worth building deliberately:
+
+- **A sealed structure you can't open yet is a breadcrumb.** Finding one early and being unable
+  to enter is a promise the world makes and later keeps, which is a better answer to
+  [T9](#t9-exploration-still-needs-breadcrumbs) than a HUD marker and costs nothing extra.
+  Terraria's dungeon works exactly this way.
+- **The gate only works if the shell is complete.** If the walls are gated but the rock behind
+  them isn't, players tunnel *around* and come up through the floor, and the gate is theatre.
+  A gated structure has to be **fully enclosed** in the gated material. Terraria's dungeon is
+  entirely dungeon brick for precisely this reason.
+
+**Residual, not urgent:** in a shared world one player can demolish a landmark everyone else was
+using. That's the same shared-world griefing question parked in [Q2](#open-questions), not a new
+one.
 
 ### Underground biomes
 
@@ -194,8 +239,11 @@ directions" direction currently in DESIGN.md.
 - **Horizontally: large but bounded, and it wraps.** The leftmost edge of the world
   joins seamlessly to the rightmost edge. Walk far enough in one direction and you
   come back around.
-- **Vertically: bounded.** There's a defined maximum depth, tuned as needed. Depth
-  doesn't need to be infinite to feel deep.
+- **Vertically: bounded**, and the bound is **bedrock** — unbreakable rock at the deepest row.
+  There's a defined maximum depth, tuned as needed; depth doesn't need to be infinite to feel
+  deep. Bedrock is the *only* indestructible material in the game
+  ([§1](#everything-is-mineable-and-everything-is-collectible)). _(What bounds the world at the
+  **top** is still [Q4](#open-questions).)_
 - **Large enough** that it never reads as repetitive or obviously constrained.
 
 ### Why bounded solves the empty-digging problem
@@ -1499,6 +1547,13 @@ no space left turns the game's best moment into bad news, and the player learns 
 don't find anything* on the way out. That's the exact opposite of the feel target, and no
 amount of tuning the slot count removes it — it's structural.
 
+**It got worse when everything became collectible.** Digging is the traversal verb, so
+[every tile you move through produces an item](#everything-is-mineable-and-everything-is-collectible).
+The bag now fills from *travelling*, not from finding — the player arrives at the interesting
+place already full of dirt, and the full-bag moment arrives constantly for the most boring
+possible reason. Any answer to this tension has to handle common-material spam first, because
+that's where the volume is.
+
 Things that reduce the tax, roughly in order of how much they cost to build:
 
 - **Let the player choose what to drop, always.** The decision "is this worth a slot?" is the
@@ -1695,8 +1750,12 @@ Invariants worth asserting once it's property-based, over N seeds:
   apart. A maxed character entering a new world is out of scope by design, not a failure.
 - Guaranteed content (structures, biomes, ore tiers) meets the promised
   **per-player density** at every size preset.
-- No generated cavity or structure can **trap** the player with the traversal
-  available at that depth.
+- No generated cavity or structure can **trap** the player with the traversal available at that
+  depth. _(Weak by construction now: everything except bedrock is breakable and digging is free,
+  so the player can almost always dig out. It retains teeth only around **bedrock pockets**,
+  **fluid** (drowning in a flooded dead end), and **being sealed inside a tool-gated structure
+  without the tool**. Assert those three cases specifically rather than the general claim, which
+  passes trivially.)_
 - No seed produces a world that fails any of the above — reported **as a failing
   seed**, which is reproducible by construction and therefore debuggable.
 
