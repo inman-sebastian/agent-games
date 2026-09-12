@@ -12,13 +12,7 @@ import type {
   StateMessage,
   ClientCommand,
 } from '@delve/shared';
-import {
-  T,
-  setStrata as setRenderStrata,
-  composeBand,
-  mix,
-  hashXY,
-} from './render/cave-render';
+import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './render/cave-render';
 import { ORE_ART, SHAPES } from './render/ore-art';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
@@ -159,6 +153,9 @@ const sfx = {
     const base = 520 + rarity * 90;
     tone(base, 0.005, 0.14, 'triangle', 0.28);
     setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
+  },
+  land(impact: number): void {
+    noise(0.09, 300 - impact * 130, 0.18 + impact * 0.26); // heavier fall → lower, louder thud
   },
 };
 
@@ -532,71 +529,71 @@ function render(t: number): void {
   // (only in-progress tiles), gated to the view + lamp reach. A material may override the shared look.
   if (debugFlags.damage)
     for (const cellKey in s.world.dmg) {
-    const dmg = s.world.dmg[cellKey];
-    if (!dmg) continue;
-    const comma = cellKey.indexOf(',');
-    const dc = +cellKey.slice(0, comma);
-    const dr = +cellKey.slice(comma + 1);
-    if (dc < colL || dc > colR || dr < rowT || dr > rowB) continue; // off-screen
-    if (!solidTile(dc, dr)) continue;
-    const dlit = lightAt(dc, dr);
-    if (dlit < 0.16) continue; // hidden by fog
-    const hp = engine.blockAt(s.world.seed, dc, dr).hp;
-    if (hp <= 0) continue;
-    // which side is it being mined from? the dominant cardinal axis toward the miner (chunks bite out
-    // of that edge). px/py are the player's centre in tile units.
-    const towardX = px - (dc + 0.5);
-    const towardY = py - (dr + 0.5);
-    const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
-    const dirY = dirX === 0 ? Math.sign(towardY) : 0;
-    const damageCtx = {
-      g: ctx,
-      x: dc * T,
-      y: dr * T,
-      scale: 1,
-      frac: dmg / hp,
-      seed: hashXY(dc, dr, 71),
-      lit: dlit,
-      dirX,
-      dirY,
-    };
-    (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
-  }
+      const dmg = s.world.dmg[cellKey];
+      if (!dmg) continue;
+      const comma = cellKey.indexOf(',');
+      const dc = +cellKey.slice(0, comma);
+      const dr = +cellKey.slice(comma + 1);
+      if (dc < colL || dc > colR || dr < rowT || dr > rowB) continue; // off-screen
+      if (!solidTile(dc, dr)) continue;
+      const dlit = lightAt(dc, dr);
+      if (dlit < 0.16) continue; // hidden by fog
+      const hp = engine.blockAt(s.world.seed, dc, dr).hp;
+      if (hp <= 0) continue;
+      // which side is it being mined from? the dominant cardinal axis toward the miner (chunks bite out
+      // of that edge). px/py are the player's centre in tile units.
+      const towardX = px - (dc + 0.5);
+      const towardY = py - (dr + 0.5);
+      const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
+      const dirY = dirX === 0 ? Math.sign(towardY) : 0;
+      const damageCtx = {
+        g: ctx,
+        x: dc * T,
+        y: dr * T,
+        scale: 1,
+        frac: dmg / hp,
+        seed: hashXY(dc, dr, 71),
+        lit: dlit,
+        dirX,
+        dirY,
+      };
+      (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
+    }
 
   // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
   // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
   // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
   if (debugFlags.twinkle) {
     const twinkleEdges = collectTwinkleEdges({
-    bandLeft: colL,
-    bandTop: rowT,
-    cols: colR - colL + 1,
-    rows: rowB - rowT + 1,
-    solid: solidTile,
-    materialAt,
-    lit: lightAt,
-    seedAt: (c, r) => hashXY(c, r, 55),
-    minLit: 0.2,
-  });
-  if (twinkleEdges.length) {
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const offX = colL * T;
-    const offY = rowT * T;
-    for (const edge of twinkleEdges) {
-      edge.material.twinkle!({
-        g: ctx,
-        x0: edge.x0 + offX,
-        y0: edge.y0 + offY,
-        x1: edge.x1 + offX,
-        y1: edge.y1 + offY,
-        scale: 1,
-        time: t,
-        seed: edge.seed,
-        litAt: edge.litAt,
-      });
-    }
-    ctx.restore();
+      bandLeft: colL,
+      bandTop: rowT,
+      cols: colR - colL + 1,
+      rows: rowB - rowT + 1,
+      solid: solidTile,
+      materialAt,
+      lit: lightAt,
+      seedAt: (c, r) => hashXY(c, r, 55),
+      minLit: 0.2,
+    });
+    if (twinkleEdges.length) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const offX = colL * T;
+      const offY = rowT * T;
+      for (const edge of twinkleEdges) {
+        edge.material.twinkle!({
+          g: ctx,
+          x0: edge.x0 + offX,
+          y0: edge.y0 + offY,
+          x1: edge.x1 + offX,
+          y1: edge.y1 + offY,
+          scale: 1,
+          time: t,
+          seed: edge.seed,
+          litAt: edge.litAt,
+        });
+      }
+      ctx.restore();
     }
   }
 
@@ -619,7 +616,14 @@ function render(t: number): void {
 
   // miner + lamp glow — sprite is 1 tile, centred on the player x and standing on its feet (y+HH)
   const halfHeight = engine.PHYS.HH;
-  const bob = s.player.grounded ? Math.sin(t * 10) * (moving ? 0.5 : 0.2) : 0;
+  // bob is chosen by the miner state: a brisk stride while running, a slow breath at idle/mining,
+  // none in the air (the jump/fall arc is the motion). Formalizes the old grounded/moving guess.
+  const bob =
+    miner.state === 'run'
+      ? Math.sin(t * 10) * 0.5
+      : miner.is('idle', 'mine')
+        ? Math.sin(t * 4) * 0.2
+        : 0;
   const mX = Math.round(px * T - T / 2);
   const mY = Math.round((py + halfHeight) * T - T);
   drawMiner(ctx, mX, mY, s.player.facing, bob); // lamp bloom is part of the lighting pass
@@ -692,6 +696,56 @@ const held: Record<HeldKey, boolean> = {
 };
 let moving = false;
 let curTarget: TileCoord | null = null;
+
+// The miner's animation/behaviour state (idle/run/jump/fall/mine) as a state machine over the pure
+// physics — see @delve/shared miner.ts. Driven once per fixed tick; `.state` selects the walk/idle
+// bob (below), and the enter hook hangs landing juice on the air→ground transition (a soft thud +
+// dust + a nudge of shake) — impact feedback the game didn't have before. `lastFallSpeed` is the
+// descent speed captured just before the step, since the physics zeroes vy on contact.
+let lastFallSpeed = 0;
+const miner = engine.newMinerMachine({
+  onEnter(state, { from }) {
+    const landed = (state === 'idle' || state === 'run') && (from === 'jump' || from === 'fall');
+    if (!landed) return;
+    const impact = Math.min(1, lastFallSpeed / engine.PHYS.MAX_FALL);
+    if (impact <= 0) return; // stepped onto ground without really falling (e.g. off a 1-tile lip)
+    const footX = s.player.x * T;
+    const footY = (s.player.y + engine.PHYS.HH) * T;
+    sfx.land(impact);
+    chips(footX, footY, 3 + Math.round(impact * 4), '#8a7a66', 30 + impact * 30);
+    shake = Math.min(5, shake + 0.8 + impact * 2.2);
+  },
+});
+
+// ---- app / screen state machine ---------------------------------------------------------
+// The top-level flow: the title screen → playing ⇄ paused. This is the single source of truth for
+// "is the game running" — the sim only ticks in `playing` (see frame()), and CSS keys the visible
+// chrome off `<body data-app>` (topbar/HUD/touch hidden on the title; title panel shown only there).
+// There is deliberately NO blocking `loading` state: the client renders from localStorage instantly
+// and plays offline, connecting to the server in the background (see boot), so gating play on the
+// network would regress that. `pause` covers every reason the sim should stop — the pause menu and
+// the inventory/collection panels all route through it, so one flag governs the tick loop.
+type AppState = 'title' | 'playing' | 'paused';
+type AppEvent = 'start' | 'pause' | 'resume';
+const app = new engine.StateMachine<AppState, AppEvent>(
+  'title',
+  {
+    title: { start: 'playing' },
+    playing: { pause: 'paused' },
+    paused: { resume: 'playing' },
+  },
+  {
+    onEnter(state) {
+      document.body.dataset.app = state;
+      if (state === 'paused') {
+        releaseAllHeld(); // don't leave a key "stuck down" while the sim is frozen
+        aim.down = false;
+      }
+    },
+  },
+);
+document.body.dataset.app = app.state; // reflect the initial state (onEnter doesn't fire at construction)
+const simRunning = (): boolean => app.is('playing');
 const KEYMAP: Record<string, HeldKey> = {
   ArrowUp: 'jump',
   KeyW: 'jump',
@@ -709,7 +763,7 @@ function releaseAllHeld(): void {
   (Object.keys(held) as HeldKey[]).forEach((k) => (held[k] = false));
 }
 addEventListener('keydown', (e: KeyboardEvent) => {
-  if (paused()) return;
+  if (!simRunning()) return;
   const key = KEYMAP[e.code];
   if (!key) return;
   e.preventDefault();
@@ -730,7 +784,7 @@ function setAim(e: PointerEvent): void {
   aim.has = true;
 }
 canvas.addEventListener('pointerdown', (e) => {
-  if (paused()) return;
+  if (!simRunning()) return;
   e.preventDefault();
   audio();
   setAim(e);
@@ -843,9 +897,11 @@ function tick(): void {
     pendingInputs.push({ seq: inputSeq, input });
     if (pendingInputs.length > 256) pendingInputs.shift(); // safety bound against an unresponsive server
   }
+  lastFallSpeed = s.player.vy; // pre-step descent speed (vy>0 = falling); the landing hook reads it
   const res = engine.physicsStep(s, input, TICK_DT);
   for (const ev of res.events) onEvent(ev);
-  moving = Math.abs(s.player.vx) > 0.5;
+  moving = Math.abs(s.player.vx) > engine.MOVE_EPSILON;
+  engine.driveMiner(miner, s.player, s.player.digKey !== null); // may fire the landing hook above
 }
 
 // Reconcile the local prediction against an authoritative snapshot: adopt the server's player,
@@ -873,7 +929,7 @@ function reconcile(msg: StateMessage): void {
 
   correctionX = shownX - s.player.x; // absorb the correction; the frame loop decays it to 0
   correctionY = shownY - s.player.y;
-  if (paused()) updateHUD(); // no tick loop while paused → refresh HUD for command results (buys/sells)
+  if (!simRunning()) updateHUD(); // no tick loop while paused/title → refresh HUD for command results
 }
 
 function frame(now: number): void {
@@ -885,8 +941,8 @@ function frame(now: number): void {
   const workStart = performance.now();
   if (dt > 0) fpsEMA += (1 / dt - fpsEMA) * FPS_EMA_ALPHA; // smoothed frames/sec from real timestamps
 
-  // advance the sim in fixed ticks (paused while a menu overlay is open — don't bank ticks)
-  if (paused()) {
+  // advance the sim in fixed ticks (only while playing — title/paused don't bank ticks)
+  if (!simRunning()) {
     moving = false;
     curTarget = null;
     accumulator = 0;
@@ -984,8 +1040,25 @@ function updateDebug(): void {
 const el = (id: string): HTMLElement => document.getElementById(id)!;
 const overlay = el('overlay');
 const codexOverlay = el('codexOverlay');
-const paused = (): boolean =>
-  overlay.classList.contains('on') || codexOverlay.classList.contains('on');
+const pauseOverlay = el('pauseOverlay');
+
+// A menu panel (inventory / collection / pause) pauses the sim. Opening any first closes the others
+// (they're mutually exclusive) and drives the app FSM to `paused`; closing returns it to `playing`.
+function closeMenus(): void {
+  overlay.classList.remove('on');
+  codexOverlay.classList.remove('on');
+  pauseOverlay.classList.remove('on');
+}
+function openMenu(node: HTMLElement): void {
+  audio();
+  closeMenus();
+  node.classList.add('on');
+  app.send('pause'); // no-op if already paused
+}
+function resume(): void {
+  closeMenus();
+  app.send('resume'); // no-op if already playing (e.g. closing the last panel)
+}
 
 function updateHUD(): void {
   el('depth').textContent = String(s.player.depth);
@@ -1005,19 +1078,13 @@ function refreshInventory(): void {
     listEl.appendChild(row);
 }
 function openInventory(): void {
-  audio();
-  releaseAllHeld();
-  aim.down = false;
   refreshInventory();
-  overlay.classList.add('on');
-}
-function closeInventory(): void {
-  overlay.classList.remove('on');
+  openMenu(overlay);
 }
 el('invBtn').onclick = openInventory;
-el('closeBtn').onclick = closeInventory;
+el('closeBtn').onclick = resume;
 overlay.addEventListener('click', (e) => {
-  if (e.target === overlay) closeInventory();
+  if (e.target === overlay) resume();
 });
 
 // ---- collection codex -------------------------------------------------------------------
@@ -1050,19 +1117,13 @@ function renderCodex(): void {
   }
 }
 function openCodex(): void {
-  audio();
-  releaseAllHeld();
-  aim.down = false;
   renderCodex();
-  codexOverlay.classList.add('on');
-}
-function closeCodex(): void {
-  codexOverlay.classList.remove('on');
+  openMenu(codexOverlay);
 }
 el('codexBtn').onclick = openCodex;
-el('codexClose').onclick = closeCodex;
+el('codexClose').onclick = resume;
 codexOverlay.addEventListener('click', (e) => {
-  if (e.target === codexOverlay) closeCodex();
+  if (e.target === codexOverlay) resume();
 });
 
 const muteBtn = el('muteBtn');
@@ -1072,7 +1133,7 @@ muteBtn.onclick = () => {
   muteBtn.textContent = muted ? '♪̸' : '♪';
   muteBtn.style.opacity = muted ? '0.5' : '1';
 };
-el('newBtn').onclick = function () {
+function newGame(): void {
   if (!confirm('Start a new mine? Your current progress is lost.')) return;
   s = fresh();
   net.sendCommand({ kind: 'newGame', seed: s.world.seed }); // server resets its world too (→ hello)
@@ -1084,13 +1145,30 @@ el('newBtn').onclick = function () {
   syncWorkerWorld();
   save(s);
   refreshInventory();
+  resume(); // close any open menu and hand control back to the mine
+}
+el('newBtn').onclick = newGame;
+
+// ---- title / pause screens --------------------------------------------------------------
+el('startBtn').onclick = () => {
+  audio(); // first user gesture unlocks the AudioContext
+  app.send('start');
 };
+el('resumeBtn').onclick = resume;
+el('pauseNewBtn').onclick = newGame;
+// Escape toggles the pause menu while playing, and backs out of any open menu while paused.
+addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.code !== 'Escape') return;
+  e.preventDefault();
+  if (app.is('playing')) openMenu(pauseOverlay);
+  else if (app.is('paused')) resume();
+});
 
 // block scroll/zoom gestures on the game
 addEventListener(
   'wheel',
   (e) => {
-    if (!paused()) e.preventDefault();
+    if (simRunning()) e.preventDefault();
   },
   { passive: false },
 );
