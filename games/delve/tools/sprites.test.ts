@@ -18,12 +18,14 @@ import {
   ALL_STEEL,
   MINER_SKIN,
   MINER_RAMPS,
+  MINER_WITH_PACK,
   PLAYER_LAMP,
   TEMPLATE_PARTS,
   buildSkin,
   lampFrom,
 } from '../client/src/render/entity/skin';
 import { OVERHEAD, surfaceOf, type SpriteLight } from '../client/src/render/entity/surface';
+import { BACKPACK, anchorPixel, decodeArt } from '../client/src/render/entity/attach';
 
 // One directory per entity under sprites/, so the registry check walks the entity's own folder.
 const SPRITE_DIR = join(
@@ -566,5 +568,94 @@ describe('ground alignment', () => {
       for (let x = 0; x < anim.w; x++) if (img.data[(y * anim.w + x) * 4 + 3]) lowest = y;
     }
     expect(lowest).toBe(footY - 1);
+  });
+});
+
+describe('attachments', () => {
+  // Equipment that extends BEYOND the silhouette, which a re-skin can never do. The invariants here
+  // are the ones that make an attachment authorable once and correct in every animation.
+  const anim = PLAYER_SPRITES.walk;
+  const blank = () =>
+    ({
+      width: anim.w,
+      height: anim.h,
+      data: new Uint8ClampedArray(anim.w * anim.h * 4),
+    }) as unknown as ImageData;
+  const lit = (img: ImageData): number => {
+    let n = 0;
+    for (let i = 3; i < img.data.length; i += 4) if (img.data[i]) n++;
+    return n;
+  };
+  const draw = (skin: object, frame: number, flip = false): ImageData => {
+    const img = blank();
+    drawSprite(img, anim, frame, Math.floor(anim.w / 2), anim.ground, { skin, flip });
+    return img;
+  };
+
+  it('adds pixels outside the body, which is the whole point', () => {
+    // A re-skin is silhouette-preserving by construction; an attachment must not be.
+    let grew = 0;
+    for (let f = 0; f < anim.frames; f++) {
+      if (lit(draw(MINER_WITH_PACK, f)) > lit(draw(MINER_SKIN, f))) grew++;
+    }
+    expect(grew).toBeGreaterThan(0);
+  });
+
+  it('resolves an anchor on every frame that has the part', () => {
+    // The anchor is a surface coordinate, so it must land somewhere real in every frame without any
+    // per-frame authoring. A null here means an animation silently loses the item.
+    const decode = (cel: { data: string }): Uint8Array =>
+      new Uint8Array(Buffer.from(cel.data, 'base64'));
+    for (const name of Object.keys(PLAYER_SPRITES) as PlayerAnim[]) {
+      const a = PLAYER_SPRITES[name];
+      const hasTorso = a.layers.some((l) => l.name === BACKPACK.anchor.slot);
+      if (!hasTorso) continue;
+      for (let f = 0; f < a.frames; f++) {
+        expect(
+          anchorPixel(a, f, BACKPACK.anchor, decode as never),
+          `${name} frame ${f}`,
+        ).not.toBeNull();
+      }
+    }
+  });
+
+  it('anchors at the requested height, not somewhere down the part', () => {
+    // The first version searched (along, around) as one distance. Those axes have different ranges,
+    // so it slid down the part to satisfy `around` and put the pack on the character's chest.
+    const decode = (cel: { data: string }): Uint8Array =>
+      new Uint8Array(Buffer.from(cel.data, 'base64'));
+    const torso = anim.layers.find((l) => l.name === 'torso')!;
+    for (let f = 0; f < anim.frames; f++) {
+      const cel = torso.cels[f]!;
+      const at = anchorPixel(anim, f, BACKPACK.anchor, decode as never)!;
+      const within = (at[1] - cel.y) / Math.max(1, cel.h - 1);
+      expect(Math.abs(within - BACKPACK.anchor.along), `frame ${f}`).toBeLessThan(0.3);
+    }
+  });
+
+  it('stays on the same side of the body when the sprite flips', () => {
+    // Attachments live in sprite space like the light does, so an item on the back turns with the
+    // character instead of swapping to its chest.
+    const a = draw(MINER_WITH_PACK, 0);
+    const b = draw(MINER_WITH_PACK, 0, true);
+    let same = 0;
+    let total = 0;
+    for (let y = 0; y < anim.h; y++) {
+      for (let x = 0; x < anim.w; x++) {
+        const i = (y * anim.w + x) * 4;
+        const j = (y * anim.w + (anim.w - 1 - x)) * 4;
+        if (a.data[i + 3] === 0) continue;
+        total++;
+        if (a.data[i] === b.data[j] && a.data[i + 1] === b.data[j + 1]) same++;
+      }
+    }
+    expect(same / total).toBe(1);
+  });
+
+  it('decodes its authored art as written', () => {
+    const art = decodeArt(BACKPACK.art);
+    expect(art.h).toBe(BACKPACK.art.rows.length);
+    expect(art.w).toBe(Math.max(...BACKPACK.art.rows.map((r) => r.length)));
+    for (const index of art.data) expect(index).toBeLessThanOrEqual(BACKPACK.art.palette.length);
   });
 });

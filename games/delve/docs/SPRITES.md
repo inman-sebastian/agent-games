@@ -246,6 +246,61 @@ material authored for the player's torso applies to any entity with a torso slot
 The step-by-step procedure, including how to read an import failure, is the
 `delve-import-sprites` skill.
 
+## Equipment: three kinds, and the rules for each
+
+Equipment does **not** have to fit inside the character's silhouette, and that requirement split the
+model into three kinds. Naming them matters, because the kind decides what an item is allowed to do.
+
+| kind           | its art                     | may change the silhouette | examples                                        |
+| -------------- | --------------------------- | ------------------------- | ----------------------------------------------- |
+| **Re-skin**    | none — recolours the body   | never                     | dyed cloth, skin tone, a steel sheen            |
+| **Overlay**    | its own, clipped to a part  | never                     | a helmet on the head, a pauldron                |
+| **Attachment** | its own, anchored to a part | **yes**                   | a backpack, a cape, a sheathed sword, a lantern |
+
+Re-skins and overlays keep the imported shape and change what is inside it. An **attachment** hangs
+its own art on the body and is free to stick out, which is the only way to get a backpack.
+
+### An attachment names a place on the body, never a pixel or a frame
+
+This is what makes it tractable, and it is the same trick that made materials work. An attachment's
+anchor is a **surface coordinate** — `along` down a part, `around` across it — resolved per frame
+from that frame's own derived surface map:
+
+```ts
+anchor: { slot: 'torso', along: 0.35, around: -1 }   // high on the torso's back edge
+pivot:  [1, 0.4]                                      // which part of the ITEM touches the body
+behind: 'arm.far'                                     // where it sits in the paint order
+```
+
+"High on the torso's back edge" is authored **once** and lands correctly in all fifteen animations,
+following the body as it bobs, leans and turns. A new animation needs no attachment work at all.
+
+### Rules
+
+- **Author against coordinates, never frames.** Anything authored per frame stops working the moment
+  an animation is added, and there are fifteen already.
+- **Resolve the anchor axis by axis**, height then edge. A single nearest-neighbour search in
+  `(along, around)` is wrong: the axes have different ranges, so it slides down the part to satisfy
+  `around` — which put the backpack on the character's chest for two frames of the walk.
+- **Declare the paint order.** A back-mounted item goes behind everything; a chest lamp in front.
+  This is the most visible way an attachment can look pasted on.
+- **Clear the silhouette by design.** An attachment that sits inside the body's footprint gets
+  occluded by a swinging limb and vanishes. Do not fix that with paint order — the occlusion is
+  correct — fix it with art that hangs far enough out.
+- **The figure must read without it.** Equipment adds to a silhouette; it may not be the thing that
+  makes one legible.
+- **Attachment art is ours.** The imported pack supplies bodies only, so every item follows
+  [PALETTE.md](PALETTE.md) and carries its own rim in the same darkest step the body uses.
+
+### Known limitation
+
+On the two walk frames where the torso leans hardest, its own back edge sits further inboard than the
+near arm, so the backpack lands underneath that arm and disappears. The anchor is right and the
+occlusion is right — a near-side arm really is in front of something on the back. What is wrong is
+expecting one part's extent to know about another's. Fixing it means either art that clears the arm's
+full swing, or resolving the anchor against the whole figure's silhouette rather than one part's.
+Both are decisions rather than tweaks.
+
 ## The outline
 
 Entities carry a **one-pixel dark rim**; the world does not. Rock separates itself geometrically —

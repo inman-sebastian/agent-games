@@ -118,6 +118,17 @@ Features are placed by coordinate, not by colour — a trim at `along > 0.8`, a 
 so they are authored once and fit every animation, because the coordinates are derived per frame from
 that frame's own silhouette.
 
+## Step 4b — equipment that sticks out
+
+A re-skin cannot add pixels the body does not already occupy, so a backpack, cape or sheathed sword
+is a different kind of thing: an **attachment**, with its own art, anchored to a part and free to
+extend past the silhouette. See `client/src/render/entity/attach.ts` and the equipment section of
+[`docs/SPRITES.md`](../../../docs/SPRITES.md) for the three kinds and the rules.
+
+The short version: anchor by **surface coordinate**, never by frame; declare the paint order; and make
+the art clear the silhouette, because anything sitting inside the body's footprint gets occluded by a
+swinging limb.
+
 ## Step 5 — verify
 
 ```sh

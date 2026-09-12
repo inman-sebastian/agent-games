@@ -19,8 +19,9 @@
 import type { Rgb } from '../palette';
 import { TEMPLATE_PALETTE } from './sprites/palette';
 import { OVERHEAD, partCtx, surfaceOf, type SpriteLight, type SpriteMaterial } from './surface';
+import { anchorPixel, decodeArt, type Attachment } from './attach';
 
-export type { SpriteLight, SpriteMaterial };
+export type { SpriteLight, SpriteMaterial, Attachment };
 
 /** One layer's pixels for one frame. `x`/`y` place the cel in the frame; indices are row-major. */
 export interface SpriteCel {
@@ -99,6 +100,11 @@ export interface SpriteSkin {
    * staying hairline at 2x.
    */
   readonly outline?: string | null;
+  /**
+   * Equipment that is NOT confined to the silhouette — a backpack off the back, a cape, a sheathed
+   * sword. See attach.ts for why these are a different kind of thing from a re-skin.
+   */
+  readonly attachments?: readonly Attachment[];
 }
 
 const hexToRgb = (hex: string): Rgb => [
@@ -209,7 +215,16 @@ export function drawSprite(
     }
   }
 
+  /** Attachments whose `behind` names this slot, drawn just before it. */
+  const drawAttachments = (before: string): void => {
+    for (const item of options.skin?.attachments ?? []) {
+      if ((item.behind ?? 'front') !== before) continue;
+      drawAttachment(img, anim, f, item, baseX, baseY, scale, options.flip === true, skin?.outline);
+    }
+  };
+
   for (const layer of anim.layers) {
+    drawAttachments(layer.name);
     if (hidden?.includes(layer.name)) continue;
     const cel = layer.cels[f];
     if (!cel) continue;
@@ -264,6 +279,62 @@ export function frameAt(anim: SpriteAnim, ms: number): number {
     if (t < 0) return i;
   }
   return anim.frames - 1;
+}
+
+/**
+ * Draw one attachment: resolve its anchor on this frame, then blit its own art around that point.
+ *
+ * The art carries its OWN outline rather than being dilated with the body's: an attachment extends
+ * past the silhouette, so a shared rim would trace the union of the two and read as one lumpy shape
+ * instead of a pack hanging on a person.
+ */
+function drawAttachment(
+  img: ImageData,
+  anim: SpriteAnim,
+  frame: number,
+  item: Attachment,
+  baseX: number,
+  baseY: number,
+  scale: number,
+  flip: boolean,
+  outline?: string | null,
+): void {
+  const at = anchorPixel(anim, frame, item.anchor, indicesOf);
+  if (!at) return; // the part is absent in this animation — nothing to hang from
+  const art = decodeArt(item.art);
+  const colors = item.art.palette.map(hexToRgb);
+  void outline;
+  const [ox, oy] = item.offset ?? [0, 0];
+  // Positioned by the part of ITSELF that touches the body, so authoring reads as "this edge meets
+  // the back" rather than as a corner offset nobody can picture.
+  const left = Math.round(at[0] - art.w * item.pivot[0] + ox);
+  const top = Math.round(at[1] - art.h * item.pivot[1] + oy);
+
+  for (let y = 0; y < art.h; y++) {
+    for (let x = 0; x < art.w; x++) {
+      const index = art.data[y * art.w + x];
+      if (index === 0) continue;
+      const rgb = colors[index - 1];
+      if (!rgb) continue;
+      // Mirrored in SOURCE space, exactly as the body and the light are, so an item on the back
+      // stays on the back when the character turns.
+      const sx = flip ? anim.w - 1 - (left + x) : left + x;
+      const sy = top + y;
+      for (let dy = 0; dy < scale; dy++) {
+        const py = baseY + sy * scale + dy;
+        if (py < 0 || py >= img.height) continue;
+        for (let dx = 0; dx < scale; dx++) {
+          const px = baseX + sx * scale + dx;
+          if (px < 0 || px >= img.width) continue;
+          const i = (py * img.width + px) * 4;
+          img.data[i] = rgb[0];
+          img.data[i + 1] = rgb[1];
+          img.data[i + 2] = rgb[2];
+          img.data[i + 3] = 255;
+        }
+      }
+    }
+  }
 }
 
 /**

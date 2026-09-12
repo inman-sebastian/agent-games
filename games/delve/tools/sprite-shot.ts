@@ -3,6 +3,7 @@
 //   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip]
 //                                                     [--template|--plate|--steel] [--hide slot]
 //                                                     [--light x,y,reach | --overhead] [--no-outline]
+//                                                     [--pack]
 //
 // Draws with the authored miner skin by default. `--template` shows the pack's raw colour codes
 // instead, which is the view to use when checking an import or reasoning about which part is which.
@@ -14,7 +15,13 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { PLAYER_SPRITES, type PlayerAnim } from '../client/src/render/entity/sprites';
 import { drawSprite, type SpriteSkin } from '../client/src/render/entity/sprite';
-import { ALL_STEEL, MINER_SKIN, PLATE_ARMOUR, PLAYER_LAMP } from '../client/src/render/entity/skin';
+import {
+  ALL_STEEL,
+  MINER_SKIN,
+  MINER_WITH_PACK,
+  PLATE_ARMOUR,
+  PLAYER_LAMP,
+} from '../client/src/render/entity/skin';
 import { OVERHEAD, type SpriteLight } from '../client/src/render/entity/surface';
 
 const args = process.argv.slice(2);
@@ -40,13 +47,15 @@ const flip = args.includes('--flip');
 const hide = (flag('--hide') ?? '').split(',').filter(Boolean);
 // `--template` leaves every colour as the pack authored it: no `colors` mapping at all, which is the
 // view to use when checking an import or working out which code colour is which body part.
-const base: SpriteSkin = args.includes('--template')
-  ? {}
-  : args.includes('--plate')
-    ? PLATE_ARMOUR
-    : args.includes('--steel')
-      ? ALL_STEEL
-      : MINER_SKIN;
+const base: SpriteSkin = args.includes('--pack')
+  ? MINER_WITH_PACK
+  : args.includes('--template')
+    ? {}
+    : args.includes('--plate')
+      ? PLATE_ARMOUR
+      : args.includes('--steel')
+        ? ALL_STEEL
+        : MINER_SKIN;
 const skin: SpriteSkin = {
   ...base,
   hide: [...(base.hide ?? []), ...hide],

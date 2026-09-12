@@ -16,6 +16,7 @@ import { clamp01, colorsFor, quantize, type Rgb } from '../palette';
 import { bandsOf, type PartCtx } from './surface';
 import { TEMPLATE_PALETTE } from './sprites/palette';
 import { vnoise } from '@delve/shared';
+import { BACKPACK } from './attach';
 import type { SpriteLight, SpriteMaterial, SpriteSkin } from './sprite';
 
 /**
@@ -240,3 +241,6 @@ export const PLAYER_LAMP: SpriteLight = { x: 24, y: 24, reach: 34 };
 export function lampFrom(dx: number, dy: number, reach = 64): SpriteLight {
   return { x: 24 + dx, y: 24 + dy, reach };
 }
+
+/** The miner wearing the backpack — an ATTACHMENT, extending past the silhouette. See attach.ts. */
+export const MINER_WITH_PACK: SpriteSkin = { ...MINER_SKIN, attachments: [BACKPACK] };
