@@ -7,7 +7,7 @@
 //
 // Shared by `rig-measure.ts` (the CLI report) and `rig.test.ts` (the gate), so the report and the
 // test can never disagree about what "close to the reference" means.
-import { buildHumanoid, idlePose, CODED } from '../client/src/render/entity/humanoid';
+import { buildHumanoid, idlePose, walkPose, CODED } from '../client/src/render/entity/humanoid';
 import { drawRig, rigPalettes } from '../client/src/render/entity/rig';
 import type { HumanoidConfig } from '../client/src/render/entity/config';
 
@@ -190,10 +190,11 @@ export function extents(img: Buffer2D): Record<string, Extent> {
   return out;
 }
 
-/** Render the rig at idle in coded mode, optionally keeping only some parts. */
+/** Render the rig in coded mode, optionally at a walk phase and/or keeping only some parts. */
 export function render(
   cfg: HumanoidConfig,
   keep?: (part: { coded?: readonly number[] }) => boolean,
+  phase?: number,
 ): Buffer2D {
   const full = buildHumanoid(cfg);
   const rig = keep ? { parts: full.parts.filter(keep) } : full;
@@ -202,7 +203,7 @@ export function render(
   drawRig(
     img as unknown as Parameters<typeof drawRig>[0],
     rig,
-    idlePose(cfg),
+    phase === undefined ? idlePose(cfg) : walkPose(phase, cfg),
     rigPalettes(rig),
     Math.floor(W / 2),
     GROUND,
@@ -258,3 +259,113 @@ export function measure(cfg: HumanoidConfig): {
 
 /** An art-pixel row index as a REFERENCE-pixel offset from the ground, the unit the table is in. */
 export const toRef = (y: number): number => (y - GROUND) / K;
+
+// ---- the WALK, which the idle-only measurements could not see ----------------------------------
+//
+// Every number above describes the idle frame, and that blind spot is how `kneeBend` stayed
+// inverted: the knees bent backwards through the entire cycle while the silhouette reported itself
+// within a pixel, because at rest a leg is nearly straight and the sign does not show.
+//
+// Per-PART walk profiles are not available. The pack's walk layers swap identity at the passing
+// frames — read in order, its "Front Leg" holds a foot that travels forward across four consecutive
+// frames while still touching the ground — so only the WHOLE-FIGURE silhouette can be trusted here.
+// That is enough: pose lives in the width profile, since a wide bottom row IS a spread stance.
+
+/**
+ * Whole-figure per-row widths, GROUND UP, for each of the pack's eight walk frames. Reference px.
+ *
+ * No per-row centre, unlike the part profiles: the reference's torso centre wobbles and its bbox
+ * centre moves with the leg spread, so the walk has no stable horizontal anchor to measure against.
+ */
+export const WALK_WIDTHS: readonly (readonly number[])[] = [
+  /* 0 */ [4, 3, 4, 4, 5, 6, 5, 6, 6, 9, 9, 9, 8, 8, 8, 7, 7, 7, 7, 6, 6, 6, 8, 8, 8, 8, 6, 4],
+  /* 1 */ [
+    3, 3, 10, 8, 8, 8, 9, 10, 10, 11, 10, 10, 10, 10, 10, 9, 9, 9, 9, 8, 6, 6, 6, 8, 8, 8, 8, 6, 4,
+  ],
+  /* 2 */ [
+    15, 17, 17, 16, 13, 11, 11, 9, 9, 17, 17, 17, 14, 13, 12, 10, 10, 9, 8, 6, 6, 6, 8, 8, 8, 8, 6,
+    4,
+  ],
+  /* 3 */ [
+    16, 16, 17, 16, 15, 14, 13, 11, 13, 12, 18, 15, 13, 11, 11, 12, 11, 10, 8, 7, 6, 8, 8, 8, 8, 6,
+    4,
+  ],
+  /* 4 */ [4, 6, 6, 6, 6, 5, 6, 8, 9, 9, 8, 7, 6, 6, 6, 7, 7, 7, 6, 6, 6, 6, 8, 8, 8, 8, 6, 4],
+  /* 5 */ [
+    3, 3, 10, 8, 8, 8, 9, 9, 9, 10, 10, 10, 9, 10, 9, 9, 9, 8, 8, 7, 5, 5, 6, 8, 8, 8, 8, 6, 4,
+  ],
+  /* 6 */ [
+    15, 17, 17, 16, 13, 11, 11, 9, 8, 12, 18, 17, 17, 15, 13, 13, 11, 9, 8, 6, 6, 6, 8, 8, 8, 8, 6,
+    4,
+  ],
+  /* 7 */ [
+    16, 16, 17, 16, 15, 14, 13, 11, 9, 20, 20, 19, 16, 15, 14, 12, 10, 9, 6, 6, 6, 8, 8, 8, 8, 6, 4,
+  ],
+];
+
+/**
+ * Our whole-figure per-row widths at a walk phase, GROUND UP, in reference px.
+ *
+ * Scans from the figure's own lowest row rather than from the ground line, since the feet may not
+ * reach it, and keeps INTERNAL empty rows as zeros rather than stopping at them — our neck gap is
+ * exactly such a row, and a metric that truncated there would hide the whole head.
+ */
+export function walkWidths(cfg: HumanoidConfig, phase: number): number[] {
+  const img = render(cfg, undefined, phase);
+  const rows: number[] = [];
+  for (let y = 0; y < img.height; y++) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let x = 0; x < img.width; x++) {
+      if (img.data[(y * img.width + x) * 4 + 3] === 0) continue;
+      lo = Math.min(lo, x);
+      hi = Math.max(hi, x);
+    }
+    rows.push(hi < lo ? 0 : hi - lo + 1);
+  }
+  let bottom = rows.length - 1;
+  while (bottom >= 0 && rows[bottom] === 0) bottom--;
+  let top = 0;
+  while (top < rows.length && rows[top] === 0) top++;
+  if (bottom < top) return [];
+  const out: number[] = [];
+  for (let y = bottom; y >= top; y--) out.push(rows[y] / K);
+  return out;
+}
+
+export interface WalkMatch {
+  /** Mean absolute per-row width error against this reference frame, in reference px. */
+  error: number;
+  /** The phase of our cycle that matched it best. */
+  phase: number;
+}
+
+/**
+ * For each reference walk frame, the closest pose our cycle can produce.
+ *
+ * Deliberately a BEST-PHASE match rather than a fixed frame-to-phase mapping. The question that
+ * matters is whether the cycle passes through the pack's poses at all; where in the cycle it does so
+ * is a phase offset, not a shape error. The matched phases are reported too, so a cycle that has
+ * drifted out of order — or collapsed several reference frames onto one pose — is still visible.
+ */
+export function walkMatch(cfg: HumanoidConfig, samples = 48): WalkMatch[] {
+  return WALK_WIDTHS.map((ref) => {
+    let best: WalkMatch = { error: Infinity, phase: 0 };
+    for (let i = 0; i < samples; i++) {
+      const phase = i / samples;
+      const raw = walkWidths(cfg, phase);
+      // Resample onto the reference's row count. Ours is 48px tall and the reference 29, so the row
+      // INDICES need scaling just as the widths do — comparing them index-for-index made every
+      // frame match at phase 0, because a constant height mismatch swamped the pose difference.
+      const ours = resample(raw, ref.length);
+      let sum = 0;
+      for (let r = 0; r < ref.length; r++) sum += Math.abs(ours[r] - ref[r]);
+      // Figure height matters too, and resampling normalises it away: the reference's own height
+      // moves 27-29 rows across the cycle as the legs bend.
+      const heightErr = Math.abs(raw.length / K - ref.length);
+      const error = sum / ref.length + heightErr * 0.5;
+      if (error < best.error) best = { error, phase };
+    }
+    return best;
+  });
+}

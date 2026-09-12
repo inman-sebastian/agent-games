@@ -42,6 +42,17 @@ export interface HumanoidConfig {
   stretch: number;
 
   /**
+   * Fraction of the cycle each foot spends PLANTED. Above 0.5 the two overlap, giving double
+   * support — both feet down at once.
+   *
+   * The textbook walk figure is 0.62, which gives 24% double support. The reference is far more
+   * stylised than that: four of its eight frames have both feet flat on the ground at full spread,
+   * so half its cycle is double support. Ours planted one foot at the widest stance, and the
+   * whole-figure walk profile caught it as a 2px bottom row against the reference's 16.
+   */
+  duty: number;
+
+  /**
    * Tilt of the whole upper body, in px of x travel at the head, interpolated down to 0 at the hip.
    *
    * NEGATIVE leans BACK, which is what the reference does: its head sits 2.5 reference px behind its
@@ -183,9 +194,9 @@ export const DEFAULT_CONFIG: HumanoidConfig = {
   legOffset: 6.4,
   stanceSplay: 5.2, // ref 4.5 forward
   stanceSplayFar: 4, // ref 3.5 back
-  handSplayFar: 5.8, // ref 4.0 back
+  handSplayFar: 2.8, // ref 4.0 back
   kneeLead: 0.32,
-  elbowLead: 1.52,
+  elbowLead: 1.28,
   handSplay: 4, // ref 2.5 forward
   torsoDrop: 4.5,
 
@@ -218,17 +229,21 @@ export const DEFAULT_CONFIG: HumanoidConfig = {
   // read straight off the foot travel is roughly double what it should be — which is what turned our
   // walk into a pair of straight-legged splits, the IK straightening because the target was out of
   // reach on every frame.
-  stride: 22,
-  footLift: 3.3,
-  armSwing: 7,
-  bob: 3.3,
+  stride: 17,
+  // footLift and armSwing are MEASURED, never fitted: a width profile barely changes when a foot
+  // lifts or an arm swings, so the fit drives both to zero and calls it an improvement. A walk with
+  // a dragging foot and dead arms is wrong whatever the silhouette number says.
+  footLift: 3.3, // ref 2
+  armSwing: 10,
+  bob: 2.5,
   stretch: 1.2,
+  duty: 0.84,
   lean: -2.8,
 
   footLen: 2.5,
   footDrop: 0.5,
 
-  girth: 1,
+  girth: 1.01,
 
   rimDarken: 0.14,
   farBias: -0.28,

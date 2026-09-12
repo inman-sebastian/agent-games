@@ -41,11 +41,18 @@ silhouette against the reference's own frame, plus an ASCII map of exactly where
 (`#` both, `O` ours only, `R` reference only). Extents and even per-row profiles can agree while the
 figure is still visibly wrong; "how many of the same pixels are lit" cannot be gamed.
 
-`rig-fit.ts` runs coordinate descent on that overlap over the PLACEMENT knobs — offsets, splays,
-lean, joint leads — and prints the result. Shapes are authored profiles and are not fitted. It
-optimises a single frame, so it will trade a small part's accuracy for a large one's: it zeroed the
-far arm's angle and collapsed the foot to nothing, because neither costs many pixels. Pin whatever
-the gait needs, and re-run `pnpm test` after — the walk invariants are what catch an idle-only win.
+`rig-fit.ts` runs coordinate descent over the PLACEMENT knobs — offsets, splays, lean, joint leads,
+gait — and prints the result. Shapes are authored profiles and are not fitted.
+
+Its objective is **weighted per part** and scores the **walk** as well as the idle. Both matter.
+Fitting whole-figure overlap alone let it trade a small part for a large one: it zeroed the far arm's
+angle, collapsed the foot to nothing and opened a four-pixel neck gap, because none of those cost
+many pixels. Every part now carries equal weight regardless of area, so a 1px far bicep counts as
+much as the torso.
+
+`footLift` and `armSwing` are deliberately excluded. A width profile barely changes when a foot lifts
+or an arm swings, so the fit drives both to zero and scores it as a win — a blind spot, not a result.
+Anything else the gait needs should be pinned the same way, and `pnpm test` re-run afterwards.
 
 Both need the **purchased** reference pack, which is not committed (all game art is authored). They
 shell out to `python3` with Pillow to decode the PNG.

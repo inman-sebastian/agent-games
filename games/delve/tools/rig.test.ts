@@ -9,7 +9,18 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG, BUILDS, type BodyBuild } from '../client/src/render/entity/config';
 import { idlePose, walkPose } from '../client/src/render/entity/humanoid';
-import { GROUPS, PROFILES, REFERENCE, K, measure, toRef, type GroupName } from './rig-reference';
+import {
+  GROUPS,
+  PROFILES,
+  REFERENCE,
+  WALK_WIDTHS,
+  K,
+  measure,
+  toRef,
+  walkMatch,
+  walkWidths,
+  type GroupName,
+} from './rig-reference';
 
 /** One reference pixel. Closer than the art the numbers were measured from can express. */
 const TOLERANCE = 1;
@@ -101,6 +112,56 @@ describe('humanoid silhouette vs the reference pack', () => {
         expect(pose[joint].x, `${build} moved ${joint} sideways`).toBe(male[joint].x);
       }
     }
+  });
+});
+
+/**
+ * The WALK, gated against the pack's own frames.
+ *
+ * This is the gap that let an inverted `kneeBend` ship: every other measurement here describes the
+ * IDLE frame, where a leg is nearly straight and a bend sign does not show. The pack's walk layers
+ * swap identity at the passing frames, so per-part profiles are not available for the walk — but the
+ * whole-figure width profile is, and pose lives in it. A wide bottom row IS a spread stance.
+ */
+describe('walk cycle vs the reference pack', () => {
+  const matches = walkMatch(DEFAULT_CONFIG);
+
+  /**
+   * Mean per-row width error allowed against a reference walk frame, in reference px.
+   *
+   * Looser than the idle's, and it has to be: this compares a whole 48px figure against a hand-drawn
+   * 29px one across ~28 rows, with no per-part breakdown to isolate where the difference sits. Set
+   * just above where the cycle currently lands, so it can only improve.
+   */
+  const WALK_TOLERANCE = 1.7;
+
+  it('passes through every reference pose', () => {
+    matches.forEach((m, i) => {
+      expect(
+        m.error,
+        `reference walk frame ${i} (best phase ${m.phase.toFixed(3)})`,
+      ).toBeLessThanOrEqual(WALK_TOLERANCE);
+    });
+  });
+
+  it('does not collapse several reference poses onto one', () => {
+    // A cycle that barely moves would match every reference frame at nearly the same phase and still
+    // score well per frame. The pack's eight frames are four distinct poses (it repeats mirrored),
+    // so ours must reach at least that many distinct phases.
+    const distinct = new Set(matches.map((m) => Math.round(m.phase * 8)));
+    expect(distinct.size).toBeGreaterThanOrEqual(4);
+  });
+
+  it('plants both feet at the widest stance', () => {
+    // Half the pack's cycle is double support: four of its eight frames have both feet flat at full
+    // spread. Ours planted one, and it showed up here as a 2px bottom row against its 16.
+    const widest = Math.max(...WALK_WIDTHS.map((w) => w[0]));
+    let ourWidest = 0;
+    for (let i = 0; i < 32; i++) {
+      const rows = walkWidths(DEFAULT_CONFIG, i / 32);
+      if (rows.length) ourWidest = Math.max(ourWidest, rows[0]);
+    }
+    expect(ourWidest).toBeGreaterThanOrEqual(widest * 0.6);
   });
 });
 

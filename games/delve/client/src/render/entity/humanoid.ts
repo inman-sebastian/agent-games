@@ -327,8 +327,6 @@ export function idlePose(cfg: HumanoidConfig = DEFAULT_CONFIG): Skeleton {
  * to what it is actually good at: solving the knee and elbow from end effectors, and later fitting
  * the foot to drawn ground.
  */
-const DUTY = 0.62; // fraction of the cycle a foot spends planted — the textbook walk figure
-
 /**
  * Where one ankle sits at cycle phase `p` (0..1): `x` relative to that leg's REST hip x, `y` in
  * figure space (so 0 is the ground line).
@@ -340,13 +338,13 @@ const DUTY = 0.62; // fraction of the cycle a foot spends planted — the textbo
 function anklePath(p: number, cfg: HumanoidConfig): { x: number; y: number } {
   const phase = p - Math.floor(p);
   const half = cfg.stride / 2;
-  if (phase < DUTY) {
+  if (phase < cfg.duty) {
     // Stance: planted. Relative to the advancing body the foot travels backward at a CONSTANT rate.
     // Constant is the whole point — any easing in here is a foot sliding along the ground.
-    return { x: half - (phase / DUTY) * cfg.stride, y: cfg.yAnkle };
+    return { x: half - (phase / cfg.duty) * cfg.stride, y: cfg.yAnkle };
   }
   // Swing: back to the front, lifting on an arc through the middle.
-  const t = (phase - DUTY) / (1 - DUTY);
+  const t = (phase - cfg.duty) / (1 - cfg.duty);
   return { x: -half + t * cfg.stride, y: cfg.yAnkle - Math.sin(t * Math.PI) * cfg.footLift };
 }
 
@@ -397,10 +395,9 @@ export function walkPose(p: number, cfg: HumanoidConfig = DEFAULT_CONFIG): Skele
   leg('hipNear', 'kneeNear', 'ankleNear', 'toeNear', p);
   leg('hipFar', 'kneeFar', 'ankleFar', 'toeFar', p + 0.5);
 
-  // Arms counter-swing the legs: the hand opposes the ankle on the same side, which is what a real
-  // gait does to cancel the torso's rotation. Amplitude is its own knob because the pack's arm
-  // layers are too noisy to measure — one of them is empty on a frame where the arm hides behind
-  // the torso.
+  // Arms counter-swing the legs, which is what a real gait does to cancel the torso's rotation.
+  // Amplitude is its own knob rather than measured: the pack's arm layers are too noisy for it, one
+  // of them being empty on the frame where the arm hides behind the torso.
   const arm = (
     shoulder: string,
     elbow: string,
@@ -408,7 +405,13 @@ export function walkPose(p: number, cfg: HumanoidConfig = DEFAULT_CONFIG): Skele
     phase: number,
     rest: number,
   ): void => {
-    const swing = anklePath(phase + 0.5, cfg).x / (cfg.stride || 1);
+    // A SINUSOID, zero exactly when the legs cross and extreme when they are furthest apart.
+    // Reusing the foot's track here was wrong twice over: a foot has a stance phase, planted and
+    // moving backward at a constant rate for most of the cycle, so the arms sat parked at an extreme
+    // for two thirds of the walk; and half a cycle is not when the legs actually pass. They cross
+    // mid-swing, at (1 + duty) / 2. The whole-figure profile caught the result — our upper body
+    // measured 18px wide at the reference's passing frame, where its arms tuck inside an 8px torso.
+    const swing = Math.sin((phase - (1 + cfg.duty) / 2) * Math.PI * 2) * 0.5;
     pose[hand].x = pose[shoulder].x + rest + swing * cfg.armSwing;
     pose[hand].y = cfg.yHand + bob * 0.5;
     pose[elbow] = solveTwoBone(
@@ -420,9 +423,10 @@ export function walkPose(p: number, cfg: HumanoidConfig = DEFAULT_CONFIG): Skele
       cfg.stretch,
     );
   };
-  const splay = cfg.handSplay;
-  arm('shoulderNear', 'elbowNear', 'handNear', p, splay);
-  arm('shoulderFar', 'elbowFar', 'handFar', p + 0.5, -splay);
+  // Each side takes its OWN rest splay. Mirroring the near side's meant `handSplayFar` only ever
+  // applied to the idle pose and silently vanished from the walk.
+  arm('shoulderNear', 'elbowNear', 'handNear', p, cfg.handSplay);
+  arm('shoulderFar', 'elbowFar', 'handFar', p + 0.5, -cfg.handSplayFar);
   return pose;
 }
 
