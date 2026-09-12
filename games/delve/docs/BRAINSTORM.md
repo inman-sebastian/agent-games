@@ -66,7 +66,7 @@ together is the fastest honest summary of the target:
 | Category          | What it means here                                                          |
 | ----------------- | --------------------------------------------------------------------------- |
 | **Exploration**   | The primary driver. Digging is how you travel; finding is the reward.       |
-| **Open world**    | Large, bounded, horizontally wrapping. **Not** infinite — see [§4](#4-world-topology--hosting). |
+| **Open world**    | Large and bounded. **Not** infinite. Edge behaviour reopened, hard edges leading — see [§4](#hard-edges-vs-wrapping). |
 | **Incremental**   | Continuous, compounding growth in player capability.                        |
 | **Survival**      | Enemies + player health + situational breath. **No attrition meters.**      |
 | **Crafting**      | Tools, weapons, equipment are made, not just bought.                        |
@@ -272,6 +272,25 @@ The known, proven approach here is **cellular-automata fluid** (Terraria, Starbo
 and every falling-sand game), simulated only in active regions near players rather
 than world-wide. That's the technique to reach for rather than inventing one.
 
+### Two kinds of fluid
+
+**Decided.** Not all fluid is simulated, and the distinction is load-bearing:
+
+| Kind | Behaviour | Example |
+| --- | --- | --- |
+| **Static** | Never simulated. A fixed body that defines terrain and can't be drained. | The **lava ocean** at the world floor |
+| **Simulated** | Cellular automata, active regions near players. The emergent-story generator. | A lava or water **pocket** the player breaches |
+
+**The lava ocean at the bottom is static**, held in place by the indestructible bedrock floor. It
+costs nothing to run, it removes the "lava accumulates at the bottom forever with nowhere to
+drain" problem entirely, and because it **can't be drained** it makes the bottom of the world feel
+*final* — a hazard and a boundary rather than a puzzle. The [molten core band](#biomes-come-in-two-kinds-bands-and-pockets)
+sits here.
+
+Note the parallel with biomes: the same static-vs-dynamic split, and for the same reason — the
+guaranteed, structural version is cheap and the placed, interactive version is where the cost and
+the interest live.
+
 Costs and consequences are real and tracked in [T2](#t2-fluid-simulation-is-the-biggest-technical-risk-on-the-board).
 
 ---
@@ -281,15 +300,43 @@ Costs and consequences are real and tracked in [T2](#t2-fluid-simulation-is-the-
 **The world is finite, not infinite.** This reverses the "infinite in all
 directions" direction currently in DESIGN.md.
 
-- **Horizontally: large but bounded, and it wraps.** The leftmost edge of the world
-  joins seamlessly to the rightmost edge. Walk far enough in one direction and you
-  come back around.
+- **Horizontally: large but bounded.** **How the horizontal bound behaves is REOPENED.** Wrapping
+  (leftmost edge joining seamlessly to the rightmost) was thrown out as a *possibility* and a
+  previous session inflated it into settled direction. It was never landed on.
+  **Leading candidate: hard edges**, which the author is open to and suspects is easier to design
+  around. See [Hard edges vs wrapping](#hard-edges-vs-wrapping).
 - **Vertically: bounded**, and the bound is **bedrock** — unbreakable rock at the deepest row.
   There's a defined maximum depth, tuned as needed; depth doesn't need to be infinite to feel
   deep. Bedrock is the *only* indestructible material in the game
   ([§1](#everything-is-mineable-and-everything-is-collectible)). _(What bounds the world at the
   **top** is still [Q4](#open-questions).)_
 - **Large enough** that it never reads as repetitive or obviously constrained.
+
+### Hard edges vs wrapping
+
+**Open, with hard edges leading.** Only *bounded* is settled; the edge behaviour is not.
+
+The case for **hard edges**, which is strong enough that it's the recommendation:
+
+- **Edges are landmarks**, which restores the absolute reference frame that
+  [T8](#t8-wrapping-removes-the-worlds-absolute-reference-frame) exists to mourn. The factual note
+  below already observes that Terraria's edges do real work anchoring direction.
+- **The map loses its seam** — a genuine complication for a surface that's been gated as a reward
+  ([§12](#gating-which-surfaces-are-earned)).
+- **Fluid gets a wall rather than a wrap.** A wrapping world means water flowing off one side
+  arrives on the other, so a flood can circle the world and return; a hard edge just stops it.
+- **Distance from an edge becomes a usable placement signal**, so "far from spawn" has a real
+  maximum and a real meaning.
+
+**Proposed edge material: bedrock**, matching the [bedrock floor](#4-world-topology--hosting), so
+the world is a sealed box of one indestructible material rather than three different boundary
+treatments. (Terraria's answer is an Ocean biome at each end, which is the richer option and a
+candidate for later.)
+
+What wrapping was buying, and what replaces it: *"you can never be permanently lost, travelling in
+one direction is always eventually productive."* A bounded world with hard edges keeps most of
+that — travel far enough and you hit a known, identifiable boundary, which is *more* orienting
+than seamlessly reappearing elsewhere.
 
 ### Why bounded solves the empty-digging problem
 
@@ -300,8 +347,9 @@ an infinite world, density is a probability and long empty stretches are inevita
 This is a much stronger answer to [T9](#t9-exploration-still-needs-breadcrumbs) than
 any signalling system would have been.
 
-Wrapping additionally means **you can never be permanently lost**. Travelling in one
-direction is always eventually productive, which keeps exploration low-anxiety.
+_(Wrapping was additionally argued to mean "you can never be permanently lost." With the edge
+behaviour [reopened](#hard-edges-vs-wrapping), hard edges deliver that too — you hit an
+identifiable boundary rather than reappearing elsewhere.)_
 
 > **Factual note, since it's load-bearing:** Terraria worlds are finite, but they do
 > **not** wrap — they have hard edges with Ocean biomes at both ends. The finite
@@ -687,8 +735,12 @@ With worlds outliving their players, two things need explicit answers:
 - **Hibernation.** A world with nobody in it must stop ticking entirely — no fluid, no
   entities, no snapshots. This is the single lever that keeps cost proportional to
   *active* worlds rather than to *created* worlds, and without it a hosted
-  multi-tenant model gets expensive fast. (Fluid mid-flow at hibernation simply settles
-  on resume; no one is watching.)
+  multi-tenant model gets expensive fast. **Fluid mid-flow runs to completion on resume**, treating hibernation as *owing time* rather than
+  as having stopped. An earlier pass here said it "simply settles, no one is watching," which was
+  decided without the author and is ambiguous in an exploitable way: resuming from the paused state
+  would make logging out a way to freeze a disaster, and someone would find that within a day.
+  Running to completion matches the fiction and costs one settle pass on wake rather than a running
+  simulation.
 - **Retention.** Created worlds accumulate forever unless something evicts them.
   Abandoned-world cleanup, storage caps, or explicit deletion — not urgent, but it's a
   real cost curve and better decided than discovered.
@@ -1691,6 +1743,10 @@ expected player**, not per unit of area, so a small world isn't stripped bare an
 large one isn't empty.
 
 ### T8. Wrapping removes the world's absolute reference frame
+
+> **Largely moot if hard edges win**, which is the current leaning
+> ([§4](#hard-edges-vs-wrapping)). Hard edges *restore* the reference frame this tension is about,
+> and they dissolve the map seam. Kept because the decision isn't final.
 
 A cylinder has no "far west." Every horizontal position is relative to spawn, and
 "go left until you hit the edge" stops being a valid instruction or a valid memory.
