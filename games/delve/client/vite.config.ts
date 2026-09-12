@@ -26,6 +26,7 @@ export default defineConfig({
         lightLab: resolve(__dirname, 'labs/light-lab.html'),
         materialLab: resolve(__dirname, 'labs/material-lab.html'),
         entityLab: resolve(__dirname, 'labs/entity-lab.html'),
+        rigLab: resolve(__dirname, 'labs/rig-lab.html'),
       },
     },
   },

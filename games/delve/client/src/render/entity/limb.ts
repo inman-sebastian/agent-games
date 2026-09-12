@@ -22,6 +22,14 @@ const TEX_BODY = 5171; // fixed seed for body-space texture noise (cf. TEX for w
 // body-space noise, and how coarse that nibble is. Small — enough to kill the machine-perfect arc
 // without eating the anatomy.
 const DEFAULT_ERODE = 0.7;
+
+// Rim darkening, shared by the part surfaces. Module-level so the rig lab can drive it live without
+// threading a config through every per-pixel call — this is read once per pixel, so an extra
+// argument here is measurably worse than a module read.
+let rimDarken = 0.14;
+export const setRimDarken = (v: number): void => {
+  rimDarken = v;
+};
 const EDGE_NOISE_FREQ = 0.5;
 
 /**
@@ -302,7 +310,8 @@ export function clothSurface(ctx: PartCtx): Rgb {
   // Rim darkening, kept LIGHT on purpose. At 0.34 this was tuned against one big isolated limb; on
   // a body of many small parts it dominated — every part's rim is most of the part at 3px radius, so
   // the whole figure read muddy and adjacent parts met in a dark seam where their rims touched.
-  b -= (1 - ctx.depth) * 0.14;
+  // Live-tunable via the rig lab (`rimDarken`), because that is not a value anyone guesses.
+  b -= (1 - ctx.depth) * rimDarken;
   return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
 }
 
@@ -311,7 +320,7 @@ export function plateSurface(ctx: PartCtx): Rgb {
   let b = ctx.brightness;
   b += (vnoise(ctx.localX * 0.1, ctx.localY * 0.1, TEX_BODY + 3) - 0.5) * 0.16;
   b += ctx.depth > 0.72 ? 0.12 : 0; // a tight spine highlight — reads as a hard, curved surface
-  b -= (1 - ctx.depth) * 0.12; // see the note in clothSurface — light rim, small parts
+  b -= (1 - ctx.depth) * rimDarken * 0.86; // see clothSurface — plate holds a touch more form
   return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
 }
 
