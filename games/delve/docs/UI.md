@@ -25,6 +25,7 @@ matter of taste — and the first three rows are now **fixed** ([#43](https://gi
 | Of those, present in the game's authored colours             | 1    | **9**               |
 | Materials the renderer cannot produce (radii, blur, easing)  | 3    | **0**               |
 | Glyph characters standing in as button art (`▣ ✦ ♪ ↺ ◄ ► ⤒`) | 7    | 7 — see [Icons](#icons) |
+| Typefaces that are not pixel type                            | 1    | **0**               |
 | Pixel grids on screen at once                                | 2    | **1**               |
 
 The one colour that used to overlap was `--ink: #e8eef5`, which happened to be **silver's
@@ -130,7 +131,7 @@ out at once against a banded stand-in for the rock, so the whole interface is on
 (`tools/shot.sh 'w=62&h=42&scale=1' out.png labs/ui-lab.html`). A lab that restyled its own chrome
 would be a second art direction — the exact thing this doc exists to prevent.
 
-### Typography — open, eight candidates on the bench
+### Typography — decided: Silkscreen + Jersey 15
 
 The stylesheet work removed every soft material from the interface, which made the one remaining
 soft thing obvious: a **system sans** inside hard-edged boxes is now the loudest tell that the UI is
@@ -161,13 +162,31 @@ fallback.
 | Press Start 2P | 8px | the NES face | fails — one sentence costs four lines |
 | Micro 5 | 5px | the smallest legible pixel type | too small to be the body face |
 
-**A pairing is allowed and probably right**: a display face for the wordmark and headings, a
-prose-capable one for descriptions. Silkscreen plus Pixelify Sans is the obvious combination.
+**A pairing, because no single face did all four jobs.**
 
-The lab loads from Google Fonts **for the trial only**. Whichever wins gets **self-hosted**, because
-the game must not depend on a third party at boot and must keep working offline. Two strong
-candidates are not on Google Fonts and are worth adding if none of the eight land: **Departure
-Mono** (OFL) and **Pixel Operator** (CC0), both full families rather than single faces.
+- **Silkscreen** carries everything **short**: wordmark, headings, buttons, HUD, labels. Used at
+  16px and 40px — whole multiples of its 8px design grid, or it stops being crisp, which is the only
+  reason to use a pixel face at all. Its lowercase renders as small caps, which is exactly right for
+  a label and exactly wrong for a sentence.
+- **Jersey 15** carries **prose**: ore descriptions, subtitles, the tagline. True lowercase,
+  comfortable at paragraph length, and blocky enough to sit beside Silkscreen without arguing.
+
+Prose is the **only** thing that gets the body face; everything else is display. The split is one
+grouped rule in `ui.css`, so moving a surface between them is one line.
+
+**Self-hosted**, not fetched: `client/src/ui/fonts/`, four `.woff2` files totalling 16 KB, with
+licence and attribution in `OFL.txt` (both families are SIL OFL 1.1, which permits bundling in a
+game). The game must not hand a third party a request on every load, and it must boot offline.
+`font-display: block` rather than `swap` — a brief invisible label beats a flash of system sans
+reflowing the whole interface, since these faces have very different metrics from a fallback.
+`tools/style.test.ts` asserts the stylesheet fetches nothing remote, sizes type only through the
+tokens, and keeps every display size on the 8px grid.
+
+**Jersey 10** is bundled alongside as the live alternative for the prose face — condensed, fits more
+per line, worth a look if the inventory and codex lists get dense. Swap `--font-body` and delete the
+loser. **Pixelify Sans** was rejected on look. Two strong candidates are not on Google Fonts and are
+worth reaching for if the prose face needs replacing: **Departure Mono** (OFL) and **Pixel
+Operator** (CC0), both full families rather than single faces.
 
 Every candidate here is openly licensed (OFL or CC0). A licensed typeface is chrome, not a found
 game asset — the art direction's ban is on emoji, clip art and stock images standing in for art the

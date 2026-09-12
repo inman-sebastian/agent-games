@@ -1,3 +1,45 @@
+/* ---- the typefaces, self-hosted -------------------------------------------------------------
+   Two faces, each doing what it is good at. DELVE asks four things of its type — a wordmark, a
+   button label, a tabular number, and a full sentence of ore description — and no pixel face on the
+   bench did all four well (client/labs/font-lab.html compares eight of them on this same chrome).
+
+   SILKSCREEN carries everything SHORT: the wordmark, headings, buttons, HUD, labels. Drawn on an
+   8px grid, so it is used at 16px — a whole multiple, or it stops being crisp, which is the only
+   thing a pixel face is for. Its lowercase renders as small caps, which is exactly right for a
+   label and exactly wrong for a sentence.
+
+   JERSEY 15 carries PROSE, for that reason. It has true lowercase and stays comfortable at
+   paragraph length, and being blocky it sits beside Silkscreen without arguing with it.
+
+   Licence and attribution: client/src/ui/fonts/OFL.txt. Both are SIL OFL 1.1, bundled rather than
+   fetched, because the game must not depend on a third party at boot and must work offline. All
+   four files together are 16 KB.
+
+   `font-display: block` rather than `swap`: a brief invisible label beats a flash of system sans
+   reflowing the whole interface, since these faces have very different metrics from a fallback.
+   ------------------------------------------------------------------------------------------ */
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/silkscreen-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url('./fonts/silkscreen-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Jersey 15';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/jersey15-400.woff2') format('woff2');
+}
+
 /* ------------------------------------------------------------------------------------------
    The interface is measured in ART PIXELS and coloured from Resurrect 64 (#43).
    It used to have a private art direction: seven colours that appeared nowhere in the
@@ -39,6 +81,16 @@
   --c-good: #91db69;
   --c-lamp: #8ff8e2;
 
+  /* type: a DISPLAY face for everything short, a BODY face for prose. See the @font-face note. */
+  --font-display: 'Silkscreen', ui-monospace, monospace;
+  --font-body: 'Jersey 15', ui-sans-serif, system-ui, sans-serif;
+  /* Silkscreen's 8px grid, doubled. Every display size must stay a multiple of 8. */
+  --t-label: 16px;
+  --t-display: 40px;
+  --t-touch: 24px;
+  /* Jersey 15 reads cleanly at 20px; prose is not on the pixel grid, so this need not be a multiple */
+  --t-body: 20px;
+
   /* motion: quantised so a transition lands on whole art pixels */
   --ease-steps: steps(3, end);
 }
@@ -55,17 +107,30 @@ body {
 body {
   background: var(--c-void);
   color: var(--c-ink);
-  font:
-    14px/1.45 ui-sans-serif,
-    system-ui,
-    -apple-system,
-    Segoe UI,
-    Roboto,
-    sans-serif;
+  font: var(--t-body) / 1.45 var(--font-body);
   height: 100%;
   -webkit-user-select: none;
   user-select: none;
   touch-action: none;
+  /* Pixel type is drawn ON the pixel grid; antialiasing it is what makes it look soft, which is the
+     whole reason a system sans read as a web page in here. Chrome and Safari only — Firefox
+     ignores it, and the faces are still pixel-aligned there, just smoothed. */
+  -webkit-font-smoothing: none;
+}
+
+/* Everything SHORT is the display face. Prose — a description, a subtitle, a tagline — inherits the
+   body face, and is the only thing that does. */
+h1,
+h2,
+button,
+.hud,
+.stat,
+.sect,
+.row .nm,
+.row .lv,
+.wordmark,
+.sub b {
+  font-family: var(--font-display);
 }
 /* the game canvas fills the whole screen, edge to edge, behind the UI overlay */
 #c {
@@ -113,7 +178,7 @@ header {
   justify-content: space-between;
 }
 h1 {
-  font-size: 14px;
+  font-size: var(--t-label);
   letter-spacing: 0.5em;
   font-weight: 700;
   margin: 0;
@@ -130,7 +195,10 @@ h1 b {
   pointer-events: auto;
 }
 button {
-  font: inherit;
+  /* NOT `font: inherit` — the shorthand resets font-family too, which quietly handed every button
+     the prose face and defeated the grouped display-face rule above. A button is a short label. */
+  font-family: var(--font-display);
+  font-size: var(--t-label);
   font-weight: 600;
   color: var(--c-ink);
   background: var(--c-panel);
@@ -165,12 +233,12 @@ button:disabled {
 }
 .stat {
   color: var(--c-mute);
-  font-size: 12px;
+  font-size: var(--t-label);
 }
 .stat b {
   color: var(--c-ink);
   font-weight: 700;
-  font-size: 16px;
+  font-size: var(--t-label);
 }
 
 /* inventory / collection overlay */
@@ -199,12 +267,12 @@ button:disabled {
 }
 .panel h2 {
   margin: 0 0 var(--px);
-  font-size: 16px;
+  font-size: var(--t-label);
   letter-spacing: 0.08em;
 }
 .panel .sub {
   color: var(--c-dim);
-  font-size: 12px;
+  font-size: var(--t-body);
   margin-bottom: var(--s3);
 }
 .row {
@@ -226,11 +294,11 @@ button:disabled {
 }
 .row .ds {
   color: var(--c-dim);
-  font-size: 12px;
+  font-size: var(--t-body);
 }
 .row .lv {
   color: var(--c-gold);
-  font-size: 12px;
+  font-size: var(--t-label);
   font-weight: 700;
 }
 .row button {
@@ -238,7 +306,7 @@ button:disabled {
 }
 .sect {
   color: var(--c-dim);
-  font-size: 11px;
+  font-size: var(--t-label);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   margin: var(--s3) var(--px) var(--s2);
@@ -318,11 +386,12 @@ button:disabled {
 }
 .tbtn {
   pointer-events: auto;
+  font-family: var(--font-display);
   /* SQUARE. A circle at this size is antialiased, and there is not one antialiased curve
      anywhere else on screen. 64px is 32 art pixels — two tiles. */
   width: calc(var(--px) * 32);
   height: calc(var(--px) * 32);
-  font-size: 26px;
+  font-size: var(--t-touch);
   line-height: 1;
   color: var(--c-ink);
   background: var(--c-panel);
@@ -351,7 +420,8 @@ button:disabled {
   align-items: center;
   gap: var(--s1);
   margin: 0 var(--s3) var(--s1) 0;
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-size: var(--t-label);
 }
 #codexList .oreic {
   width: calc(var(--px) * 13);
@@ -376,7 +446,7 @@ body[data-app='title'] #titleOverlay {
   text-align: center;
 }
 .wordmark {
-  font-size: 44px;
+  font-size: var(--t-display);
   letter-spacing: 0.32em;
   padding-left: 0.32em; /* re-centre the tracked letters */
   font-weight: 700;
@@ -392,13 +462,13 @@ body[data-app='title'] #titleOverlay {
 }
 .tag {
   color: var(--c-dim);
-  font-size: 13px;
+  font-size: var(--t-body);
   letter-spacing: 0.1em;
   margin-bottom: var(--s5);
 }
 .bigbtn {
   width: 100%;
   padding: var(--s3);
-  font-size: 16px;
+  font-size: var(--t-label);
   letter-spacing: 0.1em;
 }

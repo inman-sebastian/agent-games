@@ -69,6 +69,42 @@ describe('the UI stylesheet is measured in art pixels', () => {
   });
 });
 
+describe('the UI type is drawn at its own grid', () => {
+  it('every display size is a whole multiple of Silkscreen\'s 8px grid', () => {
+    // A pixel face drawn at 17px is just a blurry face, which defeats the entire reason for using
+    // one. Silkscreen is an 8px design; prose is exempt because the body face is not on the grid
+    // and a sentence should be sized for reading, not for pixel purity.
+    const GRID = 8;
+    const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)].filter(
+      (m) => m[1] !== '--t-body',
+    );
+    expect(tokens.length, ':root declares display type tokens').toBeGreaterThan(1);
+    for (const [, token, size] of tokens) {
+      expect(Number(size) % GRID, `${token} is off Silkscreen's ${GRID}px grid`).toBe(0);
+    }
+  });
+
+  it('sizes type through the tokens, never with a bare px', () => {
+    // The same reason colours go through roles: a bare font-size is a size with no reason, and it
+    // is how a display face ends up at 13px.
+    const offenders = declarations
+      .filter((d) => d.prop === 'font-size' && !d.value.includes('var('))
+      .map((d) => d.value);
+    expect(offenders, 'use --t-label / --t-display / --t-body').toEqual([]);
+  });
+
+  it('bundles its own fonts rather than fetching them', () => {
+    // The game has to boot offline and must not hand a third party a request on every load. The
+    // font lab is allowed to use a CDN — it is a bench, not the game.
+    expect(css, 'a remote @import or url()').not.toMatch(/https?:\/\//);
+    expect(css, 'declares @font-face').toMatch(/@font-face/);
+    const licence = join(HERE, '..', 'client', 'src', 'ui', 'fonts', 'OFL.txt');
+    expect(readFileSync(licence, 'utf8'), 'the bundled licence names Silkscreen').toMatch(
+      /Silkscreen/,
+    );
+  });
+});
+
 describe('the UI stylesheet draws from the game palette', () => {
   it('every colour is a Resurrect 64 member', () => {
     // Alpha is not a new colour, so an 8-digit hex is checked on its first six. A hex that is not in
