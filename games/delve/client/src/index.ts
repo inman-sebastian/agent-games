@@ -13,6 +13,7 @@ import type {
   ClientCommand,
 } from '@delve/shared';
 import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './render/cave-render';
+import { UPSCALE } from './render/palette';
 import { ORE_ART, SHAPES } from './render/ore-art';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
@@ -26,7 +27,7 @@ import { buildInventoryRows } from './ui/inventory';
 // Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
 // resolution, then DISPLAYS at TILE_PX CSS px per tile with image-rendering:pixelated — so a tile
 // "looks like" TILE_PX on screen while the art stays 16px. 32px is a clean 2× integer scale.
-const TILE_PX = 32; // on-screen size of a tile (CSS px) — clean 2× of the 16px art
+const TILE_PX = T * UPSCALE; // on-screen size of a tile (CSS px) — the art grid, shared with the UI
 // The world is unbounded in every direction, so the canvas is a VIEWPORT onto it: a 2-axis camera
 // keeps the miner centred and we render only the visible tile window. Sized by fit().
 let VIEW_COLS = 21;

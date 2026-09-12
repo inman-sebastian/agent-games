@@ -16,26 +16,25 @@ lives in [DESIGN.md](DESIGN.md); the world's look lives in [PALETTE.md](PALETTE.
 
 ## The problem this doc exists to fix
 
-The current UI reads as a web page laid _over_ a game rather than part of one. That's measurable,
-not a matter of taste:
+The UI read as a web page laid _over_ a game rather than part of one. That was measurable, not a
+matter of taste — and the first three rows are now **fixed** ([#43](https://github.com/inman-sebastian/agent-games/issues/43)):
 
-|                                                               |       |
-| ------------------------------------------------------------- | ----- |
-| Colours the UI stylesheet defines (`:root` custom properties) | 8     |
-| Of those, present anywhere in the game's authored colours     | **1** |
-| Glyph characters standing in as button art (`▣ ✦ ♪ ↺ ◄ ► ⤒`)  | 7     |
-| Pixel grids on screen at once                                 | 2     |
+|                                                              | Was  | Now                 |
+| ------------------------------------------------------------ | ---- | ------------------- |
+| Colours the UI stylesheet defines                            | 8    | 9, **all R64**      |
+| Of those, present in the game's authored colours             | 1    | **9**               |
+| Materials the renderer cannot produce (radii, blur, easing)  | 3    | **0**               |
+| Glyph characters standing in as button art (`▣ ✦ ♪ ↺ ◄ ► ⤒`) | 7    | 7 — see [Icons](#icons) |
+| Pixel grids on screen at once                                | 2    | **1**               |
 
-The game's authored palette surface is 63 distinct colours across the strata ramps and ore triads.
-Exactly one of the UI's colours appears in it — `--ink: #e8eef5`, which happens to be **silver's
-highlight**, and is coincidence rather than intent. [PALETTE.md](PALETTE.md) opens by stating that
-_every_ colour in DELVE is drawn from Resurrect 64, so this isn't mere inconsistency: **the UI is in
-documented violation of the art direction.**
+The one colour that used to overlap was `--ink: #e8eef5`, which happened to be **silver's
+highlight** — coincidence rather than intent. [PALETTE.md](PALETTE.md) opens by stating that _every_
+colour in DELVE is drawn from Resurrect 64, so this was not mere inconsistency: the UI was in
+documented violation of the art direction.
 
-On top of the private palette it uses three materials the renderer **cannot produce anywhere in the
-world**: antialiased corner radii, a backdrop blur, and smooth eased transitions. Nothing in a
-Resurrect-64 pixel scene makes a gaussian blur or a subpixel-antialiased curve. And the glyph icons
-are **found assets**, which the art direction forbids outright.
+The nine role colours are now the **Stone stratum's own six-step ramp** plus gold, the signal green
+and the lamp cyan. Using the ramp rather than picking nine colours from the list is deliberate: the
+panels are made of the same rock the player is looking at.
 
 **The diagnosis is a second art direction, not a second technology.** Every tell above is reachable
 from a stylesheet. So moving the UI to canvas would fix the clash only _incidentally_ — by forcing a
@@ -114,6 +113,22 @@ Four rules. Together they put the UI on the game's grid instead of the browser's
 
 Custom properties are the mechanism that makes all of this survive Shadow DOM, so rule 1 and rule 2
 _are_ the theming contract every component depends on.
+
+**Built, and gated.** The stylesheet is `client/src/ui/ui.css`, and `tools/style.test.ts` asserts
+every rule above as a property rather than as a value — so restyling freely is fine and drifting is
+not. It checks that `--px` still equals `UPSCALE` in `render/palette.ts`, that every length off
+`:root` is a whole multiple of it, that every colour is an R64 member (alpha suffixes allowed, since
+alpha is not a new colour), that no hex appears outside the role definitions, that nothing uses blur
+or a radius, that every transition is quantised, and that every gradient bands rather than blends.
+
+All four rules were reachable by typing a hex into a style block, which is how the drift happened
+the first time; a written rule would have drifted again.
+
+**One stylesheet, every page.** The game and `client/labs/ui-lab.html` link the same file, and the
+test asserts both do and that the game inlines no `<style>` of its own. The lab lays every surface
+out at once against a banded stand-in for the rock, so the whole interface is one screenshot
+(`tools/shot.sh 'w=62&h=42&scale=1' out.png labs/ui-lab.html`). A lab that restyled its own chrome
+would be a second art direction — the exact thing this doc exists to prevent.
 
 ### Panel frames
 

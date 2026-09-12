@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — UI lab</title>
+    <!-- THE GAME'S OWN STYLESHEET, not a copy. A lab that restyled its own chrome would be a
+         second art direction, which is the exact problem the stylesheet work exists to fix. -->
+    <link rel="stylesheet" href="../src/ui/ui.css" />
+    <style>
+      /* Lab-only layout: lay every surface out at once instead of one at a time behind a menu.
+         Nothing here styles a game surface — it only positions them for a single screenshot. */
+      body {
+        overflow: auto;
+        touch-action: auto;
+      }
+      #board {
+        position: relative;
+        z-index: 20;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--s5);
+        padding: var(--s5);
+      }
+      #board > section {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s2);
+      }
+      .lbl {
+        color: var(--c-dim);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      /* the surfaces the game shows behind a state flag or a click; force them visible */
+      #board .overlay {
+        position: static;
+        display: flex;
+        padding: 0;
+        background: none;
+      }
+      #board .topbar {
+        position: static;
+      }
+      #board #touch,
+      #board #dbg {
+        position: static;
+        display: flex;
+      }
+      /* a stand-in for the world behind the UI, so contrast reads honestly: the deep-stone ramp,
+         banded the way the rock is, rather than a flat colour that flatters every panel */
+      #ground {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        background: repeating-linear-gradient(
+          180deg,
+          #323353 0,
+          #323353 var(--s4),
+          #2e222f var(--s4),
+          #2e222f calc(var(--s4) * 2)
+        );
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ground"></div>
+    <div id="board">
+      <section>
+        <div class="lbl">Top bar + HUD</div>
+        <div class="topbar">
+          <header>
+            <h1>DE<b>L</b>VE</h1>
+            <div class="btns">
+              <button>Inventory</button>
+              <button>Collection</button>
+              <button>Mute</button>
+            </div>
+          </header>
+          <div class="hud">
+            <div class="stat">DEPTH <b>184</b>m</div>
+            <div class="stat">HELD <b>37</b></div>
+          </div>
+        </div>
+        <div class="lbl">Buttons — rest, hover, disabled</div>
+        <div class="btns">
+          <button>Descend</button>
+          <button style="border-color: var(--c-mute); filter: brightness(1.15)">Hovered</button>
+          <button disabled>Spent</button>
+        </div>
+        <div class="lbl">Debug overlay</div>
+        <div id="dbg" class="on">
+          <div id="dbgtext">fps 60 tile 32px sim 60Hz</div>
+          <div id="dbgtoggles">
+            <button class="dbgbtn on">lighting</button>
+            <button class="dbgbtn">damage</button>
+          </div>
+        </div>
+        <div class="lbl">Touch controls</div>
+        <div id="touch" class="on">
+          <div class="tpad">
+            <button class="tbtn">L</button>
+            <button class="tbtn">R</button>
+          </div>
+          <button class="tbtn">J</button>
+        </div>
+      </section>
+
+      <section>
+        <div class="lbl">Panel — inventory</div>
+        <div class="overlay">
+          <div class="panel">
+            <h2>Inventory</h2>
+            <div class="sub">Materials you've mined — <b>37</b> held</div>
+            <div class="sect">Metals</div>
+            <div class="row">
+              <div class="info">
+                <div class="nm">Mythril</div>
+                <div class="ds">The legendary violet ore of the abyss.</div>
+              </div>
+              <div class="lv">×2</div>
+            </div>
+            <div class="row">
+              <div class="info">
+                <div class="nm">Iron</div>
+                <div class="ds">Honest, plentiful, and heavy.</div>
+              </div>
+              <div class="lv">×19</div>
+            </div>
+            <button class="close">Back to the mine</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="lbl">Panel — title</div>
+        <div class="overlay">
+          <div class="panel titlepanel">
+            <div class="wordmark">DE<b>L</b>VE</div>
+            <div class="tag">A descent into the dark. Dig deeper.</div>
+            <button class="bigbtn">Descend</button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script type="module">
+      document.title = 'ready'; // signal for headless capture (tools/shot.sh)
+    </script>
+  </body>
+</html>

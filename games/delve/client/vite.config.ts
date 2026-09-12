@@ -26,6 +26,7 @@ export default defineConfig({
         lightLab: resolve(__dirname, 'labs/light-lab.html'),
         materialLab: resolve(__dirname, 'labs/material-lab.html'),
         spriteLab: resolve(__dirname, 'labs/sprite-lab.html'),
+        uiLab: resolve(__dirname, 'labs/ui-lab.html'),
       },
     },
   },
