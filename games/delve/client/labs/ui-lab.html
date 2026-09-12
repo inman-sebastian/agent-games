@@ -49,24 +49,20 @@
         position: static;
         display: flex;
       }
-      /* a stand-in for the world behind the UI, so contrast reads honestly: the deep-stone ramp,
-         banded the way the rock is, rather than a flat colour that flatters every panel */
+      /* the REAL cave, drawn by ui-lab.ts through the game's own compositor and lighting — so a
+         panel's contrast is judged against the thing it will actually sit on */
       #ground {
         position: fixed;
-        inset: 0;
+        top: 0;
+        left: 0;
         z-index: 0;
-        background: repeating-linear-gradient(
-          180deg,
-          #323353 0,
-          #323353 var(--s4),
-          #2e222f var(--s4),
-          #2e222f calc(var(--s4) * 2)
-        );
+        image-rendering: pixelated;
+        display: block;
       }
     </style>
   </head>
   <body>
-    <div id="ground"></div>
+    <canvas id="ground"></canvas>
     <div id="board">
       <section>
         <div class="lbl">Top bar + HUD</div>
@@ -145,8 +141,6 @@
         </div>
       </section>
     </div>
-    <script type="module">
-      document.title = 'ready'; // signal for headless capture (tools/shot.sh)
-    </script>
+    <script type="module" src="./ui-lab.ts"></script>
   </body>
 </html>

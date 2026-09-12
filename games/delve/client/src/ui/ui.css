@@ -84,12 +84,17 @@
   /* type: a DISPLAY face for everything short, a BODY face for prose. See the @font-face note. */
   --font-display: 'Silkscreen', ui-monospace, monospace;
   --font-body: 'Jersey 15', ui-sans-serif, system-ui, sans-serif;
+  /* The debug overlay is a TOOL, not chrome. It stays a real monospace: it prints aligned columns
+     of live numbers, which is the one job a proportional pixel face would make worse. */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Silkscreen's 8px grid, doubled. Every display size must stay a multiple of 8. */
   --t-label: 16px;
   --t-display: 40px;
   --t-touch: 24px;
   /* Jersey 15 reads cleanly at 20px; prose is not on the pixel grid, so this need not be a multiple */
   --t-body: 20px;
+  /* the debug overlay prints dense live numbers; 12px monospace is the readable floor */
+  --t-mono: 12px;
 
   /* motion: quantised so a transition lands on whole art pixels */
   --ease-steps: steps(3, end);
@@ -324,11 +329,9 @@ button:disabled {
   z-index: 8;
   display: none;
   white-space: pre;
-  font:
-    11px/1.4 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  line-height: 1.4;
   color: var(--c-lamp);
   text-shadow: 0 var(--px) 0 var(--c-void);
   pointer-events: none;
@@ -351,7 +354,11 @@ button:disabled {
   pointer-events: auto;
 }
 .dbgbtn {
-  font: inherit;
+  /* Explicit, not `font: inherit`. Inheriting happened to give the right answer, but only because
+     this rule sits after the button rule — the same accident that handed every other button the
+     prose face. A debug control belongs to the debug panel's monospace. */
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
   color: var(--c-lamp);
   background: var(--c-void);
   border: var(--px) solid var(--c-edge);

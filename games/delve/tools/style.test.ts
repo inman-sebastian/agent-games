@@ -72,11 +72,15 @@ describe('the UI stylesheet is measured in art pixels', () => {
 describe('the UI type is drawn at its own grid', () => {
   it('every display size is a whole multiple of Silkscreen\'s 8px grid', () => {
     // A pixel face drawn at 17px is just a blurry face, which defeats the entire reason for using
-    // one. Silkscreen is an 8px design; prose is exempt because the body face is not on the grid
-    // and a sentence should be sized for reading, not for pixel purity.
+    // one. Silkscreen is an 8px design, so every size that reaches it must be a multiple of 8.
+    //
+    // Two tokens are exempt, and not as a convenience: they do not feed Silkscreen. `--t-body` is
+    // the prose face, which should be sized for READING rather than for pixel purity, and
+    // `--t-mono` is the debug overlay's real monospace, which is a tool rather than chrome.
     const GRID = 8;
+    const NOT_SILKSCREEN = ['--t-body', '--t-mono'];
     const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)].filter(
-      (m) => m[1] !== '--t-body',
+      (m) => !NOT_SILKSCREEN.includes(m[1]),
     );
     expect(tokens.length, ':root declares display type tokens').toBeGreaterThan(1);
     for (const [, token, size] of tokens) {

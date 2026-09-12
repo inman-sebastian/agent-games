@@ -126,10 +126,18 @@ All four rules were reachable by typing a hex into a style block, which is how t
 the first time; a written rule would have drifted again.
 
 **One stylesheet, every page.** The game and `client/labs/ui-lab.html` link the same file, and the
-test asserts both do and that the game inlines no `<style>` of its own. The lab lays every surface
-out at once against a banded stand-in for the rock, so the whole interface is one screenshot
-(`tools/shot.sh 'w=62&h=42&scale=1' out.png labs/ui-lab.html`). A lab that restyled its own chrome
-would be a second art direction — the exact thing this doc exists to prevent.
+test asserts both do and that the game inlines no `<style>` of its own. A lab that restyled its own
+chrome would be a second art direction — the exact thing this doc exists to prevent.
+
+The lab lays every surface out at once **over real cave**, drawn through the game's own compositor
+and lighting pass, so a panel's contrast is judged against the thing it will actually sit on: lit
+rock, unlit rock, ore, and the hard boundary between them. It started as a banded gradient
+stand-in, which read as ribbons and tested almost nothing. Capture the lot with
+`BUDGET=8000 tools/shot.sh 'w=62&h=44&scale=1' out.png labs/ui-lab.html`.
+
+**The debug overlay stays a real monospace** (`--font-mono`), and that is a decision rather than an
+omission: it prints aligned columns of live numbers, which is the one job a proportional pixel face
+makes worse. It is a tool, not chrome.
 
 ### Typography — decided: Silkscreen + Jersey 15
 
