@@ -1,8 +1,10 @@
 // sprite-shot.ts — render an imported animation to a PNG, headlessly.
 //
 //   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip]
-//                                                     [--skin torso=#4d9be6,head=#e6904e]
-//                                                     [--hide fx.damage]
+//                                                     [--template] [--hide fx.damage]
+//
+// Draws with the authored miner skin by default. `--template` shows the pack's raw colour codes
+// instead, which is the view to use when checking an import or reasoning about which part is which.
 //
 // No browser, no dev server, no screenshot — it feeds `drawSprite` a plain buffer and writes the PNG
 // through zlib, same as tools/rig-measure.ts. Use it to check an import, or to see an equipment
@@ -11,6 +13,7 @@ import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
 import { PLAYER_SPRITES, type PlayerAnim } from '../client/src/render/entity/sprites';
 import { drawSprite, type SpriteSkin } from '../client/src/render/entity/sprite';
+import { MINER_SKIN } from '../client/src/render/entity/skin';
 
 const args = process.argv.slice(2);
 const [name, out] = args;
@@ -32,17 +35,12 @@ const flip = args.includes('--flip');
 
 // A recoloured slot gets a FLAT ramp: the pack's parts are single flat colours, so there is no
 // gradient to remap yet. Real armour will author a full ramp per slot, as a material does.
-const skin: Record<string, readonly string[]> = {};
-for (const pair of (flag('--skin') ?? '').split(',').filter(Boolean)) {
-  const [slot, hex] = pair.split('=');
-  const layer = anim.layers.find((l) => l.name === slot);
-  if (!layer)
-    throw new Error(
-      `${name} has no layer "${slot}" (has: ${anim.layers.map((l) => l.name).join(', ')})`,
-    );
-  skin[slot] = layer.palette.map(() => hex);
-}
-for (const slot of (flag('--hide') ?? '').split(',').filter(Boolean)) skin[slot] = [];
+const hide = (flag('--hide') ?? '').split(',').filter(Boolean);
+// `--template` leaves every colour as the pack authored it: no `colors` mapping at all, which is the
+// view to use when checking an import or working out which code colour is which body part.
+const skin: SpriteSkin = args.includes('--template')
+  ? { hide }
+  : { ...MINER_SKIN, hide: [...(MINER_SKIN.hide ?? []), ...hide] };
 
 const W = anim.w * anim.frames * scale;
 const H = anim.h * scale;
@@ -54,7 +52,7 @@ for (let f = 0; f < anim.frames; f++) {
     f,
     Math.round((f * anim.w + anim.w / 2) * scale),
     anim.h * scale,
-    { scale, flip, skin: skin as SpriteSkin },
+    { scale, flip, skin },
   );
 }
 

@@ -1,31 +1,31 @@
-// import-aseprite.ts — turn a layered .aseprite animation into a committed SpriteAnim module.
+// import-aseprite.ts — import every animation in the manifest as committed SpriteAnim modules.
 //
-//   pnpm --filter delve exec tsx tools/import-aseprite.ts <file.aseprite> <exportName> [--out dir]
+//   pnpm --filter delve exec tsx tools/import-aseprite.ts <pack-root> [--out dir]
 //
-// Reads the per-layer cels, maps each layer's colours to indices (so a layer's look is a swappable
-// ramp — see sprite.ts), and writes a TypeScript module under
-// `client/src/render/entity/sprites/`.
+// Reads the layered `.aseprite` files listed in `sprite-manifest.ts` directly — no Aseprite install,
+// no intermediate export — and writes `client/src/render/entity/sprites/`. The `.aseprite` sources
+// are not committed; the generated modules are.
 //
-// IT VERIFIES BEFORE IT WRITES. The emitted data is decoded back, composited, and compared pixel for
-// pixel against the .aseprite's own layers; if a single pixel differs the import fails and writes
-// nothing. When a sibling PNG export exists it is diffed too, which is what catches a layer that
-// should have been skipped — the pack's files carry a full-canvas "BG" layer that its own PNG export
-// leaves out, and including it would have silently doubled every frame's pixel count.
+// A BATCH, not one file at a time, because every animation shares ONE template palette. Importing
+// separately gave each animation its own, so index 1 meant a different colour in each and any
+// equipment override keyed on it was wrong depending on what was playing.
 //
-// The source .aseprite files are NOT committed. This runs once per animation against a local copy of
-// the purchased pack and the generated module is what ships.
-import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+// IT VERIFIES BEFORE IT WRITES AND REFUSES ON A MISMATCH. Each animation's emitted data is decoded
+// back, composited, and diffed pixel for pixel against the file's own layers and against its sibling
+// PNG export. Every escape hatch below exists because a real file in this pack needed it; the table
+// in docs/SPRITES.md says which.
+import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readAseprite, flatten, type AseFile } from './aseprite';
+import { GROUND_ROW, SPRITE_SOURCES, type SpriteSource } from './sprite-manifest';
 
 /**
  * Layers that are scaffolding, backdrop or baked FX rather than character parts.
  *
- * The pack is inconsistent file to file — forty-odd animations authored over time — so this list is
- * long and every entry earned its place by failing the PNG diff. `gif bg` is a full-canvas backdrop
- * for GIF export; `Flattened` is a composite the artist left in beside the real layers; `Damage
- * Indicator` is a flash that DELVE should render as an effect rather than bake into art.
+ * The pack is inconsistent across its forty-odd files and every entry here earned its place by
+ * failing the PNG diff. `gif bg` is a full-canvas backdrop for GIF export; `Flattened` is a
+ * composite the artist left beside the real layers.
  */
 const SKIP_LAYERS = new Set([
   'bg',
@@ -50,10 +50,8 @@ const SKIP_LAYERS = new Set([
 /**
  * Layer names, normalised to DELVE's slots.
  *
- * This matters more than it looks: `drawSprite`'s equipment override keys on the layer name, so a
- * chest piece that fits the idle has to fit the walk too. The pack calls the same part "Back Arm" in
- * one file and "Back Hand" or "Left Arm" in another, and an un-normalised import would give the same
- * body part three different names across animations and silently break every override.
+ * Overrides key on the slot name, so a chest piece that fits the idle has to fit the walk too — and
+ * the pack calls one body part "Back Arm", "Back Hand" and "Left Arm" in three different files.
  */
 const SLOTS: readonly [RegExp, string][] = [
   [/^head$/i, 'head'],
@@ -62,23 +60,39 @@ const SLOTS: readonly [RegExp, string][] = [
   [/^(front|lead|right)\s*(arm|hand)$/i, 'arm.near'],
   [/^(back|left)\s*leg$/i, 'leg.far'],
   [/^((front|lead|right)\s*leg|new legs)$/i, 'leg.near'],
-  // The pack already separates weapons as their own layer, which is the equipment pipeline for free.
+  // The pack already separates weapons onto their own layer, which is the equipment slot for free.
   [/^(sword(\/sheathe)?|gun|katana)$/i, 'weapon'],
-  // Baked FX kept as their own layer rather than skipped: keeping it makes the import exact, and a
-  // caller that wants to render the flash itself simply does not draw this slot.
+  // Baked FX kept rather than skipped: keeping it makes the import exact, and a caller that renders
+  // its own hit feedback simply does not draw this slot.
   [/^damage indicator$/i, 'fx.damage'],
 ];
 
 const slotFor = (name: string): string | null =>
   SLOTS.find(([re]) => re.test(name.trim()))?.[1] ?? null;
 
+/**
+ * Every slot that may appear, in the order MOST files use. This is the canonical SET, not a sort key.
+ *
+ * Layers are emitted in their SOURCE file's order, because the pack's own order varies and matching
+ * it is what keeps the import 1:1 — the Run file paints its torso above the near leg where every
+ * other animation paints it below, and re-sorting to a house order broke that frame's composite.
+ * Equipment only needs the NAMES to be consistent, which normalisation already guarantees.
+ */
+const SLOT_ORDER = [
+  'arm.far',
+  'leg.far',
+  'torso',
+  'leg.near',
+  'arm.near',
+  'head',
+  'weapon',
+  'fx.damage',
+];
+
 const args = process.argv.slice(2);
-const [source, exportName] = args;
-if (!source || !exportName) {
-  console.error(
-    'usage: import-aseprite.ts <file.aseprite> <EXPORT_NAME> [--out dir] [--skip a,b] ' +
-      '[--keep-strays] [--allow-unknown-layers] [--trust-source]',
-  );
+const packRoot = args[0];
+if (!packRoot) {
+  console.error('usage: import-aseprite.ts <pack-root> [--out dir]');
   process.exit(1);
 }
 const outAt = args.indexOf('--out');
@@ -88,39 +102,19 @@ const outDir = resolve(
     : join(dirname(new URL(import.meta.url).pathname), '../client/src/render/entity/sprites'),
 );
 
-const file = readAseprite(new Uint8Array(readFileSync(source)));
-const extraSkip = new Set(
-  (args[args.indexOf('--skip') + 1] ?? '')
-    .split(',')
-    .filter(Boolean)
-    .map((n) => n.trim().toLowerCase()),
-);
-const parts = file.layers.filter(
-  (l) =>
-    !l.isGroup &&
-    l.visible &&
-    !SKIP_LAYERS.has(l.name.toLowerCase()) &&
-    !extraSkip.has(l.name.toLowerCase()),
-);
-if (parts.length === 0) throw new Error('no character layers found');
-
-const unnamed = parts.filter((l) => slotFor(l.name) === null);
-if (unnamed.length > 0 && !args.includes('--allow-unknown-layers')) {
-  throw new Error(
-    `layer(s) map to no DELVE slot: ${unnamed.map((l) => `"${l.name}"`).join(', ')}. ` +
-      'Add a SLOTS pattern, or --skip them, or pass --allow-unknown-layers to keep the raw name.',
-  );
-}
-
-console.log(`${basename(source)}: ${file.width}x${file.height}, ${file.frames} frames`);
-console.log(
-  `  layers kept:    ${parts.map((l) => `${l.name} -> ${slotFor(l.name) ?? l.name}`).join(', ')}`,
-);
-const skipped = file.layers.filter((l) => !parts.includes(l));
-if (skipped.length) console.log(`  layers skipped: ${skipped.map((l) => l.name).join(', ')}`);
-
 const hex = (r: number, g: number, b: number): string =>
   `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+
+/** The shared template palette. Index 0 is transparent, so a colour's index is its position + 1. */
+const template: string[] = [];
+const templateIndex = new Map<string, number>();
+const indexOf = (colour: string): number => {
+  const hit = templateIndex.get(colour);
+  if (hit !== undefined) return hit;
+  template.push(colour);
+  templateIndex.set(colour, template.length);
+  return template.length;
+};
 
 interface OutCel {
   x: number;
@@ -129,235 +123,310 @@ interface OutCel {
   h: number;
   data: string;
 }
+interface OutLayer {
+  name: string;
+  cels: (OutCel | null)[];
+}
+interface OutAnim {
+  source: SpriteSource;
+  file: AseFile;
+  slug: string;
+  ground: number;
+  layers: OutLayer[];
+  notes: string[];
+}
 
-const allLayers = parts.map((layer) => {
-  // One palette per layer, in first-seen order, so indices are stable across frames.
-  const palette: string[] = [];
-  const indexOf = new Map<string, number>();
-  const cels: (OutCel | null)[] = [];
-
-  for (let f = 0; f < file.frames; f++) {
-    const cel = file.cels.find((c) => c.frame === f && c.layer === layer.index);
-    if (!cel || cel.w === 0 || cel.h === 0) {
-      cels.push(null);
-      continue;
-    }
-    // Trim to the cel's own opaque bounds: Aseprite cels are already tight, but a linked or
-    // hand-edited one may not be, and a fat cel is wasted bytes in the committed module.
-    let minX = cel.w;
-    let minY = cel.h;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < cel.h; y++) {
-      for (let x = 0; x < cel.w; x++) {
-        if (cel.rgba[(y * cel.w + x) * 4 + 3] === 0) continue;
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minY = Math.min(minY, y);
-        maxY = Math.max(maxY, y);
-      }
-    }
-    if (maxX < minX) {
-      cels.push(null);
-      continue;
-    }
-    const w = maxX - minX + 1;
-    const h = maxY - minY + 1;
-    const indices = new Uint8Array(w * h);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const s = ((y + minY) * cel.w + (x + minX)) * 4;
-        if (cel.rgba[s + 3] === 0) continue;
-        const key = hex(cel.rgba[s], cel.rgba[s + 1], cel.rgba[s + 2]);
-        let idx = indexOf.get(key);
-        if (idx === undefined) {
-          palette.push(key);
-          idx = palette.length; // 1-based; 0 stays transparent
-          indexOf.set(key, idx);
-        }
-        indices[y * w + x] = idx;
-      }
-    }
-    cels.push({
-      x: cel.x + minX,
-      y: cel.y + minY,
-      w,
-      h,
-      data: Buffer.from(indices).toString('base64'),
-    });
-  }
-  return { name: slotFor(layer.name) ?? layer.name, palette, cels };
-});
-
-// A layer present in the file but empty in every frame carries no palette and no cels — the arm
-// tucked entirely behind the body through a whole push animation, for instance. Keeping it would put
-// a slot with an empty palette in the shipped data, which reads as a broken layer rather than an
-// absent one.
-const layers = allLayers.filter((l) => l.cels.some(Boolean));
-const empty = allLayers.filter((l) => !l.cels.some(Boolean));
-if (empty.length) console.log(`  layers empty:   ${empty.map((l) => l.name).join(', ')} (dropped)`);
-if (layers.length === 0) throw new Error('every layer is empty in every frame');
-
-for (const l of layers) {
-  const used = l.cels.filter(Boolean).length;
-  console.log(
-    `  ${l.name.padEnd(12)} ${used}/${file.frames} frames, ${l.palette.length} colour(s)`,
+function importOne(source: SpriteSource, path: string): OutAnim {
+  const file = readAseprite(new Uint8Array(readFileSync(path)));
+  const extraSkip = new Set((source.skip ?? []).map((n) => n.toLowerCase()));
+  const parts = file.layers.filter(
+    (l) =>
+      !l.isGroup &&
+      l.visible &&
+      !SKIP_LAYERS.has(l.name.toLowerCase()) &&
+      !extraSkip.has(l.name.toLowerCase()),
   );
-}
+  if (parts.length === 0) throw new Error(`${source.file}: no character layers found`);
 
-// ---- verify, before anything is written ---------------------------------------------------------
-function decoded(frame: number): Uint8Array {
-  const out = new Uint8Array(file.width * file.height * 4);
-  for (const layer of layers) {
-    const cel = layer.cels[frame];
-    if (!cel) continue;
-    const indices = Buffer.from(cel.data, 'base64');
-    for (let y = 0; y < cel.h; y++) {
-      for (let x = 0; x < cel.w; x++) {
-        const idx = indices[y * cel.w + x];
-        if (idx === 0) continue;
-        const px = cel.x + x;
-        const py = cel.y + y;
-        if (px < 0 || py < 0 || px >= file.width || py >= file.height) continue;
-        const c = layer.palette[idx - 1];
-        const i = (py * file.width + px) * 4;
-        out[i] = parseInt(c.slice(1, 3), 16);
-        out[i + 1] = parseInt(c.slice(3, 5), 16);
-        out[i + 2] = parseInt(c.slice(5, 7), 16);
-        out[i + 3] = 255;
+  const unnamed = parts.filter((l) => slotFor(l.name) === null);
+  if (unnamed.length > 0) {
+    throw new Error(
+      `${source.file}: layer(s) map to no slot: ${unnamed.map((l) => `"${l.name}"`).join(', ')}. ` +
+        "Add a SLOTS pattern or list them in the manifest's `skip`.",
+    );
+  }
+
+  const notes: string[] = [];
+  const built = parts.map((layer) => {
+    const cels: (OutCel | null)[] = [];
+    for (let f = 0; f < file.frames; f++) {
+      const cel = file.cels.find((c) => c.frame === f && c.layer === layer.index);
+      if (!cel || cel.w === 0 || cel.h === 0) {
+        cels.push(null);
+        continue;
+      }
+      // Trim to the cel's own opaque bounds — a fat cel is wasted bytes in the committed module.
+      let minX = cel.w;
+      let minY = cel.h;
+      let maxX = -1;
+      let maxY = -1;
+      for (let y = 0; y < cel.h; y++) {
+        for (let x = 0; x < cel.w; x++) {
+          if (cel.rgba[(y * cel.w + x) * 4 + 3] === 0) continue;
+          minX = Math.min(minX, x);
+          maxX = Math.max(maxX, x);
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      if (maxX < minX) {
+        cels.push(null);
+        continue;
+      }
+      const w = maxX - minX + 1;
+      const h = maxY - minY + 1;
+      const indices = new Uint8Array(w * h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const s = ((y + minY) * cel.w + (x + minX)) * 4;
+          if (cel.rgba[s + 3] === 0) continue;
+          indices[y * w + x] = indexOf(hex(cel.rgba[s], cel.rgba[s + 1], cel.rgba[s + 2]));
+        }
+      }
+      cels.push({
+        x: cel.x + minX,
+        y: cel.y + minY,
+        w,
+        h,
+        data: Buffer.from(indices).toString('base64'),
+      });
+    }
+    return { name: slotFor(layer.name)!, cels };
+  });
+
+  // A layer present in the file but empty in EVERY frame — an arm tucked behind the body for a whole
+  // push cycle — would ship as a slot that draws nothing, which reads as broken rather than absent.
+  const layers = built.filter((l) => l.cels.some(Boolean));
+  const empty = built.filter((l) => !l.cels.some(Boolean));
+  if (empty.length) notes.push(`empty layers dropped: ${empty.map((l) => l.name).join(', ')}`);
+  if (layers.length === 0) throw new Error(`${source.file}: every layer is empty in every frame`);
+
+  const decoded = (frame: number): Uint8Array => {
+    const out = new Uint8Array(file.width * file.height * 4);
+    for (const layer of layers) {
+      const cel = layer.cels[frame];
+      if (!cel) continue;
+      const indices = Buffer.from(cel.data, 'base64');
+      for (let y = 0; y < cel.h; y++) {
+        for (let x = 0; x < cel.w; x++) {
+          const idx = indices[y * cel.w + x];
+          if (idx === 0) continue;
+          const px = cel.x + x;
+          const py = cel.y + y;
+          if (px < 0 || py < 0 || px >= file.width || py >= file.height) continue;
+          const c = template[idx - 1];
+          const i = (py * file.width + px) * 4;
+          out[i] = parseInt(c.slice(1, 3), 16);
+          out[i + 1] = parseInt(c.slice(3, 5), 16);
+          out[i + 2] = parseInt(c.slice(5, 7), 16);
+          out[i + 3] = 255;
+        }
+      }
+    }
+    return out;
+  };
+
+  // ---- verify against the file's own layers ----
+  const kept: AseFile = { ...file, layers: parts };
+  for (let f = 0; f < file.frames; f++) {
+    const mine = decoded(f);
+    const theirs = flatten(kept, f);
+    for (let i = 0; i < mine.length; i += 4) {
+      const a = mine[i + 3] === 0;
+      const b = theirs[i + 3] === 0;
+      if (a !== b || (!a && (mine[i] !== theirs[i] || mine[i + 1] !== theirs[i + 1]))) {
+        throw new Error(`${source.file}: round trip differs on frame ${f} — refusing to write`);
       }
     }
   }
-  return out;
-}
 
-const kept: AseFile = { ...file, layers: parts };
-let worst = 0;
-for (let f = 0; f < file.frames; f++) {
-  const mine = decoded(f);
-  const theirs = flatten(kept, f);
-  let diff = 0;
-  for (let i = 0; i < mine.length; i += 4) {
-    const a = mine[i + 3] === 0;
-    const b = theirs[i + 3] === 0;
-    if (
-      a !== b ||
-      (!a &&
-        (mine[i] !== theirs[i] || mine[i + 1] !== theirs[i + 1] || mine[i + 2] !== theirs[i + 2]))
-    ) {
-      diff++;
-    }
-  }
-  worst = Math.max(worst, diff);
-}
-if (worst > 0)
-  throw new Error(`round trip differs by ${worst} px on at least one frame — refusing to write`);
-console.log(`  round trip:     exact on all ${file.frames} frames`);
-
-// The pack ships a PNG export beside most .aseprite files. Diffing it catches the class of error a
-// self-consistent round trip cannot: a layer kept or skipped that the artist decided differently.
-const png = source.replace(/\.aseprite$/i, '.png');
-if (existsSync(png) && hasPillow()) {
-  const raw = execFileSync(
-    'python3',
-    [
-      '-c',
-      `from PIL import Image
-import sys, json
-im = Image.open(${JSON.stringify(png)}).convert('RGBA')
-sys.stdout.write(json.dumps([im.size[0], im.size[1], list(im.tobytes())]))`,
-    ],
-    { maxBuffer: 1 << 30 },
-  ).toString();
-  const [pw, ph, flat] = JSON.parse(raw) as [number, number, number[]];
-  if (ph === file.height && pw >= file.width * file.frames) {
-    // Split the difference by DIRECTION, because the two mean opposite things. Pixels we have that
-    // the export lacks are usually stray marks on a layer the artist had hidden — droppable. Pixels
-    // the export has that we lack mean a layer was wrongly skipped, which is not droppable at all.
-    let extra = 0;
-    let missing = 0;
-    let recolour = 0;
-    const extraLayers = new Map<string, number>();
-    for (let f = 0; f < file.frames; f++) {
-      const mine = decoded(f);
-      for (let y = 0; y < file.height; y++) {
-        for (let x = 0; x < file.width; x++) {
-          const m = (y * file.width + x) * 4;
-          const s = (y * pw + f * file.width + x) * 4;
-          const a = mine[m + 3] !== 0;
-          const b = flat[s + 3] !== 0;
-          if (a && !b) {
-            extra++;
-            for (const layer of layers) {
-              const cel = layer.cels[f];
-              if (!cel) continue;
-              const lx = x - cel.x;
-              const ly = y - cel.y;
-              if (lx < 0 || ly < 0 || lx >= cel.w || ly >= cel.h) continue;
-              if (Buffer.from(cel.data, 'base64')[ly * cel.w + lx] !== 0) {
-                extraLayers.set(layer.name, (extraLayers.get(layer.name) ?? 0) + 1);
-              }
-            }
-          } else if (!a && b) {
-            missing++;
-          } else if (
-            a &&
-            (mine[m] !== flat[s] || mine[m + 1] !== flat[s + 1] || mine[m + 2] !== flat[s + 2])
-          ) {
-            recolour++;
+  // ---- verify against the sibling PNG export ----
+  const png = path.replace(/\.aseprite$/i, '.png');
+  if (existsSync(png) && hasPillow()) {
+    const [pw, ph, flat] = readPng(png);
+    if (ph === file.height && pw >= file.width * file.frames) {
+      let extra = 0;
+      let missing = 0;
+      let recolour = 0;
+      for (let f = 0; f < file.frames; f++) {
+        const mine = decoded(f);
+        for (let y = 0; y < file.height; y++) {
+          for (let x = 0; x < file.width; x++) {
+            const m = (y * file.width + x) * 4;
+            const s = (y * pw + f * file.width + x) * 4;
+            const a = mine[m + 3] !== 0;
+            const b = flat[s + 3] !== 0;
+            if (a && !b) extra++;
+            else if (!a && b) missing++;
+            else if (a && (mine[m] !== flat[s] || mine[m + 1] !== flat[s + 1])) recolour++;
           }
         }
       }
-    }
-    if (extra + missing + recolour === 0) {
-      console.log(`  vs PNG export:  exact on all ${file.frames} frames`);
-    } else {
-      console.log(
-        `  vs PNG export:  ${extra} px ours-only, ${missing} px export-only, ${recolour} px recoloured`,
-      );
-      if (extraLayers.size) {
-        console.log(
-          `    ours-only pixels live on: ${[...extraLayers].map(([n, c]) => `${n} (${c})`).join(', ')}`,
-        );
-      }
       if (missing > 0 || recolour > 0) {
-        // Differences in BOTH directions spread evenly across every layer mean the PNG export is
-        // simply older than the .aseprite — the artist edited the layers and did not re-export. The
-        // layers round-trip exactly, so they are the newer truth, but that is a judgement for a
-        // human to make per file rather than something to assume.
-        if (!args.includes('--trust-source')) {
-          // Geometry identical, only colours differ: that is layer opacity or a blend mode, which
-          // this reader deliberately ignores. The unblended layer is the more useful thing to keep —
-          // a caller can blend it, or not draw it at all.
+        if (!source.trustSource) {
           const why =
             extra === 0 && missing === 0
-              ? 'every differing pixel is the SAME pixel in a different colour, which means layer ' +
-                'opacity or a blend mode — this reader composites straight. Keeping the layer ' +
-                'unblended is usually what you want; --trust-source does that.'
-              : 'either a layer is being skipped that should not be, or the PNG export is stale. ' +
-                'Differences spread evenly in BOTH directions across every layer mean a stale ' +
-                'export, and --trust-source is the right call.';
-          throw new Error(`the export and our layers disagree: ${why} Nothing written.`);
+              ? 'every differing pixel is the SAME pixel in a different colour, so this is layer ' +
+                'opacity or a blend mode, which this reader composites straight through'
+              : 'either a layer is being skipped that should not be, or the PNG export is stale ' +
+                '(differences spread evenly in BOTH directions across every layer)';
+          throw new Error(
+            `${source.file}: disagrees with its PNG export (${extra} ours-only, ${missing} ` +
+              `export-only, ${recolour} recoloured). ${why}. Set \`trustSource\` in the manifest ` +
+              'with a reason if the layers are the newer truth. Nothing written.',
+          );
         }
-        console.log(
-          '    --trust-source: PNG export treated as stale, .aseprite layers used as-is.',
-        );
-      } else {
-        console.log('    ours-only pixels dropped: stray marks outside the export.');
-        if (!args.includes('--keep-strays')) dropStrays(flat, pw);
+        notes.push(`PNG export not matched (${source.trustSource})`);
+      } else if (extra > 0) {
+        // Stray marks outside the artist's own export — dropped, and recorded.
+        dropStrays(layers, flat, pw, file);
+        notes.push(`${extra} stray px outside the PNG export dropped`);
       }
     }
-  } else {
-    console.log(
-      `  vs PNG export:  skipped (${pw}x${ph} is not ${file.frames} frames of ${file.width}x${file.height})`,
-    );
   }
-} else {
-  console.log('  vs PNG export:  skipped (no sibling PNG, or python3/Pillow unavailable)');
+
+  // ---- the ground line ----
+  // Taken from the manifest, not measured per animation — see `GROUND_ROW` there for why. What IS
+  // checked here is that a grounded animation actually agrees with it.
+  const ground = GROUND_ROW;
+  if (source.grounded) {
+    const tally = new Map<number, number>();
+    for (let f = 0; f < file.frames; f++) {
+      const px = decoded(f);
+      let bottom = -1;
+      for (let y = 0; y < file.height; y++) {
+        for (let x = 0; x < file.width; x++) if (px[(y * file.width + x) * 4 + 3]) bottom = y;
+      }
+      if (bottom >= 0) tally.set(bottom, (tally.get(bottom) ?? 0) + 1);
+    }
+    const modal = [...tally].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0] + 1;
+    if (modal !== ground) {
+      throw new Error(
+        `${source.file}: marked grounded but its feet sit on row ${modal}, not GROUND_ROW ` +
+          `${ground}. Either the manifest's ground row is wrong or this animation is not grounded.`,
+      );
+    }
+  }
+
+  const slug = source.name.toLowerCase().replace(/_/g, '-');
+  console.log(
+    `${basename(source.file).padEnd(38)} ${file.frames}f ${file.width}x${file.height} ` +
+      `ground=${ground} layers=${layers.map((l) => l.name).join(',')}`,
+  );
+  for (const n of notes) console.log(`    note: ${n}`);
+  return { source, file, slug, ground, layers, notes };
 }
 
-/** Clear any pixel the PNG export does not have, per layer, so the import matches it exactly. */
-function dropStrays(flat: number[], pw: number): void {
+const imported: OutAnim[] = SPRITE_SOURCES.map((source) => {
+  const path = join(packRoot, source.file);
+  if (!existsSync(path)) throw new Error(`missing from the pack: ${source.file}`);
+  return importOne(source, path);
+});
+
+// ---- emit ---------------------------------------------------------------------------------------
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(outDir, { recursive: true });
+
+writeFileSync(
+  join(outDir, 'palette.ts'),
+  `// palette.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
+//
+// The reference pack's TEMPLATE palette: every distinct colour across every imported animation, in
+// first-seen order. A sprite pixel stores an index into this (0 = transparent, n = entry n - 1), so
+// this table is the one place a colour code means something — which is what makes an equipment
+// override work identically in every animation.
+//
+// These are CODE colours, not finished art: the pack is a colour-coded template. Shipping art means
+// mapping them to DELVE's palette — see ../skin.ts.
+export const TEMPLATE_PALETTE = [
+${template.map((c) => `  '${c}',`).join('\n')}
+] as const;
+`,
+);
+
+for (const anim of imported) {
+  writeFileSync(
+    join(outDir, `${anim.slug}.ts`),
+    `// ${anim.slug}.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
+//
+// Source: ${anim.source.file} (${anim.file.frames} frames, ${anim.file.width}x${anim.file.height})
+${anim.notes.map((n) => `// Note: ${n}\n`).join('')}//
+// Pixels are indices into TEMPLATE_PALETTE (see ./palette.ts), never colours.
+import type { SpriteAnim } from '../sprite';
+
+export const ${anim.source.name}: SpriteAnim = {
+  name: ${JSON.stringify(anim.slug)},
+  w: ${anim.file.width},
+  h: ${anim.file.height},
+  frames: ${anim.file.frames},
+  ground: ${anim.ground},
+  durations: [${anim.file.durations.join(', ')}],
+  layers: [
+${anim.layers
+  .map(
+    (l) => `    {
+      name: ${JSON.stringify(l.name)},
+      cels: [
+${l.cels
+  .map((c) =>
+    c === null
+      ? '        null,'
+      : `        { x: ${c.x}, y: ${c.y}, w: ${c.w}, h: ${c.h}, data: '${c.data}' },`,
+  )
+  .join('\n')}
+      ],
+    },`,
+  )
+  .join('\n')}
+  ],
+};
+`,
+  );
+}
+
+const key = (slug: string): string => slug.replace(/^player-/, '').replace(/-/g, '_');
+writeFileSync(
+  join(outDir, 'index.ts'),
+  `// index.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
+//
+// Every animation listed in tools/sprite-manifest.ts. The pack animations deliberately NOT imported,
+// and why, are recorded there too.
+${imported.map((a) => `import { ${a.source.name} } from './${a.slug}';`).join('\n')}
+
+export { TEMPLATE_PALETTE } from './palette';
+
+export const PLAYER_SPRITES = {
+${imported.map((a) => `  ${key(a.slug)}: ${a.source.name},`).join('\n')}
+} as const;
+
+export type PlayerAnim = keyof typeof PLAYER_SPRITES;
+
+/**
+ * The layer slots a player animation may use, in paint order.
+ *
+ * Normalised at import precisely so an equipment override written once applies to every animation —
+ * the pack itself calls the same body part "Back Arm", "Back Hand" and "Left Arm" in different files.
+ */
+export const PLAYER_SLOTS = [${SLOT_ORDER.map((s) => `'${s}'`).join(', ')}] as const;
+
+export type PlayerSlot = (typeof PLAYER_SLOTS)[number];
+`,
+);
+
+console.log(`\n${imported.length} animations, ${template.length} template colours -> ${outDir}`);
+
+// ---- helpers ------------------------------------------------------------------------------------
+function dropStrays(layers: OutLayer[], flat: number[], pw: number, file: AseFile): void {
   for (const layer of layers) {
     layer.cels.forEach((cel, f) => {
       if (!cel) return;
@@ -378,6 +447,21 @@ function dropStrays(flat: number[], pw: number): void {
   }
 }
 
+function readPng(path: string): [number, number, number[]] {
+  const raw = execFileSync(
+    'python3',
+    [
+      '-c',
+      `from PIL import Image
+import sys, json
+im = Image.open(${JSON.stringify(path)}).convert('RGBA')
+sys.stdout.write(json.dumps([im.size[0], im.size[1], list(im.tobytes())]))`,
+    ],
+    { maxBuffer: 1 << 30 },
+  ).toString();
+  return JSON.parse(raw) as [number, number, number[]];
+}
+
 function hasPillow(): boolean {
   try {
     execFileSync('python3', ['-c', 'import PIL'], { stdio: 'ignore' });
@@ -386,47 +470,3 @@ function hasPillow(): boolean {
     return false;
   }
 }
-
-// ---- emit ---------------------------------------------------------------------------------------
-const slug = exportName.toLowerCase().replace(/_/g, '-');
-const module = `// ${slug}.ts — GENERATED by tools/import-aseprite.ts. Do not edit by hand.
-//
-// Source: ${basename(source)} (${file.frames} frames, ${file.width}x${file.height})
-// Layers: ${layers.map((l) => l.name).join(', ')}
-//
-// Each pixel is an INDEX into its layer's palette, not a colour — swap a layer's palette to re-skin
-// that body part. See client/src/render/entity/sprite.ts.
-import type { SpriteAnim } from '../sprite';
-
-export const ${exportName}: SpriteAnim = {
-  name: ${JSON.stringify(slug)},
-  w: ${file.width},
-  h: ${file.height},
-  frames: ${file.frames},
-  durations: [${file.durations.join(', ')}],
-  layers: [
-${layers
-  .map(
-    (l) => `    {
-      name: ${JSON.stringify(l.name)},
-      palette: [${l.palette.map((c) => `'${c}'`).join(', ')}],
-      cels: [
-${l.cels
-  .map((c) =>
-    c === null
-      ? '        null,'
-      : `        { x: ${c.x}, y: ${c.y}, w: ${c.w}, h: ${c.h}, data: '${c.data}' },`,
-  )
-  .join('\n')}
-      ],
-    },`,
-  )
-  .join('\n')}
-  ],
-};
-`;
-
-mkdirSync(outDir, { recursive: true });
-const outFile = join(outDir, `${slug}.ts`);
-writeFileSync(outFile, module);
-console.log(`  wrote ${outFile} (${(module.length / 1024).toFixed(1)} KB)`);

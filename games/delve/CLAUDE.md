@@ -21,12 +21,16 @@ just the DELVE-specific working rules.
   See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **No economy — collection only.** There is no money, selling, or shop: everything mined
   goes into the inventory. Digging is free and collecting is unconditional (no fuel, no
-  hauling, no cargo cap), so the player can never get stranded. Upgrade *levels* still exist
+  hauling, no cargo cap), so the player can never get stranded. Upgrade _levels_ still exist
   and drive stats, but nothing raises them yet — a new (non-monetary) progression system is
   the next major pass (#6). (Movement is a gravity platformer as of #2; upward-traversal is a
   future pass.) See the design pillars in DESIGN.md.
-- **All art is drawn in code** on the Resurrect 64 palette, at logical resolution
-  upscaled with `image-rendering: pixelated`. No emoji, clip art, or found images.
+- **World art is drawn in code** on the Resurrect 64 palette, at logical resolution upscaled with
+  `image-rendering: pixelated`. No emoji, clip art, or found images. **Character art is the one
+  exception**: player and entity frames are imported from a purchased, game-licensed asset pack and
+  then coloured here, because the pack ships a colour-coded template rather than finished art — so
+  the silhouettes and motion are imported and every colour is authored on the palette. The pipeline,
+  the reasoning and what it still owes: [docs/SPRITES.md](docs/SPRITES.md).
 - **Write for humans — readable over terse.** Descriptive names, one statement per line,
   named intermediates, typed public surfaces; never hand-compact or minify (the build does
   that). Full standard: [docs/CODE-STYLE.md](docs/CODE-STYLE.md). When porting the old dense

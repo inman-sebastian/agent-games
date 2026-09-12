@@ -7,8 +7,19 @@
 import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PLAYER_SPRITES, PLAYER_SLOTS, type PlayerAnim } from '../client/src/render/entity/sprites';
+import {
+  PLAYER_SPRITES,
+  PLAYER_SLOTS,
+  TEMPLATE_PALETTE,
+  type PlayerAnim,
+} from '../client/src/render/entity/sprites';
 import { drawSprite, frameAt, spriteMask } from '../client/src/render/entity/sprite';
+import {
+  MINER_SKIN,
+  TEMPLATE_PARTS,
+  buildSkin,
+  MINER_RAMPS,
+} from '../client/src/render/entity/skin';
 
 const SPRITE_DIR = join(
   dirname(new URL(import.meta.url).pathname),
@@ -21,7 +32,7 @@ const decode = (data: string): Uint8Array => new Uint8Array(Buffer.from(data, 'b
 describe('the sprite registry', () => {
   it('lists every module in the sprites directory', () => {
     const onDisk = readdirSync(SPRITE_DIR)
-      .filter((f) => f.endsWith('.ts') && f !== 'index.ts')
+      .filter((f) => f.endsWith('.ts') && f !== 'index.ts' && f !== 'palette.ts')
       .map((f) =>
         f
           .replace(/\.ts$/, '')
@@ -74,20 +85,23 @@ describe.each(names)('%s', (name) => {
     }
   });
 
-  it('has every index inside its layer palette', () => {
-    // 0 is transparent; n means palette[n - 1]. An out-of-range index draws nothing at runtime,
-    // which is a hole in the sprite rather than a crash — exactly the sort of silent damage a
-    // hand-edit to generated data would cause.
+  it('has every index inside the template palette', () => {
+    // 0 is transparent; n means TEMPLATE_PALETTE[n - 1]. An out-of-range index draws nothing at
+    // runtime — a hole in the sprite rather than a crash, which is exactly the sort of silent damage
+    // a hand-edit to generated data would cause.
     for (const layer of anim.layers) {
-      expect(layer.palette.length, `${name}/${layer.name} has no palette`).toBeGreaterThan(0);
-      for (const c of layer.palette) expect(c).toMatch(/^#[0-9a-f]{6}$/);
       for (const cel of layer.cels) {
         if (!cel) continue;
         for (const index of decode(cel.data)) {
-          expect(index, `${name}/${layer.name}`).toBeLessThanOrEqual(layer.palette.length);
+          expect(index, `${name}/${layer.name}`).toBeLessThanOrEqual(TEMPLATE_PALETTE.length);
         }
       }
     }
+  });
+
+  it('stands on the shared ground row', () => {
+    // One ground row for every animation: it is a property of the pack's canvas, not of a pose.
+    expect(anim.ground).toBe(PLAYER_SPRITES.idle.ground);
   });
 
   it('draws something on every frame', () => {
@@ -134,16 +148,14 @@ describe('drawSprite', () => {
     expect(lit(b)).toBe(lit(a));
   });
 
-  it('re-skins a single layer without touching the others', () => {
-    // The whole point of index-mapped layers: equipment is a palette swap, and it must not disturb
-    // the silhouette or any other part.
+  it('re-skins one body part without touching the others', () => {
+    // The whole point of index-mapped pixels: equipment is a lookup-table swap, and it must not
+    // disturb the silhouette or any other part.
     const plain = blank(anim.w, anim.h);
     const skinned = blank(anim.w, anim.h);
-    drawSprite(plain, anim, 0, Math.floor(anim.w / 2), anim.h);
-    const torso = anim.layers.find((l) => l.name === 'torso');
-    expect(torso).toBeDefined();
+    drawSprite(plain, anim, 0, Math.floor(anim.w / 2), anim.h, { skin: MINER_SKIN });
     drawSprite(skinned, anim, 0, Math.floor(anim.w / 2), anim.h, {
-      skin: { torso: torso!.palette.map(() => '#ff00ff') },
+      skin: buildSkin({ ...MINER_RAMPS, torso: ['#ff00ff'] }),
     });
     expect(lit(skinned)).toBe(lit(plain));
     let changed = 0;
@@ -152,12 +164,69 @@ describe('drawSprite', () => {
       if (plain.data[i] !== skinned.data[i] || plain.data[i + 1] !== skinned.data[i + 1]) changed++;
     }
     expect(changed).toBeGreaterThan(0);
-    expect(changed).toBeLessThan(lit(plain)); // other layers untouched
+    expect(changed).toBeLessThan(lit(plain)); // other parts untouched
+  });
+
+  it('hides a slot without disturbing the rest', () => {
+    const all = blank(anim.w, anim.h);
+    const noHead = blank(anim.w, anim.h);
+    drawSprite(all, anim, 0, Math.floor(anim.w / 2), anim.h, { skin: MINER_SKIN });
+    drawSprite(noHead, anim, 0, Math.floor(anim.w / 2), anim.h, {
+      skin: { ...MINER_SKIN, hide: ['head'] },
+    });
+    expect(lit(noHead)).toBeLessThan(lit(all));
+    expect(lit(noHead)).toBeGreaterThan(0);
   });
 
   it('stays inside the image when the origin is off-canvas', () => {
     const img = blank(16, 16);
     expect(() => drawSprite(img, anim, 0, -40, -40, { scale: 3 })).not.toThrow();
     expect(() => drawSprite(img, anim, 0, 400, 400, { scale: 3 })).not.toThrow();
+  });
+});
+
+describe('the authored skin', () => {
+  it('maps every template colour', () => {
+    // An unmapped colour draws nothing, so a pixel using it becomes a hole in the character. The
+    // one deliberate exception is the colour no imported frame uses.
+    const mapped = new Set(TEMPLATE_PARTS.map((e) => e.color));
+    for (const colour of TEMPLATE_PALETTE) expect(mapped.has(colour), colour).toBe(true);
+  });
+
+  it('agrees with the generated palette on length and order', () => {
+    // `buildSkin` emits one entry per template colour, positionally. A drift here would silently
+    // recolour the wrong body part.
+    expect(MINER_SKIN.colors).toHaveLength(TEMPLATE_PALETTE.length);
+  });
+
+  it('resolves every colour a frame actually uses', () => {
+    const used = new Set<number>();
+    for (const anim of Object.values(PLAYER_SPRITES)) {
+      for (const layer of anim.layers) {
+        for (const cel of layer.cels) {
+          if (!cel) continue;
+          for (const i of decode(cel.data)) if (i) used.add(i);
+        }
+      }
+    }
+    for (const i of used) {
+      expect(
+        MINER_SKIN.colors?.[i - 1],
+        `template index ${i} (${TEMPLATE_PALETTE[i - 1]})`,
+      ).toMatch(/^#[0-9a-f]{6}$/);
+    }
+  });
+
+  it('keeps near-side limbs lighter than far-side ones', () => {
+    // The pack encodes depth by giving each side its own colour code. Losing that makes the two legs
+    // merge into one shape whenever they overlap.
+    const lum = (hex: string): number =>
+      0.299 * parseInt(hex.slice(1, 3), 16) +
+      0.587 * parseInt(hex.slice(3, 5), 16) +
+      0.114 * parseInt(hex.slice(5, 7), 16);
+    const top = (part: 'legNear' | 'legFar' | 'armNear' | 'armFar'): number =>
+      Math.max(...MINER_RAMPS[part].map(lum));
+    expect(top('legNear')).toBeGreaterThan(top('legFar'));
+    expect(top('armNear')).toBeGreaterThan(top('armFar'));
   });
 });

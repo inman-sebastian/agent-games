@@ -15,10 +15,9 @@
 // chest piece overrides the torso layer's ramp without touching the animation, and a helmet is a new
 // layer painted over the head's.
 //
-// Frames are UPSCALED at draw time by an integer factor, never resampled — the pack's figure is 29px
-// on a 48px canvas and DELVE's character is 2x3 tiles, so the art is drawn at whole-pixel scale to
-// keep every edge hard.
+// Frames are UPSCALED at draw time by an integer factor, never resampled, so every edge stays hard.
 import type { Rgb } from '../palette';
+import { TEMPLATE_PALETTE } from './sprites/palette';
 
 /** One layer's pixels for one frame. `x`/`y` place the cel in the frame; indices are row-major. */
 export interface SpriteCel {
@@ -27,7 +26,7 @@ export interface SpriteCel {
   readonly w: number;
   readonly h: number;
   /**
-   * `w * h` palette indices, base64-encoded. 0 is TRANSPARENT; n maps to `palette[n - 1]`.
+   * `w * h` TEMPLATE_PALETTE indices, base64-encoded. 0 is TRANSPARENT; n is palette entry n - 1.
    *
    * Base64 rather than an array literal because a generated module full of thousands of integers is
    * unreadable either way, and this form is a tenth the size.
@@ -36,10 +35,8 @@ export interface SpriteCel {
 }
 
 export interface SpriteLayer {
-  /** The Aseprite layer name — the body part this is. */
+  /** The slot this is — a body part, a weapon, or baked FX. See `PLAYER_SLOTS`. */
   readonly name: string;
-  /** Colours this layer's indices refer to, as `#rrggbb`. Swap this to re-skin the part. */
-  readonly palette: readonly string[];
   /** One entry per frame; `null` where the layer is empty in that frame. */
   readonly cels: readonly (SpriteCel | null)[];
 }
@@ -49,14 +46,36 @@ export interface SpriteAnim {
   readonly w: number;
   readonly h: number;
   readonly frames: number;
+  /**
+   * The canvas row the feet stand on — NOT the canvas bottom.
+   *
+   * The pack pads its canvas for animation overshoot, so the figure's feet sit eight rows above the
+   * bottom edge. Anchoring to the canvas floated the character by exactly that much. Airborne poses
+   * deliberately reach below this row, which is why it is the modal contact row, not the lowest.
+   */
+  readonly ground: number;
   /** Per-frame duration in ms, straight from the source file. */
   readonly durations: readonly number[];
   /** Bottom-to-top paint order, exactly as authored. */
   readonly layers: readonly SpriteLayer[];
 }
 
-/** A per-layer ramp override: layer name → replacement palette. This is how equipment is worn. */
-export type SpriteSkin = Readonly<Record<string, readonly string[]>>;
+/**
+ * How a sprite is coloured, and therefore how equipment is worn.
+ *
+ * `colors` remaps the TEMPLATE PALETTE — one entry per template colour, so a pixel's code resolves
+ * the same way in every animation. That global mapping is the point: the pack's own layering is
+ * inconsistent enough that some animations paint a stray head-coloured pixel onto an arm layer, and
+ * a per-layer mapping would recolour it wrongly. `null` leaves a colour as authored.
+ *
+ * `hide` drops whole slots — baked FX a caller renders itself, or a body part an equipment layer
+ * fully replaces. `tint` overrides everything, for silhouettes and hit flashes.
+ */
+export interface SpriteSkin {
+  readonly colors?: readonly (string | null)[];
+  readonly hide?: readonly string[];
+  readonly tint?: Rgb;
+}
 
 const hexToRgb = (hex: string): Rgb => [
   parseInt(hex.slice(1, 3), 16),
@@ -64,30 +83,31 @@ const hexToRgb = (hex: string): Rgb => [
   parseInt(hex.slice(5, 7), 16),
 ];
 
-/** Decoded indices and resolved colours, cached per (layer, palette) so a redraw is a table read. */
-interface Prepared {
-  readonly indices: Uint8Array;
-  readonly colors: readonly Rgb[];
-}
-const cache = new WeakMap<SpriteCel, Map<string, Prepared>>();
+const decoded = new WeakMap<SpriteCel, Uint8Array>();
 
-function prepare(cel: SpriteCel, palette: readonly string[]): Prepared {
-  let byPalette = cache.get(cel);
-  if (!byPalette) {
-    byPalette = new Map();
-    cache.set(cel, byPalette);
-  }
-  const key = palette.join();
-  const hit = byPalette.get(key);
+/** Base64 indices, decoded once per cel and kept — a redraw is then a table read. */
+function indicesOf(cel: SpriteCel): Uint8Array {
+  const hit = decoded.get(cel);
   if (hit) return hit;
   const bytes =
     typeof atob === 'function'
       ? atob(cel.data)
       : Buffer.from(cel.data, 'base64').toString('binary');
-  const indices = new Uint8Array(bytes.length);
-  for (let i = 0; i < bytes.length; i++) indices[i] = bytes.charCodeAt(i);
-  const made: Prepared = { indices, colors: palette.map(hexToRgb) };
-  byPalette.set(key, made);
+  const out = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[i] = bytes.charCodeAt(i);
+  decoded.set(cel, out);
+  return out;
+}
+
+/** The resolved colour table for a skin, cached so a remap costs one parse per distinct skin. */
+const ramps = new Map<string, readonly Rgb[]>();
+
+function rampFor(skin: SpriteSkin | undefined): readonly Rgb[] {
+  const key = (skin?.colors ?? []).join();
+  const hit = ramps.get(key);
+  if (hit) return hit;
+  const made = TEMPLATE_PALETTE.map((base, i) => hexToRgb(skin?.colors?.[i] ?? base));
+  ramps.set(key, made);
   return made;
 }
 
@@ -110,28 +130,29 @@ export function drawSprite(
     /** Mirror horizontally. Flipping INDICES is exact; flipping drawn pixels is not. */
     readonly flip?: boolean;
     readonly skin?: SpriteSkin;
-    /** Replace every opaque pixel with this — silhouettes, hit flashes, shadows. */
-    readonly tint?: Rgb;
   } = {},
 ): void {
   const scale = Math.max(1, Math.round(options.scale ?? 1));
   const f = ((frame % anim.frames) + anim.frames) % anim.frames;
-  // The sprite's own origin: bottom-centre of its canvas, which is where the feet sit.
+  const skin = options.skin;
+  const colors = rampFor(skin);
+  const hidden = skin?.hide;
+  // Anchor on the animation's GROUND ROW, not the canvas edge — see `SpriteAnim.ground`.
   const baseX = originX - Math.floor((anim.w * scale) / 2);
-  const baseY = originY - anim.h * scale;
+  const baseY = originY - anim.ground * scale;
 
   for (const layer of anim.layers) {
+    if (hidden?.includes(layer.name)) continue;
     const cel = layer.cels[f];
     if (!cel) continue;
-    const palette = options.skin?.[layer.name] ?? layer.palette;
-    const { indices, colors } = prepare(cel, palette);
+    const indices = indicesOf(cel);
 
     for (let y = 0; y < cel.h; y++) {
       for (let x = 0; x < cel.w; x++) {
         const index = indices[y * cel.w + x];
         if (index === 0) continue;
-        const rgb = options.tint ?? colors[index - 1];
-        if (!rgb) continue; // a skin with a shorter ramp than the frame uses
+        const rgb = skin?.tint ?? colors[index - 1];
+        if (!rgb) continue; // an index past the template palette — a hole, not a crash
         const sx = options.flip ? anim.w - 1 - (cel.x + x) : cel.x + x;
         const sy = cel.y + y;
         // Rasterize the upscale: fill the whole destination block, never sample a source pixel.
@@ -171,7 +192,7 @@ export function spriteMask(anim: SpriteAnim, frame: number): Uint8Array {
   for (const layer of anim.layers) {
     const cel = layer.cels[frame];
     if (!cel) continue;
-    const { indices } = prepare(cel, layer.palette);
+    const indices = indicesOf(cel);
     for (let y = 0; y < cel.h; y++) {
       for (let x = 0; x < cel.w; x++) {
         if (indices[y * cel.w + x] === 0) continue;

@@ -13,18 +13,21 @@ every question in text or a tiny cropped PNG.
 ## `import-aseprite.ts` — lift layered frames out of a `.aseprite` file
 
 ```sh
-pnpm --filter delve exec tsx tools/import-aseprite.ts <file.aseprite> <EXPORT_NAME> [--trust-source]
-pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--skin torso=#4d9be6]
+pnpm --filter delve exec tsx tools/import-aseprite.ts <pack-root>
+pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--template]
 ```
 
 Reads the layers directly — no Aseprite install, no intermediate export — normalises layer names to
-DELVE's slots, maps each layer's colours to indices, and writes a committed module under
-`client/src/render/entity/sprites/`. **It verifies before it writes and refuses on a mismatch**: the
+DELVE's slots, maps every colour to an index in one shared template palette, and writes committed
+modules under `client/src/render/entity/sprites/`. Driven by
+[`sprite-manifest.ts`](sprite-manifest.ts), which is also where the pack animations deliberately
+**not** imported are recorded, with reasons. **It verifies before it writes and refuses on a mismatch**: the
 emitted data is decoded back and diffed pixel for pixel against both the file's own layers and its
 sibling PNG export.
 
 `sprite-shot.ts` renders any imported animation to a PNG with no browser and no dev server, which is
-how an import gets checked. `client/labs/sprite-lab.html` is the interactive version, with per-layer
+how an import gets checked; `--template` shows the pack's raw code colours rather than the authored
+skin. `client/labs/sprite-lab.html` is the interactive version, with per-layer
 visibility and recolouring.
 
 Full pipeline, format and the open questions: [`docs/SPRITES.md`](../docs/SPRITES.md).

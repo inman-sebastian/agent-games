@@ -6,6 +6,7 @@
 // at once because layer names are normalised at import time.
 import { PLAYER_SPRITES, PLAYER_SLOTS, type PlayerAnim } from '../src/render/entity/sprites';
 import { drawSprite, frameAt, type SpriteSkin } from '../src/render/entity/sprite';
+import { MINER_RAMPS, buildSkin, type SkinPart, type SkinRamps } from '../src/render/entity/skin';
 
 const SCALE = 6;
 const STRIP_SCALE = 2;
@@ -19,7 +20,9 @@ const names = Object.keys(PLAYER_SPRITES) as PlayerAnim[];
 let current: PlayerAnim = 'idle';
 let flip = false;
 let hidden = new Set<string>();
-let skin: Record<string, string> = {}; // slot -> replacement colour for the whole ramp
+let template = false; // show the pack's raw colour codes instead of the authored skin
+// Per-part ramps, seeded from the shipped miner. Editing one is authoring equipment.
+let ramps: SkinRamps = MINER_RAMPS;
 
 const stripCtx = strip.getContext('2d')!;
 const liveCtx = live.getContext('2d')!;
@@ -63,14 +66,53 @@ heading('layers');
 const layerBox = document.createElement('div');
 side.append(layerBox);
 
+// Per-part ramp editing: pick a part, pick a shade, pick a colour. This is the equipment pipeline —
+// a chest piece is a torso ramp, and it applies to every animation because the mapping is global.
+heading('skin');
+const modeBtn = document.createElement('button');
+modeBtn.onclick = (): void => {
+  template = !template;
+  rebuild();
+};
+side.append(modeBtn);
+
+const rampBox = document.createElement('div');
+side.append(rampBox);
+
 const resetBtn = document.createElement('button');
 resetBtn.textContent = 'Reset layers & colours';
 resetBtn.onclick = (): void => {
   hidden = new Set();
-  skin = {};
+  ramps = MINER_RAMPS;
   rebuild();
 };
 side.append(resetBtn);
+
+function buildRampControls(): void {
+  rampBox.replaceChildren();
+  for (const part of Object.keys(ramps) as SkinPart[]) {
+    const ramp = ramps[part];
+    if (ramp.length === 0) continue;
+    const row = document.createElement('label');
+    const text = document.createElement('span');
+    text.textContent = part;
+    row.append(text);
+    ramp.forEach((colour, i) => {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = colour;
+      input.title = `${part} shade ${i}`;
+      input.oninput = (): void => {
+        const next = ramp.slice();
+        next[i] = input.value;
+        ramps = { ...ramps, [part]: next };
+        rebuild();
+      };
+      row.append(input);
+    });
+    rampBox.append(row);
+  }
+}
 
 /** Rebuilt per animation, since not every animation has every slot. */
 function buildLayerControls(): void {
@@ -89,32 +131,16 @@ function buildLayerControls(): void {
       rebuild();
     };
     const text = document.createElement('span');
-    text.textContent = `${slot} (${layer.palette.length})`;
-    const colour = document.createElement('input');
-    colour.type = 'color';
-    colour.value = skin[slot] ?? layer.palette[0];
-    colour.oninput = (): void => {
-      skin[slot] = colour.value;
-      rebuild();
-    };
-    row.append(toggle, text, colour);
+    text.textContent = slot;
+    row.append(toggle, text);
     layerBox.append(row);
   }
 }
 
-/**
- * Build the draw-time skin. A slot the user recoloured gets a FLAT ramp of that colour, which is
- * honest about what the pack gives us: its parts are single flat colours, so there is no gradient to
- * remap yet. Real armour will author a full ramp per slot the way a material does.
- */
+/** The draw-time skin: the authored ramps, or the pack's raw codes, plus whatever is hidden. */
 function skinFor(): SpriteSkin {
-  const anim = PLAYER_SPRITES[current];
-  const out: Record<string, readonly string[]> = {};
-  for (const layer of anim.layers) {
-    if (hidden.has(layer.name)) out[layer.name] = [];
-    else if (skin[layer.name]) out[layer.name] = layer.palette.map(() => skin[layer.name]);
-  }
-  return out;
+  const hide = [...hidden];
+  return template ? { hide } : { ...buildSkin(ramps), hide };
 }
 
 // ---- drawing -----------------------------------------------------------------------------------
@@ -122,7 +148,9 @@ function rebuild(): void {
   const anim = PLAYER_SPRITES[current];
   for (const [name, b] of animButtons) b.setAttribute('aria-pressed', String(name === current));
   flipBtn.textContent = `facing: ${flip ? 'left' : 'right'}`;
+  modeBtn.textContent = template ? 'colours: pack template' : 'colours: authored skin';
   buildLayerControls();
+  buildRampControls();
 
   live.width = anim.w * SCALE;
   live.height = anim.h * SCALE;

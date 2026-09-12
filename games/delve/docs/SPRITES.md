@@ -3,25 +3,19 @@
 How DELVE's non-block entities are drawn. Blocks and materials are unaffected — they stay fully
 procedural; see [MATERIALS.md](MATERIALS.md) and [RENDERING.md](RENDERING.md).
 
-## Status: proposed, not ratified
+## Status: decided
 
-**This contradicts two standing rules and needs an explicit decision before it ships.**
+Character art is **imported from a purchased third-party asset pack**; world art stays fully
+procedural. The pack is licensed for use in games (confirmed by the author, who purchased it). The
+`.aseprite` sources are not committed; the imported pixel data is.
 
-- The workspace rule in the root `CLAUDE.md`: _"Create every asset yourself… never use found
-  images as game assets."_
-- DELVE's own pillar, stated at the outset: _"all art in this game is generated procedurally."_
-
-Character art here is **imported from a purchased third-party asset pack**, not authored. That is a
-deliberate change of direction after five rounds of procedural character work (see below), and it is
-the author's call to make, not the agent's. Two things to settle:
-
-1. **Do the rules change, or does this approach go?** If it stays, `CLAUDE.md` and the design pillar
-   should be amended to say "world art is procedural; character art is imported", so the docs stop
-   contradicting the code.
-2. **Does the pack's licence permit it?** Most itch.io packs allow use in a game but prohibit
-   redistributing the raw assets. The `.aseprite` sources are deliberately **not** committed, but the
-   imported pixel data is, and this repository is not private. Worth reading the licence before this
-   merges.
+This narrows a rule rather than dropping it. The root `CLAUDE.md` says every asset is authored in
+code, and DELVE's original pillar said all art is generated procedurally. Both now read as **world
+art is procedural, character art is imported and skinned** — and the skinning is the part that is
+still authored, which is not a technicality. The pack ships a colour-coded _template_: its pixels are
+code colours identifying body parts, so every colour the player sees is decided in
+[`client/src/render/entity/skin.ts`](../client/src/render/entity/skin.ts) on Resurrect-64. The pack
+gives silhouettes and motion; DELVE gives the art direction.
 
 ## Why this instead of the procedural rig
 
@@ -53,15 +47,43 @@ tone, every armour set and every material, because re-skinning a body part is su
 layer's ramp — the same trick the material system already uses for rock.
 
 ```
+TEMPLATE_PALETTE[]    every code colour across every animation — ONE shared table
+
 SpriteAnim
   name, w, h, frames, durations[]
-  layers[]            bottom-to-top paint order
+  ground              the canvas row the feet stand on
+  layers[]            paint order, bottom to top, as the source file had it
     name              a slot (see below)
-    palette[]         '#rrggbb' — swap this to re-skin the part
     cels[]            one per frame, or null where the layer is empty
       x, y, w, h
-      data            w*h indices, base64. 0 = transparent, n = palette[n-1]
+      data            w*h indices, base64. 0 = transparent, n = TEMPLATE_PALETTE[n-1]
+
+SpriteSkin
+  colors[]            one replacement per template colour, or null to keep it
+  hide[]              slots not to draw
+  tint                override every pixel — silhouettes, flashes
 ```
+
+**The palette is global, not per layer,** and that was a bug worth fixing rather than a design
+preference. Built per animation, index 1 meant `#76428a` in one animation and `#c46423` in another,
+so any override keyed on it was wrong depending on what was playing. Mapping by colour across the
+whole set also absorbs the pack's own layering slop: a few animations paint a stray head-coloured
+pixel onto an arm layer, and mapped globally those pixels still come out the right colour.
+
+Each body part carries **two to five shades**, not one flat colour, so a substituted ramp is properly
+shaded. `TEMPLATE_PARTS` in `skin.ts` records which part each code colour belongs to and where it
+sits in that part's ramp, measured by counting which slot every colour actually lands on across all
+fifteen animations.
+
+**`ground` is one shared row, not per animation.** It is a property of the pack's canvas: every file
+draws on the same 48px canvas and the grounded animations all bottom out on row 39. Deriving it per
+animation as the modal lowest row gave 44 for jump and 38 for push, which would have made the
+character jump _downward_ and float while pushing. The importer asserts the grounded animations agree
+with it.
+
+**Paint order follows the source file,** not a house order. Re-sorting to a canonical order broke
+fidelity: the Run file paints its torso above the near leg where every other animation paints it
+below. Equipment only needs the layer _names_ to be consistent, which normalisation guarantees.
 
 Runtime is [`client/src/render/entity/sprite.ts`](../client/src/render/entity/sprite.ts):
 `drawSprite(img, anim, frame, originX, originY, { scale, flip, skin, tint })`. The origin is the
@@ -98,12 +120,16 @@ A layer that is empty in every frame is dropped rather than emitted with an empt
 ## Importing
 
 ```sh
-pnpm --filter delve exec tsx tools/import-aseprite.ts <file.aseprite> <EXPORT_NAME> \
-  [--skip a,b] [--keep-strays] [--allow-unknown-layers] [--trust-source]
+pnpm --filter delve exec tsx tools/import-aseprite.ts <pack-root>
 ```
 
-Reads the layered `.aseprite` directly — no Aseprite install, no intermediate export. Output goes to
-`client/src/render/entity/sprites/` and is committed; the `.aseprite` sources are not.
+Reads the layered `.aseprite` files directly — no Aseprite install, no intermediate export. Which
+files, and with which per-file exceptions, is [`tools/sprite-manifest.ts`](../tools/sprite-manifest.ts);
+it also records the pack animations deliberately **not** imported and why, so a gap is a decision on
+record rather than an oversight. Output goes to `client/src/render/entity/sprites/` and is committed;
+the `.aseprite` sources are not.
+
+It runs as a **batch** because the template palette is shared — see above.
 
 **It verifies before it writes, and refuses on a mismatch.** The emitted data is decoded back,
 composited, and compared pixel for pixel against the file's own layers. When a sibling PNG export
@@ -121,8 +147,11 @@ inconsistent across its forty-odd files and every flag below exists because a re
 
 ```sh
 pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip] \
-  [--skin torso=#4d9be6] [--hide fx.damage]
+  [--template] [--hide fx.damage]
 ```
+
+`--template` draws the pack's raw code colours instead of the authored skin, which is the view for
+checking an import or working out which colour is which part.
 
 Renders any imported animation to a PNG with no browser and no dev server. For the interactive
 version — every animation playing, per-layer visibility, per-layer recolouring — use
@@ -137,10 +166,11 @@ hand-edit to generated data, an index outside its palette, a layer name that dri
 - **Scale.** The pack's figure is 29px tall on a 48px canvas, about 1.8 tiles. DELVE committed to
   Terraria's 2×3 tiles. Drawing the sprite at 2× makes the character ~58px, which is not 3 tiles
   either. This needs a decision, and it is the same tension that made the procedural attempt hard.
-- **Palette.** The pack's colours are its own, not Resurrect-64. Re-skinning every layer to the
-  game's palette is a ramp table, not new art, but it has to be authored.
-- **Shading.** The pack's parts are flat single colours, so a substituted ramp is flat too. Armour
-  with DELVE's banded top-lit look needs more indices per part than the pack provides, which means
-  authoring shading detail on top of the imported silhouettes.
+- **The head is one part, so there is no helmet.** The miner's orange helmet cannot be expressed by
+  re-skinning: the pack's head layer is a single silhouette including hair. A helmet needs an
+  authored equipment layer drawn over the head, which is what the `weapon` slot's shape shows is
+  possible.
+- **Ramp tuning.** The shipped miner skin reads correctly but runs dark on the far side. That is now
+  a lab job rather than a code change — `sprite-lab.html` edits every part's ramp live.
 - **Animations the pack flattened.** Slide, Dash, Katana Walk, side Climb and running Shoot have no
   per-part layers and cannot be imported into this format as-is.
