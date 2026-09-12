@@ -49,6 +49,9 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
 - **World-gen** (`shared/src/blocks.test.ts`) — determinism (`blockAt`/`oreAt` pure; same seed →
   same world), ore discoverability across many seeds, the **placement invariant** that ore never
   spawns outside its band, and monotonic depth curves (`strataIndexAt`, `rockHp`).
+  _(The band invariant is temporary: `band` goes away with
+  [biome-declared placement](MATERIALS.md#placement-moves-to-biomes), and is replaced by the
+  reachability claims in [The content gate](#the-content-gate-missing).)_
 - **Resources** (`shared/src/resources/resources.test.ts`) — per-entity conformance (parametrized
   over every ore/stratum) + registry↔directory drift (index imports every file).
 - **Engine sim + fuzz** (`shared/src/engine.test.ts`) — the core. `fast-check` drives random input
@@ -66,6 +69,72 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
 - **Client save + DOM** (`client/src/save.test.ts`, `client/src/ui/inventory.test.ts`) — save
   format migration (incl. old pre-economy saves loading cleanly) and the inventory panel's row
   builder under happy-dom (the ore-icon factory is injected so tests don't touch canvas).
+
+## The content gate (missing)
+
+> **This is a known gap, not a decision.** `tools/verify.ts` used to prove *"a greedy bot reaches
+> Mythril within a sane budget."* That claim was coin-economy-shaped, so deleting the economy left
+> it testing nothing real — and it was **deleted rather than replaced**. What went with it is the
+> guarantee that **no broken content can ship without a human playing every world**, which is a
+> standing violation of the workspace rule on automating content verification.
+
+### What the old gate got right and wrong
+
+- **The bias was real.** A *greedy, optimal* bot on a *single* seed proves the best case is
+  survivable. It says nothing about a normal player on an unlucky world — it answers "is this
+  possible?" when the useful question is "is this *reliably* good?"
+- **Determinism was never the flaw — it's the enabling property.** The world is `f(seed, c, r)`;
+  that's precisely what makes content verifiable at all. The fix isn't less determinism, it's
+  **more seeds and worse players**: hundreds of seeds, deliberately imperfect agents, asserting
+  **invariants** rather than replaying one perfect run. Failures report as a **failing seed**, which
+  is reproducible by construction.
+- **Vitest is a runner, not a replacement.** The valuable thing was the *claim*. The gate should
+  become a test here, not disappear into the suite.
+
+### The claims it should make
+
+The [biome roster](BIOMES.md) makes these crisp for the first time — the old depth-range assertions
+couldn't express any of them:
+
+| Claim | Blocked on |
+| --- | --- |
+| **All 16 biomes generate in every world**, non-unique pockets at the promised per-player density | Biomes ([#27](https://github.com/inman-sebastian/agent-games/issues/27)) |
+| **Every material is obtainable in at least one biome** (never "every biome has every material") | Biomes |
+| **Every _required_ material is reachable by a fresh character in a fresh world** | Biomes + the crafting tree ([#6](https://github.com/inman-sebastian/agent-games/issues/6)) |
+| **Slot count grows more slowly than the item roster** — or "equip the best set" wins and the loadout loop dies | Equipment ([#6](https://github.com/inman-sebastian/agent-games/issues/6)) |
+| **No trap** — asserted as the three cases that actually have teeth | Bounded world, fluid, gated structures |
+
+**Both halves of the reachability claim matter.** Characters are
+[portable](ARCHITECTURE.md#persistence-three-scopes), so "fresh world" and "fresh character" come
+apart — and a **maxed character entering a new world is out of scope by design**, not a balance
+failure to chase.
+
+**On "no trap":** the general claim is near-vacuous now that everything but bedrock is breakable and
+digging is always free — the player can nearly always dig out, so it would pass trivially and test
+nothing. Assert the three specific cases instead: **bedrock pockets**, **drowning in a flooded dead
+end**, and **being sealed inside a tool-gated structure without the tool**.
+
+### What's assertable today — and the first one is written
+
+Most of the above waits on systems that don't exist. One didn't, and it's now in
+`shared/src/resources/resources.test.ts`:
+
+> **Registry order should agree with depth order across the ore registry.** It doesn't — quartz
+> (band 95) outranks mythril (band 480) and stone bricks (band 20) outranks everything, because
+> `rarityOf` is registration order and the newer ores were appended
+> ([#46](https://github.com/inman-sebastian/agent-games/issues/46)). Since the client scales reward
+> feedback by that index, registry order is implicitly a claim about how special a material is.
+
+**It's written as `it.fails`**, which is the useful pattern for a bug you've found but aren't fixing
+yet:
+
+- The suite **stays green** (`88 passed | 1 expected fail`), so the gate isn't broken for everyone.
+- The bug is **on record as executable code**, not just an issue.
+- When #46 is fixed the test **starts failing**, forcing whoever fixed it to flip it to a plain
+  `it()`. It cleans itself up.
+
+That's red-before-green without holding CI hostage, and it's the recommended shape for any invariant
+discovered ahead of its fix.
 
 ## Not covered here
 

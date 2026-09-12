@@ -39,4 +39,18 @@ describe('ore conformance', () => {
     const ids = ores.map((o) => o.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
+
+  // `rarityOf` is an ore's INDEX in the registry, i.e. import order in resources/index.ts — and the
+  // client scales reward feedback by it (break pitch, particle count, screen shake). So registry
+  // order is implicitly a claim about how special each material is, and it should agree with depth.
+  // It doesn't: quartz/platinum/obsidian/stonebricks were appended after mythril, so quartz (band
+  // 95) outranks mythril (band 480) and stonebricks (band 20) outranks everything.
+  //
+  // `it.fails` asserts this is CURRENTLY BROKEN, so the gate stays green while the bug is on record
+  // (see issue #46). When #46 is fixed this test starts failing — flip it to a plain `it()` then.
+  it.fails('registry order agrees with depth order (#46 — expected to fail)', () => {
+    const byRegistry = ores.map((o) => o.name);
+    const byDepth = [...ores].sort((a, b) => a.band[0] - b.band[0]).map((o) => o.name);
+    expect(byRegistry).toEqual(byDepth);
+  });
 });
