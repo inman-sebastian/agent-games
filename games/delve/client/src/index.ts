@@ -146,11 +146,14 @@ const sfx = {
   chip(): void {
     noise(0.04, 1200, 0.12);
   },
-  break(rarity: number): void {
-    noise(0.12, 500 + rarity * 120, 0.4);
+  // `prize` is NORMALISED rarity, 0 (worthless) .. 1 (the rarest thing in the game) — not a tier
+  // index. The tier count is a content decision that changes whenever an ore is added, and reward
+  // pitch should not move when it does (#46).
+  break(prize: number): void {
+    noise(0.12, 500 + prize * 960, 0.4);
   },
-  ore(rarity: number): void {
-    const base = 520 + rarity * 90;
+  ore(prize: number): void {
+    const base = 520 + prize * 720;
     tone(base, 0.005, 0.14, 'triangle', 0.28);
     setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
   },
@@ -850,24 +853,27 @@ function onEvent(ev: SimEvent): void {
   }
   if (ev.type !== 'break') return;
   patchDig(ev.c, ev.r); // tile became open → patch the cached chunk(s)
-  const rarity = ev.ore ? engine.rarityOf(ev.ore) : 0;
+  // Every reward cue scales by NORMALISED rarity rather than by the tier number, so adding an ore
+  // never re-tunes the feedback for the ores already there — which is the mistake this whole thing
+  // came from (#46). The coefficients are chosen so the top tier lands exactly where mythril landed
+  // before; what changed is that the other twelve now land on their AUTHORED tier instead of on
+  // their position in the registry.
+  const prize = (ev.ore ? engine.rarityOf(ev.ore) : 0) / engine.RARITY_MAX;
+  const RICH_BONUS = 0.33; // a rich vein reads as roughly two tiers better than it is
   sfx.dig(ev.r);
-  sfx.break(rarity);
-  chips(cx, cy, 5 + rarity, ev.ore ? engine.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
-  shake = Math.min(7, shake + 1.2 + rarity * 0.5 + (ev.rich ? 2 : 0));
+  sfx.break(prize);
+  chips(cx, cy, 5 + Math.round(prize * 8), ev.ore ? engine.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
+  shake = Math.min(7, shake + 1.2 + prize * 4 + (ev.rich ? 2 : 0));
   if (ev.ore) {
     // ore collected into the inventory (sold later)
-    sfx.ore(rarity + (ev.rich ? 2 : 0));
+    sfx.ore(Math.min(1, prize + (ev.rich ? RICH_BONUS : 0)));
     const col = ev.rich ? '#f2c14e' : engine.ORE_BY_ID[ev.ore].color;
     const name = engine.ORE_BY_ID[ev.ore].name;
-    floaty(
-      cx,
-      cy - 4,
-      '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''),
-      col,
-      rarity >= 4 || ev.rich,
-    );
-    for (let i = 0; i < 4 + rarity + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
+    // The big floaty is the celebration, so it belongs to the top two tiers and a rich vein of
+    // anything. Narrower than before, when it reached down to emerald — but before, it also reached
+    // stone bricks.
+    floaty(cx, cy - 4, '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''), col, prize >= 0.6 || ev.rich);
+    for (let i = 0; i < 4 + Math.round(prize * 8) + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
   }
 }
 

@@ -13,6 +13,8 @@ register({
   band: [20, 90],
   weight: 2,
   hp: 5,
+  // constructed, not discovered; a lore curiosity rather than a prize, and it has no business in a random vein at all (see the file header)
+  rarity: 0,
   color: '#8a94a0',
   desc: 'Cut and laid by some earlier hand. What were they building down here?',
   art: { shape: 'nugget', c: ['#3e3546', '#6f708a', '#9babb2'] },

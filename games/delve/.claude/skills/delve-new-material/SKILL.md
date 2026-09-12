@@ -36,6 +36,7 @@ register({
   band: [200, 340],        // [minRow, maxRow] depth range it spawns in
   weight: 6,               // spawn share within the band (rarer = smaller)
   hp: 7,                   // toughness ON TOP of rock hp (deeper/rarer = higher)
+  rarity: 4,               // reward TIER, 0..RARITY_MAX — see below; ties are fine
   color: '#4d65b4',        // single colour for particles / HUD floaties
   desc: 'A cold blue metal from the deep stone.',
   art: { shape: 'nugget', c: ['#26305a', '#4d65b4', '#8fd3ff'] }, // icon shape + [dark,mid,hi] triad
@@ -124,6 +125,18 @@ Rules that keep it cohesive (see MATERIALS.md):
   Seed any noise with `ctx.worldX/worldY` (not px/py) so texture is stable + seamless.
 - **Palette**: all six ramp stops from Resurrect-64 (or a `mix()`/`desat()` of them). Dark shadow
   → bright rim. `GLINT`/`SHEEN` are near-white tinted toward the material.
+**Choosing `rarity`.** It is the one input to every reward cue — break pitch, particle count, screen
+shake, whether the pickup gets the big floaty — and it is *authored*, not derived. Two rules:
+
+- **Do not derive it from depth.** Depth says where a material is, not how special it is: quartz is
+  deeper than gold and far more plentiful. Ask "how should breaking this FEEL?", then place it.
+- **The top tier is held alone** by Mythril, and `rarity >= 4` is the tier the game celebrates. A new
+  material almost always belongs at or below 4; going higher is a claim that it outranks Diamond.
+
+Rarity used to be the ore's position in the registry, so adding a file silently re-tiered the ones
+already there (#46). The field exists so that can't happen again — which also means a new resource
+will not compile without it.
+
 - **Value-gradient**: tune FX to rarity, not "shiny = valuable" — common metals sheen-only; mid
   metals a rare twinkle; gems sparkle + twinkle with `period`↓ / `density`↑ toward the rarest.
 - `feather` (px bleed into neighbours) ~2.0 for crisp gems, ~2.6–3.2 for softer metals.

@@ -9,6 +9,8 @@ register({
   band: [76, 156],
   weight: 11,
   hp: 4,
+  // precious, and the shallowest material allowed to feel valuable
+  rarity: 3,
   color: '#f5c84e',
   desc: 'Heavy, radiant, and reliably valuable.',
   art: { shape: 'nugget', c: ['#4c3e24', '#f9c22b', '#fbff86'] },

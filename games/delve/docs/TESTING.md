@@ -114,24 +114,32 @@ digging is always free — the player can nearly always dig out, so it would pas
 nothing. Assert the three specific cases instead: **bedrock pockets**, **drowning in a flooded dead
 end**, and **being sealed inside a tool-gated structure without the tool**.
 
-### What's assertable today — and the first one is written
+### What's assertable today — and the first one is written, then retired
 
-Most of the above waits on systems that don't exist. One didn't, and it's now in
-`shared/src/resources/resources.test.ts`:
+Most of the above waits on systems that don't exist. One didn't, and it has now run its full course
+in `shared/src/resources/resources.test.ts` — which makes it the worked example of the pattern.
 
-> **Registry order should agree with depth order across the ore registry.** It doesn't — quartz
-> (band 95) outranks mythril (band 480) and stone bricks (band 20) outranks everything, because
-> `rarityOf` is registration order and the newer ores were appended
-> ([#46](https://github.com/inman-sebastian/agent-games/issues/46)). Since the client scales reward
-> feedback by that index, registry order is implicitly a claim about how special a material is.
+**It started as an `it.fails`.** The bug: `rarityOf` returned an ore's position in the registry, and
+the client scales every reward cue by it, so appending four ore files made quartz (band 95) out-rank
+mythril (band 480) and made stone bricks (band 20) the loudest event in the game
+([#46](https://github.com/inman-sebastian/agent-games/issues/46)). Asserting the *broken* invariant
+with `it.fails` bought three things:
 
-**It's written as `it.fails`**, which is the useful pattern for a bug you've found but aren't fixing
-yet:
+- The suite **stayed green** (`88 passed | 1 expected fail`), so the gate wasn't broken for everyone.
+- The bug was **on record as executable code**, not just as an issue.
+- When #46 was fixed the test **started failing**, forcing the fixer to deal with it. It cleaned
+  itself up, exactly as designed.
 
-- The suite **stays green** (`88 passed | 1 expected fail`), so the gate isn't broken for everyone.
-- The bug is **on record as executable code**, not just an issue.
-- When #46 is fixed the test **starts failing**, forcing whoever fixed it to flip it to a plain
-  `it()`. It cleans itself up.
+**And then it argued with its own premise, which is the more interesting half.** The retired test
+asserted that registry order should agree with *depth* order. Fixing the bug properly showed that
+premise was wrong: depth says where a material is, not how special it is. Quartz is deeper than gold
+and far more plentiful. A depth-ordered rarity would also have been built on the placement system,
+which is itself being demoted from depth-only ([BIOMES.md](BIOMES.md)). So the replacement asserts
+what actually matters — that rarity is authored, that the top tier is held alone, that shallow
+material never reaches the celebration tier, and that rarity and depth are *allowed to disagree*.
+
+The lesson to carry: an `it.fails` records a bug faithfully, but it also freezes whatever theory you
+had when you found it. Re-derive the invariant when you fix it rather than flipping the assertion.
 
 That's red-before-green without holding CI hostage, and it's the recommended shape for any invariant
 discovered ahead of its fix.

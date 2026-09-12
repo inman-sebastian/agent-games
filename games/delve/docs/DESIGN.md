@@ -64,9 +64,10 @@ shallow → deep:
 > constructed material that belongs in ruins rather than random veins — see
 > [BIOMES.md](BIOMES.md).)_
 
-Each tier is a first-class **item**: name, depth band, rarity (registry order — see
-[#46](https://github.com/inman-sebastian/agent-games/issues/46): the newer ores were appended, so
-rarity no longer tracks depth, which mis-scales the **break FX**), bonus hp
+Each tier is a first-class **item**: name, depth band, an **authored rarity** (`0`..`6`, the single
+input to every reward cue — break pitch, particle count, screen shake, the big floaty; ties are
+expected, and it is deliberately independent of depth, since quartz is deep and plentiful while gold
+is shallow and precious), bonus hp
 and a codex blurb, each defined in its own **resource file** under
 `shared/src/resources/*.ts` (**the source of truth**; see [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)),
 which also carries the ore's art (shape + colour triad). Deeper tiers are tougher and
@@ -581,10 +582,6 @@ content density possible.
 
 ### Also queued
 
-- **[#46](https://github.com/inman-sebastian/agent-games/issues/46) — `rarityOf` is registration
-  order**, so the break FX (pitch, particles, shake) scale by the wrong number: quartz outshines
-  mythril and stone bricks outshines everything. Rarity wants to be **authored** on the resource
-  rather than a side effect of import order.
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
   mineable**, so dirt, clay and stone become collectible too and share the shader/surface-class

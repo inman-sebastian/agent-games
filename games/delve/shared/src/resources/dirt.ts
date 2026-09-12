@@ -9,6 +9,8 @@ register({
   band: [2, 8],
   weight: 60,
   hp: 0,
+  // not a find at all — it is the medium everything else is buried in
+  rarity: 0,
   color: '#a06a3c',
   dim: true,
   desc: 'Loose surface clod. Worth almost nothing, but it counts.',

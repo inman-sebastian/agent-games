@@ -66,7 +66,17 @@ export const ORE_BY_ID: Record<number, OreResource> = Object.fromEntries(
 );
 
 /** Rarity/tier of an ore = its index in the surface→deep ordering. */
-export const rarityOf = (oreId: number): number => ORES.findIndex((ore) => ore.id === oreId);
+/** The top of the rarity scale, so the client can normalise without knowing how many ores exist. */
+export const RARITY_MAX = 6;
+
+/**
+ * How special a find this ore is, `0`..`RARITY_MAX`, as authored on the resource.
+ *
+ * This was `ORES.findIndex(...)` — the ore's position in the registry — which meant adding an ore
+ * file silently re-tiered every ore after it. Four appended files had already made quartz
+ * out-reward mythril and stone bricks the loudest event in the game (#46).
+ */
+export const rarityOf = (oreId: number): number => ORE_BY_ID[oreId]?.rarity ?? 0;
 
 export function strataIndexAt(row: number): number {
   let index = 0;

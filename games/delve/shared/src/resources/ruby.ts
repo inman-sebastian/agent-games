@@ -9,6 +9,8 @@ register({
   band: [216, 370],
   weight: 5,
   hp: 8,
+  // a proper gem, tied with platinum
+  rarity: 4,
   color: '#ee4f66',
   desc: 'A cluster of crimson fire from the deep stone.',
   art: { shape: 'cluster', c: ['#831c5d', '#f04f78', '#f68181'] },

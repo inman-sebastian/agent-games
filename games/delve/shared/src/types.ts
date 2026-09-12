@@ -48,6 +48,17 @@ export interface OreResource {
   readonly weight: number;
   /** Toughness on top of the rock hp. */
   readonly hp: number;
+  /**
+   * How special a find this is, `0`..`RARITY_MAX`. The single input to every reward cue — break
+   * pitch, particle count, screen shake, whether the pickup gets the big floaty.
+   *
+   * AUTHORED, deliberately. It used to be the ore's index in the registry, which made one number
+   * carry both registry identity and reward tier, so appending an ore file re-tiered the ones
+   * already there. Ties are allowed and expected: copper and iron really are equally unremarkable.
+   * It is also independent of `band` on purpose — depth says where a material is, not how special
+   * it is, and quartz is both deep and plentiful.
+   */
+  readonly rarity: number;
   /** Single colour for particles / HUD floaties. */
   readonly color: string;
   readonly dim?: boolean;

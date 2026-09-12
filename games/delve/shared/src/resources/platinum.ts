@@ -9,6 +9,8 @@ register({
   band: [210, 360],
   weight: 4,
   hp: 7,
+  // scarce (weight 4) and tough — the first tier the client celebrates
+  rarity: 4,
   color: '#dfe6ef',
   desc: 'A rare, lustrous white metal — worth more than gold to those who reach it.',
   art: { shape: 'nugget', c: ['#5f6b7e', '#bcc9d6', '#f0f6ff'] },

@@ -9,6 +9,8 @@ register({
   band: [4, 24],
   weight: 26,
   hp: 1,
+  // the starter metal; common enough that the first one is the only memorable one
+  rarity: 1,
   color: '#d67b40',
   desc: 'Ruddy starter metal, common in the shallows.',
   art: { shape: 'nugget', c: ['#7a3045', '#cd683d', '#f79617'] },
