@@ -1,54 +1,23 @@
-// engine.ts — the mining SIM: player physics (gravity / run / jump), dig resolution, economy,
-// upgrades. Pure and DOM-free, so it runs identically in the browser, the dev tools (via tsx),
+// engine.ts — the mining SIM: player physics (gravity / run / jump), dig resolution, and material
+// collection. Pure and DOM-free, so it runs identically in the browser, the dev tools (via tsx),
 // and the authoritative server. The static world lives in blocks.ts (re-exported here so callers
 // have a single "engine" surface); the DYNAMIC state is split in two (see types.ts):
 //   • WorldState  — shared terrain mutations (dug tiles, tile damage). One per world; in
 //                   multiplayer every player digs the SAME WorldState.
-//   • PlayerState — one player's body + wallet (position/velocity, coins, inventory, upgrades).
+//   • PlayerState — one player's body + inventory (position/velocity, collected materials, upgrade
+//                   levels). There is NO money/selling: everything mined goes into the inventory.
 // A `Session` bundles one world + one player; the sim steps a Session (its `.world` may be shared
 // across many players). Each function below takes exactly what it touches — world, player, or both.
-import { blockAt, solidAt, rockHp, rarityOf, ORE_BY_ID, WIDTH, SURFACE } from './blocks';
+//
+// Upgrade levels (dig power/speed, rich-vein fortune, lantern vision) still drive derived stats via
+// `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
+// removed. A future progression pass will wire new (non-monetary) ways to level them up; the
+// plumbing is kept in place for that.
+import { blockAt, solidAt, rockHp, rarityOf, WIDTH, SURFACE } from './blocks';
 import { tileRand } from './rng';
-import type {
-  Input,
-  SimEvent,
-  WorldState,
-  PlayerState,
-  Session,
-  UpgradeLevels,
-  TechOwned,
-  Block,
-} from './types';
+import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from './types';
 
 export * from './blocks';
-
-interface Upgrade {
-  readonly name: string;
-  readonly base: number;
-  readonly mult: number;
-  readonly max: number;
-  readonly desc: string;
-}
-
-// Leveled upgrade tracks (geometric cost).
-export const UPGRADES: Record<keyof UpgradeLevels, Upgrade> = {
-  pick: { name: 'Pickaxe', base: 25, mult: 1.6, max: 40, desc: 'Damage per hit' },
-  speed: { name: 'Agility', base: 40, mult: 1.7, max: 18, desc: 'Move / dig speed' },
-  refine: { name: 'Refinery', base: 90, mult: 1.7, max: 24, desc: 'Ore is worth more' },
-  fortune: {
-    name: 'Fortune',
-    base: 70,
-    mult: 1.8,
-    max: 15,
-    desc: 'Chance of a rich vein (3× value)',
-  },
-};
-
-// One-time tech unlocks that change the sim.
-export const TECH: Record<keyof TechOwned, { name: string; cost: number; desc: string }> = {
-  scanner: { name: 'Ore Scanner', cost: 200, desc: 'See ore through rock' },
-  lantern: { name: 'Deep Lantern', cost: 850, desc: 'Widen your vision underground' },
-};
 
 // --- platformer physics constants (tile units; time in seconds) ---
 const HALF_WIDTH = 0.36; // player AABB half-extents (fit a 1×1 dug cell)
@@ -81,13 +50,12 @@ export const PHYS = {
   REACH,
 } as const;
 
-// --- economy & derived-stat tuning ---
+// --- derived-stat tuning ---
 const FORTUNE_SALT = 0x9e3779b9; // golden-ratio hash constant; decorrelates the rich-vein roll from placement
-const RICH_ORE_MULTIPLIER = 3; // a rich vein yields 3× the ore
+const RICH_ORE_MULTIPLIER = 3; // a rich vein yields 3× the ore into the inventory
 const MS_PER_SECOND = 1000;
 const BASE_DIG_INTERVAL_MS = 200; // ms between dig hits at Agility 0
 const DIG_INTERVAL_FALLOFF = 0.9; // each Agility level multiplies the interval by this (faster digging)
-const REFINE_VALUE_PER_LEVEL = 0.4; // +40% ore sale value per Refinery level
 const FORTUNE_PER_LEVEL = 0.045; // +4.5% rich-vein chance per Fortune level
 const FORTUNE_CAP = 0.6; // maximum rich-vein chance
 const BASE_VISION = 3.4; // lamp reach in tiles with no lantern
@@ -133,14 +101,12 @@ export function newPlayer(): PlayerState {
     jumpBuffer: 0,
     coyote: 0,
     jumpLatch: false,
-    coins: 0,
-    earned: 0,
     inv: {},
     log: {},
     depth: 0,
     best: 0,
-    up: { pick: 0, speed: 0, refine: 0, fortune: 0 },
-    tech: { scanner: false, lantern: false },
+    up: { pick: 0, speed: 0, fortune: 0 },
+    tech: { lantern: false },
   };
 }
 
@@ -161,7 +127,6 @@ export const solidCell = (world: WorldState, column: number, row: number): boole
 interface Stats {
   power: number;
   interval: number;
-  valueMult: number;
   fortune: number;
   vision: number;
 }
@@ -170,64 +135,20 @@ export function stats(player: PlayerState): Stats {
   return {
     power: 1 + player.up.pick, // damage per hit
     interval: BASE_DIG_INTERVAL_MS * Math.pow(DIG_INTERVAL_FALLOFF, player.up.speed), // ms between dig hits
-    valueMult: 1 + REFINE_VALUE_PER_LEVEL * player.up.refine,
     fortune: Math.min(FORTUNE_CAP, FORTUNE_PER_LEVEL * player.up.fortune),
     vision: BASE_VISION + (player.tech.lantern ? LANTERN_VISION_BONUS : 0),
   };
 }
 
-export function upgradeCost(kind: keyof UpgradeLevels, level: number): number {
-  const upgrade = UPGRADES[kind];
-  return Math.floor(upgrade.base * Math.pow(upgrade.mult, level));
-}
-
-export function buyUpgrade(player: PlayerState, kind: keyof UpgradeLevels): boolean {
-  const upgrade = UPGRADES[kind];
-  if (player.up[kind] >= upgrade.max) return false;
-  const cost = upgradeCost(kind, player.up[kind]);
-  if (player.coins < cost) return false;
-  player.coins -= cost;
-  player.up[kind]++;
-  return true;
-}
-
-export function buyTech(player: PlayerState, kind: keyof TechOwned): boolean {
-  const tech = TECH[kind];
-  if (player.tech[kind] || player.coins < tech.cost) return false;
-  player.coins -= tech.cost;
-  player.tech[kind] = true;
-  return true;
-}
-
-// --- inventory / selling ---
+// --- inventory ---
 export const invCount = (player: PlayerState): number =>
   Object.values(player.inv).reduce((sum, count) => sum + count, 0);
-
-/** Total coins the current inventory would sell for (base value × refinery multiplier). */
-export const invValue = (player: PlayerState): number => {
-  let value = 0;
-  for (const oreId in player.inv) {
-    const ore = ORE_BY_ID[Number(oreId)];
-    if (ore) value += player.inv[oreId] * ore.value;
-  }
-  return Math.floor(value * stats(player).valueMult);
-};
-
-/** Sell everything → coins. Available anytime (no hauling), so the loop can't soft-lock. */
-export function sellAll(player: PlayerState): number {
-  const amount = invValue(player);
-  if (amount > 0) {
-    player.coins += amount;
-    player.earned += amount;
-  }
-  player.inv = {};
-  return amount;
-}
 
 // Chip/break one target cell over `dt` while the player pushes into it. Damage is dealt in
 // discrete hits paced by dig speed, so it reads as chipping and the sound/juice stay punchy.
 // Tile-break progress (`world.dmg`) lives on the shared world; the hit timer (`player.digKey/
-// digTime`) and the spoils (inv/log/best) are the acting player's. Returns true if the cell broke.
+// digTime`) and the collected materials (inv/log/best) are the acting player's. Returns true if
+// the cell broke.
 export function mineTile(
   session: Session,
   column: number,
@@ -269,7 +190,7 @@ export function mineTile(
     let quantity = 0;
     let rich = false;
     if (block.ore) {
-      // ore goes into the inventory (sold later); a rich vein yields 3× the ore
+      // ore goes into the inventory; a rich vein yields 3× the ore
       rich = isRich(world.seed, column, row, fortune);
       quantity = rich ? RICH_ORE_MULTIPLIER : 1;
       player.inv[block.ore] = (player.inv[block.ore] ?? 0) + quantity;

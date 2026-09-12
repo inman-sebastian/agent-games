@@ -8,7 +8,6 @@ register({
   name: 'Gold',
   band: [76, 156],
   weight: 11,
-  value: 95,
   hp: 4,
   color: '#f5c84e',
   desc: 'Heavy, radiant, and reliably valuable.',

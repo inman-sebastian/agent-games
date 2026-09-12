@@ -8,7 +8,6 @@ register({
   name: 'Obsidian',
   band: [430, 650],
   weight: 6,
-  value: 160,
   hp: 12,
   color: '#2a2540',
   desc: 'Volcanic glass from the deep dark — jet black, glassy, and stubbornly hard.',

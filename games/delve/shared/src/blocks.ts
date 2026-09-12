@@ -84,7 +84,6 @@ const OPEN: Block = Object.freeze({
   ore: 0,
   strata: -1,
   hp: 0,
-  value: 0,
   dim: false,
 });
 
@@ -102,7 +101,6 @@ export function blockAt(seed: number, column: number, row: number): Block {
     ore,
     strata: strataIndexAt(row),
     hp: rockHp(row) + (oreDef ? oreDef.hp : 0),
-    value: oreDef ? oreDef.value : 0,
     dim: oreDef ? !!oreDef.dim : false,
   };
 }

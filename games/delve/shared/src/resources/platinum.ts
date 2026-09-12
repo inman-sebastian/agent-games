@@ -8,7 +8,6 @@ register({
   name: 'Platinum',
   band: [210, 360],
   weight: 4,
-  value: 480,
   hp: 7,
   color: '#dfe6ef',
   desc: 'A rare, lustrous white metal — worth more than gold to those who reach it.',

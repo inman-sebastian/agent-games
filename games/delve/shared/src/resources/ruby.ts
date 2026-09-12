@@ -8,7 +8,6 @@ register({
   name: 'Ruby',
   band: [216, 370],
   weight: 5,
-  value: 720,
   hp: 8,
   color: '#ee4f66',
   desc: 'A cluster of crimson fire from the deep stone.',

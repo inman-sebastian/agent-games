@@ -8,7 +8,6 @@ register({
   name: 'Iron',
   band: [16, 52],
   weight: 22,
-  value: 12,
   hp: 2,
   color: '#c2ccd8',
   desc: 'Tough, dependable ore of the upper stone.',

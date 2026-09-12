@@ -46,8 +46,6 @@ export interface OreResource {
   readonly band: readonly [number, number];
   /** Spawn share within its band. */
   readonly weight: number;
-  /** Coins per unit when sold. */
-  readonly value: number;
   /** Toughness on top of the rock hp. */
   readonly hp: number;
   /** Single colour for particles / HUD floaties. */
@@ -71,7 +69,6 @@ export interface Block {
   /** Strata index, or -1 for open/out-of-band. */
   readonly strata: number;
   readonly hp: number;
-  readonly value: number;
   readonly dim: boolean;
 }
 
@@ -79,16 +76,16 @@ export interface Block {
 
 export type Facing = 'left' | 'right';
 
+// Upgrade levels drive derived stats (see engine `stats()`). They persist on the player, but
+// nothing raises them yet — the coin shop was removed; a future non-monetary progression pass will.
 export interface UpgradeLevels {
-  pick: number;
-  speed: number;
-  refine: number;
-  fortune: number;
+  pick: number; // dig damage per hit
+  speed: number; // dig / move speed
+  fortune: number; // rich-vein chance (3× materials)
 }
 
 export interface TechOwned {
-  scanner: boolean;
-  lantern: boolean;
+  lantern: boolean; // widened underground vision
 }
 
 /** oreId → lifetime `{ mined, deepest }` (the discovery codex). */
@@ -108,8 +105,9 @@ export interface WorldState {
 }
 
 /**
- * One player's PER-PLAYER state: kinematics + mining timing + economy/progression. Distinct from
- * the shared world, so each player has their own body and wallet against the common terrain.
+ * One player's PER-PLAYER state: kinematics + mining timing + collected materials + upgrade levels.
+ * Distinct from the shared world, so each player has their own body and inventory against the
+ * common terrain. There is no money — everything mined is stored in `inv`.
  */
 export interface PlayerState {
   /** Continuous player centre, in tile units. */
@@ -125,9 +123,7 @@ export interface PlayerState {
   jumpBuffer: number;
   coyote: number;
   jumpLatch: boolean;
-  coins: number;
-  earned: number;
-  /** oreId → count held. */
+  /** oreId → count held (collected materials). */
   inv: Record<number, number>;
   log: OreLog;
   depth: number;
