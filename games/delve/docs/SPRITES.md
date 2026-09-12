@@ -246,6 +246,27 @@ material authored for the player's torso applies to any entity with a torso slot
 The step-by-step procedure, including how to read an import failure, is the
 `delve-import-sprites` skill.
 
+## The outline
+
+Entities carry a **one-pixel dark rim**; the world does not. Rock separates itself geometrically —
+its brightness falls off from every open edge, so a tile boundary reads without a line. A character
+has no such relationship to what it stands in front of, and in the game a dark torso against lit
+stone simply disappeared.
+
+Three decisions in it, each one arrived at by getting it wrong:
+
+- **One SOURCE pixel, dilated before the upscale**, so the rim grows with the art instead of staying
+  hairline at 2x.
+- **Four-connected, not eight.** A diagonal rim reads as a fuzzy halo at this size; a cardinal one
+  reads as a drawn line.
+- **Never below the ground line.** A rim under the feet paints a dark row onto the floor the
+  character is standing on, and at one pixel against lit stone that reads as a gap — the same
+  hovering artefact the outline exists to avoid causing.
+
+`#2e222f` is R64's darkest and the shadow step of every rock ramp, so the rim is the black the world
+is already built from rather than a second competing dark. Toggle it in the lab, or with
+`--no-outline` on the shot tool.
+
 ## Scale, and the player body
 
 The character is drawn at **1x**, which makes the figure 18 x 29 art px — **1.12 x 1.81 tiles** on a

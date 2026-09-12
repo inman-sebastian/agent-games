@@ -119,12 +119,18 @@ if (damage > 0) {
 
 // The same character the game draws, through the same module — a lab that draws its own would be a
 // second source of truth for what the player looks like.
+//
+// Stood on the first SOLID tile below the crop's centre, not at the centre itself. Placing it at a
+// fixed spot left it hanging in mid-air whenever the centre happened to be open, which read as the
+// character hovering when in fact it was standing on nothing.
 if (showMiner) {
+  let floorRow = centerRow;
+  while (floorRow < bandTop + rows && !solidTile(centerColumn, floorRow)) floorRow++;
   drawPlayer(
     g,
     poseFor('idle', 0),
     (centerColumn - bandLeft) * T + T / 2,
-    (centerRow - bandTop) * T + T,
+    (floorRow - bandTop) * T,
     { scale: 1 },
   );
 }

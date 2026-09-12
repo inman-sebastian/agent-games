@@ -2,7 +2,7 @@
 //
 //   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip]
 //                                                     [--template|--plate|--steel] [--hide slot]
-//                                                     [--light x,y,reach | --overhead]
+//                                                     [--light x,y,reach | --overhead] [--no-outline]
 //
 // Draws with the authored miner skin by default. `--template` shows the pack's raw colour codes
 // instead, which is the view to use when checking an import or reasoning about which part is which.
@@ -47,7 +47,11 @@ const base: SpriteSkin = args.includes('--template')
     : args.includes('--steel')
       ? ALL_STEEL
       : MINER_SKIN;
-const skin: SpriteSkin = { ...base, hide: [...(base.hide ?? []), ...hide] };
+const skin: SpriteSkin = {
+  ...base,
+  hide: [...(base.hide ?? []), ...hide],
+  ...(args.includes('--no-outline') ? { outline: null } : {}),
+};
 
 // The carried lamp by default — that is what the game actually has. `--overhead` is the flat
 // comparison, and an explicit position covers an entity lit from outside.

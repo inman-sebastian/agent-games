@@ -122,7 +122,13 @@ export const MINER_RAMPS: SkinRamps = {
   unused: [],
 };
 
-export const MINER_SKIN = buildSkin(MINER_RAMPS);
+/**
+ * R64's darkest, and the shadow step of every rock ramp (docs/PALETTE.md) — so the character's rim
+ * is the same black the world is already built from rather than a second, competing dark.
+ */
+export const OUTLINE = '#2e222f';
+
+export const MINER_SKIN: SpriteSkin = { ...buildSkin(MINER_RAMPS), outline: OUTLINE };
 
 /** The miner with the pack's baked damage flash suppressed — DELVE renders its own hit feedback. */
 export const MINER_SKIN_NO_FLASH: SpriteSkin = { ...MINER_SKIN, hide: ['fx.damage'] };

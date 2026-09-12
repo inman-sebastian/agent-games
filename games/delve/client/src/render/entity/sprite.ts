@@ -87,6 +87,18 @@ export interface SpriteSkin {
    * dither as the rock. See surface.ts.
    */
   readonly materials?: Readonly<Record<string, SpriteMaterial>>;
+  /**
+   * A one-pixel dark rim around the whole figure, as `#rrggbb`. `null` or absent draws none.
+   *
+   * Entities need this and the world does not. Rock separates itself geometrically — its brightness
+   * falls off from every open edge, so a tile boundary reads without a line. A character has no such
+   * relationship to what it stands in front of: put a dark-blue torso against lit stone and it
+   * disappears, which is exactly what happened the first time this was put in the game.
+   *
+   * ONE SOURCE pixel thick, dilated before the upscale, so it grows with the art instead of
+   * staying hairline at 2x.
+   */
+  readonly outline?: string | null;
 }
 
 const hexToRgb = (hex: string): Rgb => [
@@ -159,6 +171,44 @@ export function drawSprite(
   const baseX = originX - Math.floor((anim.w * scale) / 2);
   const baseY = originY - anim.ground * scale;
 
+  // The outline goes down FIRST, as a dilation of the frame's own mask, so the figure then draws
+  // over its inner edge and only the ring outside the silhouette survives.
+  if (skin?.outline) {
+    const rgb = hexToRgb(skin.outline);
+    const mask = frameMask(anim, f, hidden);
+    const solid = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < anim.w && y < anim.h && mask[y * anim.w + x] !== 0;
+    for (let sy = -1; sy <= anim.h; sy++) {
+      // NEVER below the ground line. A rim under the feet paints a dark row onto the floor the
+      // character is standing on, and at one pixel against lit stone that reads as a gap rather than
+      // as a contact shadow — which is the same "hovering" artefact the outline was added to avoid
+      // causing. Everywhere else the rim is exactly what separates the figure from the background.
+      if (sy >= anim.ground) continue;
+      for (let sx = -1; sx <= anim.w; sx++) {
+        if (solid(sx, sy)) continue;
+        // Four-connected, not eight: a diagonal rim reads as a fuzzy halo at this size, where a
+        // cardinal one reads as a drawn line.
+        if (!solid(sx - 1, sy) && !solid(sx + 1, sy) && !solid(sx, sy - 1) && !solid(sx, sy + 1)) {
+          continue;
+        }
+        const dx = options.flip ? anim.w - 1 - sx : sx;
+        for (let oy = 0; oy < scale; oy++) {
+          const py = baseY + sy * scale + oy;
+          if (py < 0 || py >= img.height) continue;
+          for (let ox = 0; ox < scale; ox++) {
+            const px = baseX + dx * scale + ox;
+            if (px < 0 || px >= img.width) continue;
+            const i = (py * img.width + px) * 4;
+            img.data[i] = rgb[0];
+            img.data[i + 1] = rgb[1];
+            img.data[i + 2] = rgb[2];
+            img.data[i + 3] = 255;
+          }
+        }
+      }
+    }
+  }
+
   for (const layer of anim.layers) {
     if (hidden?.includes(layer.name)) continue;
     const cel = layer.cels[f];
@@ -214,6 +264,36 @@ export function frameAt(anim: SpriteAnim, ms: number): number {
     if (t < 0) return i;
   }
   return anim.frames - 1;
+}
+
+/**
+ * The frame's opaque mask in SOURCE space, honouring hidden slots. Cached, because the outline pass
+ * needs it every draw and it never changes for a given (frame, hidden set).
+ */
+const masks = new Map<string, Uint8Array>();
+
+function frameMask(anim: SpriteAnim, frame: number, hidden?: readonly string[]): Uint8Array {
+  const key = `${anim.name}|${frame}|${hidden?.join() ?? ''}`;
+  const hit = masks.get(key);
+  if (hit) return hit;
+  const out = new Uint8Array(anim.w * anim.h);
+  for (const layer of anim.layers) {
+    if (hidden?.includes(layer.name)) continue;
+    const cel = layer.cels[frame];
+    if (!cel) continue;
+    const indices = indicesOf(cel);
+    for (let y = 0; y < cel.h; y++) {
+      for (let x = 0; x < cel.w; x++) {
+        if (indices[y * cel.w + x] === 0) continue;
+        const px = cel.x + x;
+        const py = cel.y + y;
+        if (px < 0 || py < 0 || px >= anim.w || py >= anim.h) continue;
+        out[py * anim.w + px] = 1;
+      }
+    }
+  }
+  masks.set(key, out);
+  return out;
 }
 
 /** The frame's opaque pixel mask, for tests and for measuring against the source. */

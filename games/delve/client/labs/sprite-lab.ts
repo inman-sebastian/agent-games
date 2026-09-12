@@ -10,6 +10,7 @@ import {
   ALL_STEEL,
   MINER_RAMPS,
   PLATE_ARMOUR,
+  OUTLINE,
   PLAYER_LAMP,
   buildSkin,
   type SkinPart,
@@ -43,6 +44,7 @@ let ramps: SkinRamps = MINER_RAMPS;
 // Where the light is, in sprite-local pixels. Only the material modes use it.
 let light: SpriteLight = { ...PLAYER_LAMP };
 let overhead = false;
+let outline = true;
 
 const stripCtx = strip.getContext('2d')!;
 const liveCtx = live.getContext('2d')!;
@@ -108,6 +110,13 @@ overheadBtn.onclick = (): void => {
   rebuild();
 };
 side.append(overheadBtn);
+
+const outlineBtn = document.createElement('button');
+outlineBtn.onclick = (): void => {
+  outline = !outline;
+  rebuild();
+};
+side.append(outlineBtn);
 for (const [key, min, max] of [
   ['x', -60, 108],
   ['y', -40, 100],
@@ -203,11 +212,12 @@ function buildLayerControls(): void {
 
 /** The draw-time skin for the current mode, plus whatever slots are hidden. */
 function skinFor(): SpriteSkin {
+  const rim = outline ? OUTLINE : null;
   const hide = [...hidden];
-  if (mode === 'template') return { hide };
-  if (mode === 'plate') return { ...PLATE_ARMOUR, hide };
-  if (mode === 'steel') return { ...ALL_STEEL, hide };
-  return { ...buildSkin(ramps), hide };
+  if (mode === 'template') return { hide, outline: rim };
+  if (mode === 'plate') return { ...PLATE_ARMOUR, hide, outline: rim };
+  if (mode === 'steel') return { ...ALL_STEEL, hide, outline: rim };
+  return { ...buildSkin(ramps), hide, outline: rim };
 }
 
 // ---- drawing -----------------------------------------------------------------------------------
@@ -216,6 +226,7 @@ function rebuild(): void {
   for (const [name, b] of animButtons) b.setAttribute('aria-pressed', String(name === current));
   flipBtn.textContent = `facing: ${flip ? 'left' : 'right'}`;
   overheadBtn.textContent = overhead ? 'light: overhead' : 'light: positional';
+  outlineBtn.textContent = outline ? 'outline: on' : 'outline: off';
   modeBtn.textContent = `colours: ${
     { flat: 'authored skin', template: 'pack template', plate: 'plate armour', steel: 'all steel' }[
       mode

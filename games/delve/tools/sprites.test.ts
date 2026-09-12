@@ -158,9 +158,11 @@ describe('drawSprite', () => {
     // disturb the silhouette or any other part.
     const plain = blank(anim.w, anim.h);
     const skinned = blank(anim.w, anim.h);
+    // Both skins must carry the SAME outline, or the comparison measures the rim rather than the
+    // re-skin.
     drawSprite(plain, anim, 0, Math.floor(anim.w / 2), anim.h, { skin: MINER_SKIN });
     drawSprite(skinned, anim, 0, Math.floor(anim.w / 2), anim.h, {
-      skin: buildSkin({ ...MINER_RAMPS, torso: ['#ff00ff'] }),
+      skin: { ...MINER_SKIN, ...buildSkin({ ...MINER_RAMPS, torso: ['#ff00ff'] }) },
     });
     expect(lit(skinned)).toBe(lit(plain));
     let changed = 0;
@@ -346,17 +348,24 @@ describe('surface coordinates', () => {
     }
   });
 
-  it('gives a material more shades than the template carries', () => {
-    // The reason the pipeline exists. A colour table can only ever show as many shades as the pack
-    // authored (2-5 per part); a material samples a coordinate and bands as finely as it likes.
+  it('gives ONE BODY PART more shades than a flat ramp can', () => {
+    // The reason the pipeline exists — but measured per PART, which is where the claim actually
+    // lives. Across the whole figure a flat table already reaches six colours, because half a dozen
+    // parts each contribute one or two, and comparing those totals made this test marginal enough to
+    // fail once an outline added a colour to both sides. Within a single slot a flat ramp is capped
+    // at its own length; a material is capped only by the band ladder.
     const anim = PLAYER_SPRITES.idle;
-    const shades = (skin: Parameters<typeof drawSprite>[5]) => {
+    const others = ['head', 'arm.near', 'arm.far', 'leg.near', 'leg.far', 'weapon', 'fx.damage'];
+    const shades = (skin: object): number => {
       const img = {
         width: anim.w,
         height: anim.h,
         data: new Uint8ClampedArray(anim.w * anim.h * 4),
       } as unknown as ImageData;
-      drawSprite(img, anim, 0, Math.floor(anim.w / 2), anim.ground, skin);
+      // Torso only, and no rim: anything else contributes colours that are not the torso's.
+      drawSprite(img, anim, 0, Math.floor(anim.w / 2), anim.ground, {
+        skin: { ...skin, hide: others, outline: null },
+      });
       const seen = new Set<string>();
       for (let i = 0; i < img.data.length; i += 4) {
         if (img.data[i + 3] === 0) continue;
@@ -364,7 +373,10 @@ describe('surface coordinates', () => {
       }
       return seen.size;
     };
-    expect(shades({ skin: ALL_STEEL })).toBeGreaterThan(shades({ skin: MINER_SKIN }));
+    const flat = shades(MINER_SKIN);
+    const material = shades(ALL_STEEL);
+    expect(flat).toBeLessThanOrEqual(MINER_RAMPS.torso.length);
+    expect(material).toBeGreaterThan(flat);
   });
 });
 
@@ -492,5 +504,67 @@ describe('lighting a material', () => {
       return img;
     };
     expect(differing(flat(OVERHEAD), flat(lampFrom(-40, 10)))).toBe(0);
+  });
+});
+
+describe('ground alignment', () => {
+  // A character that floats even one pixel above the floor reads as hovering, and it is the kind of
+  // error that survives every other check here: the silhouette, the palette and the coordinates are
+  // all still correct.
+  const bottomRow = (anim: (typeof PLAYER_SPRITES)[PlayerAnim], frame: number): number => {
+    const mask = spriteMask(anim, frame);
+    let bottom = -1;
+    for (let y = 0; y < anim.h; y++) {
+      for (let x = 0; x < anim.w; x++) if (mask[y * anim.w + x]) bottom = y;
+    }
+    return bottom;
+  };
+
+  it('plants every always-grounded animation flush on the ground line', () => {
+    // `ground` is the row the feet stand ON, so the lowest DRAWN row must be the one just above it,
+    // on every frame — not merely on the frame the importer happened to measure.
+    //
+    // `run` is NOT in this list, and finding that out was the point of writing it: the pack's run is
+    // a sprint with an airborne phase, and its frame 3 sits four pixels clear of the ground. The
+    // manifest still marks it grounded, which is the weaker and correct claim — that its MODAL
+    // bottom row matches the shared ground line.
+    for (const name of ['idle', 'walk', 'land', 'hurt', 'death'] as PlayerAnim[]) {
+      const anim = PLAYER_SPRITES[name];
+      for (let f = 0; f < anim.frames; f++) {
+        expect(bottomRow(anim, f), `${name} frame ${f}`).toBe(anim.ground - 1);
+      }
+    }
+  });
+
+  it('lets airborne animations leave the ground line', () => {
+    // The other half of the same rule: a jump is SUPPOSED to break contact, so pinning it flush
+    // would be the bug. Asserted so nobody "fixes" it later.
+    for (const name of ['jump', 'run'] as PlayerAnim[]) {
+      const anim = PLAYER_SPRITES[name];
+      const rows = Array.from({ length: anim.frames }, (_, f) => bottomRow(anim, f));
+      expect(
+        rows.some((r) => r !== anim.ground - 1),
+        name,
+      ).toBe(true);
+    }
+  });
+
+  it('draws the feet on the row the caller asks for', () => {
+    // The contract `drawPlayer` and the game both rely on: pass the floor's pixel row and the lowest
+    // opaque pixel lands immediately above it.
+    const anim = PLAYER_SPRITES.idle;
+    const H = anim.h * 2;
+    const img = {
+      width: anim.w,
+      height: H,
+      data: new Uint8ClampedArray(anim.w * H * 4),
+    } as unknown as ImageData;
+    const footY = anim.h + 8;
+    drawSprite(img, anim, 0, Math.floor(anim.w / 2), footY, { skin: MINER_SKIN });
+    let lowest = -1;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < anim.w; x++) if (img.data[(y * anim.w + x) * 4 + 3]) lowest = y;
+    }
+    expect(lowest).toBe(footY - 1);
   });
 });
