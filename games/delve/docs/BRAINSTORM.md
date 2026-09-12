@@ -81,7 +81,7 @@ together is the fastest honest summary of the target:
 | **Incremental**   | Continuous, compounding growth in player capability.                        |
 | **Survival**      | Enemies + player health + situational breath. **No attrition meters.**      |
 | **Crafting**      | Tools, weapons, equipment are made, not just bought.                        |
-| **Base building** | _(purpose TBD — see [Open questions](#open-questions))_                      |
+| **Base building** | **Building is confirmed as a mechanic.** A base has four jobs — see [Q2](#open-questions). |
 | **Light RPG**     | _Elements_ of RPGs, not the genre: equipment, skill trees. See the caveat below. |
 
 **Caveat on "Light RPG": it carried more weight than intended.** It was never meant as a genre
@@ -102,9 +102,31 @@ and a character sheet of numbers. Where this table's labels and the doc's prose 
 - **The player has health** and can die.
 - **Breath** applies situationally — underwater sections, exactly as in Terraria.
 
-Explicitly **out**: hunger, thirst, stamina, temperature, fatigue, torch fuel, and
-every other meter that ticks down while you play normally. Nothing punishes the
-player for simply existing in the world; threat comes from what's *in* the world.
+Explicitly **out**: hunger, thirst, stamina, temperature, fatigue, torch fuel. Nothing punishes
+the player for simply existing in the world; threat comes from what's *in* the world.
+
+#### The rule, restated: upkeep costs vs hazard timers
+
+The old wording — *"every other meter that ticks down while you play normally"* — made breath an
+unexplained exception, and it got weaker once fluid became simulated and the player's own digging
+started flooding tunnels. The honest distinction:
+
+> **No meter is an _upkeep cost_. Meters as _hazard timers_ are fine.**
+>
+> An **upkeep cost** ticks down because you exist, and paying it is a chore with no decision in it
+> — hunger, thirst, fatigue, torch fuel. **Out, permanently.**
+>
+> A **hazard timer** runs only while you're in a state you **entered** and can **leave**. It's a
+> danger with an exit, which is the same shape as any other threat in the world.
+
+**Breath is a hazard timer**, not an exception to the rule. So is the
+[world-edge death timer](#the-boundary-is-layered). Both punish *being somewhere*, never *being
+alive*.
+
+Breath matters more than "situational" implied, for two reasons that arrived later: **fluid is
+simulated and the player's own digging moves it**, so drowning is something that happens *to* you
+mid-core-verb rather than something you opt into; and breath is one of the layers holding the
+world's horizontal boundary.
 
 ### Death: you lose the trip, never the character
 
@@ -390,19 +412,39 @@ would read as odd and cheap.
 impassable wall reads as "the rock continues and you can't get through," which is exactly what the
 floor already says. At the surface, the same wall is a box.
 
-> **_Guideline (agent proposal, not ratified)._** **Ocean at the surface ends, bedrock below the
-> waterline.** This is Terraria's answer, and the [factual note](#why-bounded-solves-the-empty-digging-problem)
-> below already records why it works — their edges are landmarks and a distinct biome rather than a
-> boundary. Why it fits DELVE specifically:
->
-> - **The edge becomes a _place_, not a limit** — content, which a bounded world needs anyway.
-> - **Water is already a committed system**, so the edge costs no new mechanic.
-> - **The stop is enforced by breath, not geometry.** You can swim out; it deepens, there's nothing
->   there, and you run out of air before you run out of world. A survival mechanic doing a wall's
->   job is the opposite of cheap — and it makes
->   [breath load-bearing](#survival-scoped) rather than situational.
-> - **The hard stop sits far out past anything worth reaching**, so the player experiences the
->   ocean and never the boundary.
+**Ocean at the surface ends, bedrock below the waterline.** Terraria's answer, and the
+[factual note](#why-bounded-solves-the-empty-digging-problem) below already records why it works —
+their edges are landmarks and a distinct biome rather than a boundary. The edge becomes a *place*
+rather than a limit, which a bounded world needs content for anyway, and water is already a
+committed system so it costs no new mechanic.
+
+#### The boundary is layered
+
+**Decided.** No single mechanism holds the edge, because **every mechanism made of traversal
+constraints will be defeated on purpose by items we intend to ship.** The equipment slate exists to
+*remove* traversal constraints — the jetpack removes vertical limits, the grapple horizontal ones,
+diving gear removes breath specifically — and **building** (confirmed as a mechanic) lets a player
+simply construct a platform out over the ocean. So the backstop must be **independent of
+traversal**.
+
+| Layer | Kind | Catches |
+| --- | --- | --- |
+| **The ocean** | Soft deterrent | Most players, who never test it — it deepens and there's nothing out there |
+| **Breath** | Natural limiter | Anyone swimming |
+| **Death timer at the true edge** | Backstop | *Everything else* — building, flight, grapple, and any traversal item added later |
+
+**The death timer is the Destiny pattern:** reach the true edge and a countdown starts instructing
+the player to turn back or die. It's **legible** (you're told why), **recoverable** (turn around),
+and **fair** (a timer, not an instant kill) — which is what the readability rules demand of any
+hard stop.
+
+It also needs no exception to the survival rule: a countdown at the edge is a
+[hazard timer, not an upkeep cost](#the-rule-restated-upkeep-costs-vs-hazard-timers) — a state you
+entered and can leave.
+
+**Rendering requirement:** the world must **extend visually past the viewport** beyond the playable
+limit, so the player never sees a literal edge of the world. Generation has to produce something
+out there for the eye even where nothing is playable.
 
 The case for hard edges over wrapping:
 
@@ -2120,8 +2162,10 @@ occasionally throws away something you wanted.
   ([§12](#capacity-limits-variety-not-volume)), a **safe place to open panels** since
   [panels never pause](#three-consequences-that-are-already-decided-elsewhere), and a
   **respawn point** ([§1](#death-you-lose-the-trip-never-the-character)). The question was parked
-  because a base had no purpose; it now has more purposes than most of the rest of the doc. What's
-  left is *scope and shape*, not justification — plus the shared-vs-per-player question below.
+  because a base had no purpose; it now has more purposes than most of the rest of the doc.
+  **Building itself is confirmed as a mechanic** ([§4](#the-boundary-is-layered) — it's what forces
+  the world boundary to have a traversal-independent backstop). What's left is *scope and shape*,
+  not justification — plus the shared-vs-per-player question below.
 
 - **Q3. Does the coin economy survive?** **Answered: no — and already shipped.** Coins,
   selling, ore `value`, the Refinery multiplier and the Upgrades panel are deleted from main,
