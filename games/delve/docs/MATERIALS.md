@@ -21,7 +21,7 @@ This doc is the reference it (and you) build against.
 
 ## The boundary (where things live)
 
-- **Gameplay data** — band / weight / value / hp / id / name / icon — stays in
+- **Gameplay data** — band / weight / hp / id / name / icon — stays in
   `shared/src/resources/<ore>.ts` (type `ore`), render-free so the server + tools can read it.
 - **The shader** lives client-side and **self-registers by the same ore id**
   (`registerOreMaterial(id, material)`), mirroring the one-self-registering-file-per-entity

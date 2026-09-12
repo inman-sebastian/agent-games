@@ -8,7 +8,6 @@ register({
   name: 'Diamond',
   band: [330, 530],
   weight: 3,
-  value: 2100,
   hp: 11,
   color: '#66e0ee',
   desc: 'Flawless and adamant. Few dig deep enough to find it.',

@@ -1,7 +1,7 @@
 // index.ts — the DELVE game client: the glue that turns the pure sim (engine) and the shared
 // renderers (cave-render / ore-art / sprites / lighting) into a playable game. It owns only what
 // isn't a rule: the canvas + camera, the game loop, input, audio, juice (particles/floaties/
-// shake), the HUD/shop/codex DOM, and save/load. Every world and gameplay rule is imported —
+// shake), the HUD/inventory/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
 import type {
@@ -90,8 +90,6 @@ function hydrate(saved: any): Session {
             x: saved.x ?? base.player.x,
             y: saved.y ?? base.player.y,
             facing: saved.facing ?? base.player.facing,
-            coins: saved.coins ?? 0,
-            earned: saved.earned ?? 0,
             inv: saved.inv ?? {},
             log: saved.log ?? {},
             depth: saved.depth ?? 0,
@@ -229,16 +227,6 @@ const sfx = {
     const base = 520 + rarity * 90;
     tone(base, 0.005, 0.14, 'triangle', 0.28);
     setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
-  },
-  sell(amount: number): void {
-    const notes = [523, 659, 784, 1047]; // C-E-G-C arpeggio; longer for bigger sales
-    for (let i = 0; i < Math.min(4, 1 + Math.floor(amount / 40)); i++) {
-      setTimeout(() => tone(notes[i], 0.005, 0.22, 'triangle', 0.3), i * 70);
-    }
-  },
-  buy(): void {
-    tone(440, 0.005, 0.09, 'square', 0.25);
-    setTimeout(() => tone(660, 0.005, 0.12, 'square', 0.22), 70);
   },
 };
 
@@ -1053,14 +1041,14 @@ function updateDebug(): void {
     `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
-    `econ  coins ${Math.floor(s.player.coins)}  earned ${s.player.earned}  cargo ${engine.invCount(s.player)} (${engine.invValue(s.player)} ◈)\n` +
-    `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  value ×${st.valueMult.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
-    `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · refine ${s.player.up.refine} · fortune ${s.player.up.fortune}   tech ${s.player.tech.scanner ? 'scanner' : '—'}/${s.player.tech.lantern ? 'lantern' : '—'}\n` +
+    `held  ${engine.invCount(s.player)} materials\n` +
+    `stats interval ${st.interval.toFixed(0)}ms  vision ${st.vision.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
+    `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · fortune ${s.player.up.fortune}   tech ${s.player.tech.lantern ? 'lantern' : '—'}\n` +
     `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
     `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;
 }
 
-// ---- HUD / shop -------------------------------------------------------------------------
+// ---- HUD / inventory --------------------------------------------------------------------
 const el = (id: string): HTMLElement => document.getElementById(id)!;
 const overlay = el('overlay');
 const codexOverlay = el('codexOverlay');
@@ -1069,137 +1057,60 @@ const paused = (): boolean =>
 
 function updateHUD(): void {
   el('depth').textContent = String(s.player.depth);
-  el('coins').textContent = Math.floor(s.player.coins).toLocaleString();
-  el('cargo').textContent = engine.invValue(s.player).toLocaleString();
+  el('held').textContent = engine.invCount(s.player).toLocaleString();
   const found = el('found');
   const ore = engine.ORES[s.player.best];
   found.textContent = ore ? ore.name : '—';
   found.style.color = ore && s.player.best > 0 ? ore.color : 'var(--dim)';
 }
 
-function buildShop(): void {
-  const upgradesEl = el('upgrades');
-  upgradesEl.innerHTML = '';
-  for (const k of Object.keys(engine.UPGRADES) as Array<keyof typeof engine.UPGRADES>) {
-    const upgrade = engine.UPGRADES[k];
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `<div class="info"><div class="nm">${upgrade.name} <span class="lv">Lv ${s.player.up[k]}${s.player.up[k] >= upgrade.max ? ' MAX' : ''}</span></div>
-        <div class="ds">${upgrade.desc}</div></div><button data-up="${k}"></button>`;
-    upgradesEl.appendChild(row);
-  }
-  const techEl = el('tech');
-  techEl.innerHTML = '';
-  for (const k of Object.keys(engine.TECH) as Array<keyof typeof engine.TECH>) {
-    const tech = engine.TECH[k];
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.innerHTML = `<div class="info"><div class="nm">${tech.name}</div><div class="ds">${tech.desc}</div></div>
-        <button data-tech="${k}"></button>`;
-    techEl.appendChild(row);
-  }
-  // Economy actions apply LOCALLY for instant UI (optimistic prediction), and send the intent as a
-  // command so the server applies it authoritatively; the next snapshot reconciles. We only send
-  // when the local (same-logic) attempt succeeds, so the server — with identical coins — agrees.
-  upgradesEl.addEventListener('click', (e) => {
-    const k = (e.target as HTMLElement).dataset.up as keyof typeof engine.UPGRADES | undefined;
-    if (!k) return;
-    if (engine.buyUpgrade(s.player, k)) {
-      net.sendCommand({ kind: 'buyUpgrade', key: k });
-      sfx.buy();
-      save();
-    }
-    refreshShop();
-  });
-  techEl.addEventListener('click', (e) => {
-    const k = (e.target as HTMLElement).dataset.tech as keyof typeof engine.TECH | undefined;
-    if (!k) return;
-    if (engine.buyTech(s.player, k)) {
-      net.sendCommand({ kind: 'buyTech', key: k });
-      sfx.buy();
-      save();
-    }
-    refreshShop();
-  });
-  el('sellBtn').addEventListener('click', () => {
-    const amount = engine.sellAll(s.player);
-    if (amount > 0) {
-      net.sendCommand({ kind: 'sellAll' });
-      sfx.sell(amount);
-      save();
-    }
-    refreshShop();
-    updateHUD();
-  });
-}
-function refreshShop(): void {
-  el('shopCoins').textContent = Math.floor(s.player.coins).toLocaleString();
-  // cargo list (ore icon rows) + sell button
-  const cargoEl = el('cargoList');
-  cargoEl.innerHTML = '';
+// The inventory panel: every material the player is holding, as icon + name + count rows.
+function refreshInventory(): void {
+  el('invTotal').textContent = engine.invCount(s.player).toLocaleString();
+  const listEl = el('invList');
+  listEl.innerHTML = '';
   const ids = Object.keys(s.player.inv)
     .map(Number)
     .filter((id) => s.player.inv[id] > 0)
     .sort((a, b) => a - b);
   if (!ids.length) {
-    cargoEl.textContent = 'empty';
-  } else {
-    for (const id of ids) {
-      const row = document.createElement('span');
-      row.className = 'invrow';
-      row.appendChild(oreIcon(id, 16));
-      const label = document.createElement('span');
-      label.innerHTML = `${engine.ORE_BY_ID[id].name} <b>×${s.player.inv[id]}</b>`;
-      row.appendChild(label);
-      cargoEl.appendChild(row);
-    }
+    const empty = document.createElement('div');
+    empty.className = 'sub';
+    empty.textContent = 'Nothing yet — dig to collect materials.';
+    listEl.appendChild(empty);
+    return;
   }
-  const val = engine.invValue(s.player);
-  const sellBtn = el('sellBtn') as HTMLButtonElement;
-  sellBtn.textContent = val > 0 ? `Sell all  +${val.toLocaleString()} ◈` : 'Sell all';
-  sellBtn.disabled = val <= 0;
-  for (const b of el('upgrades').querySelectorAll('button')) {
-    const btn = b as HTMLButtonElement;
-    const k = btn.dataset.up as keyof typeof engine.UPGRADES;
-    const upgrade = engine.UPGRADES[k];
-    btn.closest('.row')!.querySelector('.lv')!.textContent =
-      'Lv ' + s.player.up[k] + (s.player.up[k] >= upgrade.max ? ' MAX' : '');
-    if (s.player.up[k] >= upgrade.max) {
-      btn.textContent = 'MAX';
-      btn.disabled = true;
-    } else {
-      const cost = engine.upgradeCost(k, s.player.up[k]);
-      btn.textContent = cost.toLocaleString() + ' ◈';
-      btn.disabled = s.player.coins < cost;
-    }
-  }
-  for (const b of el('tech').querySelectorAll('button')) {
-    const btn = b as HTMLButtonElement;
-    const k = btn.dataset.tech as keyof typeof engine.TECH;
-    const tech = engine.TECH[k];
-    if (s.player.tech[k]) {
-      btn.textContent = 'OWNED';
-      btn.disabled = true;
-    } else {
-      btn.textContent = tech.cost.toLocaleString() + ' ◈';
-      btn.disabled = s.player.coins < tech.cost;
-    }
+  for (const id of ids) {
+    const ore = engine.ORE_BY_ID[id];
+    const row = document.createElement('div');
+    row.className = 'row';
+    const icon = document.createElement('div');
+    icon.style.cssText = 'width:30px; text-align:center; flex:0 0 auto';
+    icon.appendChild(oreIcon(id, 22));
+    const info = document.createElement('div');
+    info.className = 'info';
+    info.innerHTML = `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>`;
+    const count = document.createElement('div');
+    count.className = 'lv';
+    count.textContent = `×${s.player.inv[id].toLocaleString()}`;
+    row.append(icon, info, count);
+    listEl.appendChild(row);
   }
 }
-function openShop(): void {
+function openInventory(): void {
   audio();
   releaseAllHeld();
   aim.down = false;
-  refreshShop();
+  refreshInventory();
   overlay.classList.add('on');
 }
-function closeShop(): void {
+function closeInventory(): void {
   overlay.classList.remove('on');
 }
-el('shopBtn').onclick = openShop;
-el('closeBtn').onclick = closeShop;
+el('invBtn').onclick = openInventory;
+el('closeBtn').onclick = closeInventory;
 overlay.addEventListener('click', (e) => {
-  if (e.target === overlay) closeShop();
+  if (e.target === overlay) closeInventory();
 });
 
 // ---- collection codex -------------------------------------------------------------------
@@ -1224,7 +1135,7 @@ function renderCodex(): void {
     info.className = 'info';
     info.innerHTML = found
       ? `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>` +
-        `<div class="ds" style="color:var(--gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m · ${ore.value} ◈ each</div>`
+        `<div class="ds" style="color:var(--gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
       : `<div class="nm" style="color:var(--dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
     row.appendChild(icon);
     row.appendChild(info);
@@ -1265,7 +1176,7 @@ el('newBtn').onclick = function () {
   pending.clear();
   syncWorkerWorld();
   save();
-  refreshShop();
+  refreshInventory();
 };
 
 // block scroll/zoom gestures on the game
@@ -1334,7 +1245,6 @@ if (matchMedia('(pointer: coarse)').matches) {
 }
 
 setRenderStrata(engine.STRATA); // hand the strata palette to the rock renderer (main thread)
-buildShop();
 fit();
 snapCam();
 updateHUD();
@@ -1356,7 +1266,7 @@ net.connect({
     pending.clear(); // chunk-generation queue
     syncWorkerWorld();
     snapCam();
-    refreshShop();
+    refreshInventory();
     updateHUD();
   },
   onState: (msg) => reconcile(msg),

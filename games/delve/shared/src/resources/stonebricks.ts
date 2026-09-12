@@ -12,7 +12,6 @@ register({
   name: 'Stone Bricks',
   band: [20, 90],
   weight: 2,
-  value: 4,
   hp: 5,
   color: '#8a94a0',
   desc: 'Cut and laid by some earlier hand. What were they building down here?',

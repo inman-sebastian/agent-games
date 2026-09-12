@@ -90,9 +90,9 @@ the authoring spec and the material contract.
   there is **no reveal** step.
 - **No ore emission.** Veins read purely by their lit surface + baked `sparkle` and animated
   `twinkle` FX — they do **not** cast coloured light. **Lamp-only vision** (LIGHTING.md) hides
-  unlit ore in the void, so discovery still matters (this replaces the old scanner reveal).
+  unlit ore in the void, so discovery still matters.
 - **Damage** is a shared, tiered **crack FX** (`fx.drawDamage`), keyed on `world.dmg`, drawn
-  per-frame over damaged tiles; breaking a tile sells the ore (juice moves to the break — see
-  [JUICE.md](JUICE.md)).
+  per-frame over damaged tiles; breaking a tile drops the ore into the inventory (juice moves
+  to the break — see [JUICE.md](JUICE.md)).
 - The per-ore crystal **shapes** (`SHAPES`/`ORE_ART` in `ore-art.ts`) live on only as the
   inventory/codex **icon**. **Dirt** is a `dim` ore with no material: it renders as plain rock.

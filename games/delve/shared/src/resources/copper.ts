@@ -8,7 +8,6 @@ register({
   name: 'Copper',
   band: [4, 24],
   weight: 26,
-  value: 5,
   hp: 1,
   color: '#d67b40',
   desc: 'Ruddy starter metal, common in the shallows.',

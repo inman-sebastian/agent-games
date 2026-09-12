@@ -15,13 +15,16 @@ just the DELVE-specific working rules.
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **`blocks.ts` is the single source of truth for the world** (`f(seed,c,r)`), and it's
   static-only. Dynamic state is split for multiplayer: a shared **`WorldState`** (dug cells,
-  tile damage) + a per-player **`PlayerState`** (position, economy), bundled as a **`Session`**.
-  `engine.ts` is the pure sim on top (session-based) with no DOM. The **server is authoritative**
-  — clients send inputs only, predict locally, and reconcile. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-- **Keep the economy soft-lock-free** — digging is free and ore can be sold anytime, so
-  the player can never get stranded. No fuel, no hauling requirement, no cargo cap yet.
-  (Movement is a gravity platformer as of #2; upward-traversal tools are a future pass.)
-  See the design pillars in DESIGN.md.
+  tile damage) + a per-player **`PlayerState`** (position, material inventory, upgrade levels),
+  bundled as a **`Session`**. `engine.ts` is the pure sim on top (session-based) with no DOM.
+  The **server is authoritative** — clients send inputs only, predict locally, and reconcile.
+  See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **No economy — collection only.** There is no money, selling, or shop: everything mined
+  goes into the inventory. Digging is free and collecting is unconditional (no fuel, no
+  hauling, no cargo cap), so the player can never get stranded. Upgrade *levels* still exist
+  and drive stats, but nothing raises them yet — a new (non-monetary) progression system is
+  the next major pass (#6). (Movement is a gravity platformer as of #2; upward-traversal is a
+  future pass.) See the design pillars in DESIGN.md.
 - **All art is drawn in code** on the Resurrect 64 palette, at logical resolution
   upscaled with `image-rendering: pixelated`. No emoji, clip art, or found images.
 - **Write for humans — readable over terse.** Descriptive names, one statement per line,
@@ -38,8 +41,9 @@ tokens. **Always** verify with the built headless tools, in this order — only 
 Playwright when a question is genuinely impossible headlessly, and even then read text,
 not images:
 
-1. **Logic / economy / world-gen** → `pnpm verify` (the greedy-bot balance gate) and
-   `tools/sim.ts` (`state` / `map` / `probe` / scripted `play`) — pure Node, no browser.
+1. **Logic / world-gen** → `pnpm verify` (the content gate: resource conformance + ore
+   discoverability + movement regression) and `tools/sim.ts` (`state` / `map` / `probe` /
+   scripted `play`) — pure Node, no browser.
    **Client/server protocol** → `pnpm server:check` (spawns the real server, drives the WS
    join/sync/reconnect roundtrip) — also headless, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
@@ -55,6 +59,6 @@ If no cheap tool covers what you need, **build or extend one** (that's why `shot
 `page` arg and `labs/light-lab.html` exists) rather than defaulting to Playwright. See
 [tools/README.md](tools/README.md).
 
-- After any logic / economy / world-gen change, run **`pnpm verify`**.
+- After any logic / world-gen / resource change, run **`pnpm verify`**.
 
 Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).

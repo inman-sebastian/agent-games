@@ -131,7 +131,7 @@ function cmdMap(): void {
 function cmdPlay(): void {
   const state = loadState();
   const moveKeys: Record<string, 'left' | 'right' | 'jump'> = { l: 'left', r: 'right', u: 'jump' };
-  const mined: Record<string, { count: number; coin: number }> = {};
+  const mined: Record<string, number> = {};
   let frames = 0;
 
   for (const token of String(options.do ?? '')
@@ -154,8 +154,7 @@ function cmdPlay(): void {
       for (const event of result.events) {
         if (event.type !== 'break' || !event.ore) continue;
         const name = engine.ORE_BY_ID[event.ore].name;
-        const entry = (mined[name] ??= { count: 0, coin: 0 });
-        entry.count += event.qty ?? 0;
+        mined[name] = (mined[name] ?? 0) + (event.qty ?? 0);
       }
     }
   }
@@ -165,8 +164,7 @@ function cmdPlay(): void {
       {
         pos: [Number(state.player.x.toFixed(2)), Number(state.player.y.toFixed(2))],
         depth: state.player.depth,
-        coins: state.player.coins,
-        earned: state.player.earned,
+        held: engine.invCount(state.player),
         frames,
         grounded: state.player.grounded,
         up: state.player.up,

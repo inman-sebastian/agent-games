@@ -35,7 +35,6 @@ register({
   name: 'Cobalt',
   band: [200, 340],        // [minRow, maxRow] depth range it spawns in
   weight: 6,               // spawn share within the band (rarer = smaller)
-  value: 480,              // coins per unit
   hp: 7,                   // toughness ON TOP of rock hp (deeper/rarer = higher)
   color: '#4d65b4',        // single colour for particles / HUD floaties
   desc: 'A cold blue metal from the deep stone.',
@@ -44,8 +43,9 @@ register({
 ```
 
 - `shape` ∈ `nugget | prism | gem | shard | cluster` — metals use `nugget`, gems get a crystal shape.
-- Choose `band`/`weight`/`value`/`hp` to fit the existing progression (see the table in PALETTE.md
-  and the ore resource files). Rarer + deeper ⇒ higher value + hp + lower weight.
+- There is **no `value`/economy** — everything mined just goes into the inventory. Choose
+  `band`/`weight`/`hp` to fit the existing progression (see the table in PALETTE.md and the ore
+  resource files). Rarer + deeper ⇒ higher hp + lower weight.
 - A `dim: true` ore (like dirt) renders as plain rock — **skip steps 2–3** for it (no material).
 
 ## Step 2 — the material shader (`client/src/render/materials/<name>.ts`)
@@ -133,7 +133,8 @@ material plus a **surface** preview and a **cave-system** preview. It's fully UR
 inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, spaces stripped),
 `view=surface|cave|both`, `depth=<row>`, `scale`, `lit=0|1`, `seed`, `w`/`h`.
 
-1. `pnpm verify` — the balance gate; run it because you changed gameplay data (band/weight/value/hp).
+1. `pnpm verify` — the content gate; run it because you changed gameplay data (band/weight/hp) — it
+   checks resource conformance + that the ore is discoverable within its band.
 2. `pnpm --filter @delve/client typecheck` and `pnpm build` — must be green.
 3. **Surface** (the top-lit block, in isolation):
    `SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=surface&ui=0&mat=<slug>&w=8&h=6&scale=4' /tmp/mat.png labs/material-lab.html` → `Read /tmp/mat.png`.

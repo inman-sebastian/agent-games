@@ -8,7 +8,6 @@ register({
   name: 'Quartz',
   band: [95, 210],
   weight: 11,
-  value: 48,
   hp: 3,
   color: '#e8e6ee',
   desc: 'Milky crystal clusters that catch the light — common, but pretty.',
