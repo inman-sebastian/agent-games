@@ -6,12 +6,12 @@ lives in [DESIGN.md](DESIGN.md); the world's look lives in [PALETTE.md](PALETTE.
 [RENDERING.md](RENDERING.md) and [LIGHTING.md](LIGHTING.md).
 
 > **Status: specified, partly implemented.** What ships today is a title screen, a top bar, a HUD,
-> three overlay panels (Inventory, Collection, pause) and a touch pad, written as plain HTML with an
+> three overlay panels (Inventory, Collection, menu) and a touch pad, written as plain HTML with an
 > inline `<style>` block in `client/index.html` plus `client/src/ui/inventory.ts`. Screen flow runs
 > through the **app state machine** (`title | playing | paused`, see
-> [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)). None of the *art-direction* rules below are
-> applied yet, and one behavioural rule is currently **inverted** — see
-> [Panels never pause](#panels-never-pause). Tracked by
+> [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)) — whose `paused` state
+> [should not exist](#nothing-pauses-ever). None of the *art-direction* rules below are applied yet,
+> and the never-pause rule is currently **inverted**. Tracked by
 > [#28](https://github.com/inman-sebastian/agent-games/issues/28).
 
 ## The problem this doc exists to fix
@@ -185,30 +185,53 @@ Stated explicitly because limiting pages is a tempting way to "balance" the wron
 - **Paging must work on touch and gamepad**, not just number keys and a scroll wheel. Swipe across
   the bar and shoulder buttons are the natural mappings.
 
-## Panels never pause
+## Nothing pauses. Ever.
 
-**The world keeps running while a game panel is open.** This is a first-class design decision, not a
-consequence of multiplayer.
+**There is no pause in DELVE.** It's an online game on a server-hosted world, so pausing isn't a
+feature that was cut — it's a thing that cannot coherently exist. The world runs whether or not
+you're looking at it.
 
-**Two kinds of surface, and only one of them may pause:**
+That includes the menu. **A menu is not a pause**, and calling it a "pause menu" is the mistake that
+let the current implementation happen.
 
-| Kind | Examples | Pauses? |
-| ---- | -------- | ------- |
-| **App screen** | Title, pause menu | **Yes** — that's what they're for |
-| **Game panel** | Inventory, codex, crafting, character, maps | **Never** |
+### Pre-game vs in-game
 
-- Every game panel must be **safe to browse while something walks toward you** — which rules out
-  opaque full-screen panels.
-- The player is **deliberately vulnerable during inventory management**.
-- **No panel may block the frame loop**, and input routing has to decide **per key** whether the UI
-  or the game receives it.
+The right division isn't screens-vs-panels, it's **whether you're in a world at all**:
+
+| Phase | Surfaces | The world |
+| ----- | -------- | --------- |
+| **Pre-game** | Title, character select, world creation | You aren't in one yet. Nothing to pause |
+| **In-game** | HUD, action bar, inventory, codex, crafting, character, maps, menu | **Always running** |
+
+**The title screen isn't a menu and isn't part of the game** — it's *pre-game*, the step before you
+enter a world. That's why it stops nothing: there's nothing running yet.
+
+Everything in-game follows from that:
+
+- Every panel must be **safe to browse while something walks toward you** — which rules out opaque
+  full-screen panels, the in-game menu included.
+- The player is **deliberately vulnerable** whenever a panel is open.
+- **No panel may block the frame loop**, and input routing decides **per key** whether the UI or the
+  game receives it.
 - Reading the map is itself risky, which is a good property for an earned surface.
 
-> **The code currently does the opposite, and this is the change to make.** `openMenu()` in
-> `client/src/index.ts` calls `app.send('pause')`, and the Inventory and Collection overlays both go
-> through it — so opening either one pauses the sim today. The app machine's `paused` state is
-> correct for the **pause menu**; game panels need a path that opens an overlay *without* leaving
-> `playing`.
+### Why the code currently pauses — and the real bug underneath
+
+`openMenu()` in `client/src/index.ts` calls `app.send('pause')`, and the Inventory and Collection
+overlays both route through it, so opening either one stops the sim today. The app machine's
+`paused` state should not exist at all; the phases are **pre-game** and **in-game**.
+
+But the deeper issue is on the server: **`physicsStep` runs on receipt of an input message, not on a
+clock** (`server/src/index.ts`). Snapshots go out on a timer; the *simulation* only advances when a
+client sends input. So client-side pause "works" purely because **the server has no tick of its
+own** — which is the thing that actually has to change.
+
+Several decisions already depend on that clock existing: a **day/night cycle** needs time to pass,
+**fluid** must keep flowing, **entities** must keep acting, and **world hibernation** ("a world with
+nobody in it stops ticking") is only meaningful if there's a tick to stop. Once the server owns a
+fixed tick, **pause becomes impossible by construction** — the correct end state, rather than a rule
+the client has to remember to honour.
+
 
 ## Non-negotiables
 
