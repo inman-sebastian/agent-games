@@ -360,12 +360,44 @@ the attribute layer.
   *which* moved it. That's a job for the character screen in
   [§12](#the-equipment-screen-is-the-most-important-surface-here).
 
-**Still open:** whether **Fortune** survives at all (rich-vein chance is a world-gen roll rather
-than a player capability, and a pure rate multiplier — the
-[discriminator](#the-more-useful-test-than-numbers-bad) calls that filler), and whether
-**lantern vision** is an unlock, gear-driven, or a baseline the player can never trade away
-(light is the game's atmosphere *and* its only current exploration cue, so a slot that costs you
-sight is either an excellent hard choice or a miserable one).
+#### Fortune survives, re-pointed at extraction
+
+**Decided.** Rich veins stay, and so does Fortune — but they're **decoupled**:
+
+- **Rich veins are a property of the world.** Generation decides where they are. They get their
+  own **VFX** so they stand out ([JUICE.md](JUICE.md)), and a candidate touch is making them
+  *tougher* than the ordinary variant of the same material, so the reward announces itself and
+  costs a little to take.
+- **Fortune no longer influences whether a vein is rich.** It influences **what you get out of
+  mining one**: higher yield, and an increased chance of a **rare, unexpected item**.
+- **Fortune lives at the equipment layer**, not the attribute layer — e.g. a rare pickaxe that
+  grants Fortune +1. That's a concrete answer to T1's residual work ("decide, per stat, which
+  layer is allowed to touch it").
+
+**This fixes a real defect, not just a design question.** `isRich(seed, column, row, fortune)`
+currently takes the *player's* fortune as an input, so **whether a tile is rich depends on who is
+looking at it.** Under [shared worlds](#7-multiplayer) two players at the same vein would
+disagree, and world content stops being a pure function of the seed — which is precisely the
+determinism the content gate relies on to verify anything
+([below](#the-verify-scripts-actual-flaw-and-what-to-keep)). Re-pointing Fortune at extraction
+makes generation player-independent again, and makes rich-vein density something the gate can
+assert.
+
+It also matches **Minecraft's Fortune semantics** (affects drops, never generation), so the name
+carries the right expectation for free.
+
+**Refinement, from the capacity model:** of the two payloads, **put the weight on the rare-drop
+chance, not the yield multiplier.** Volume costs nothing to carry now
+([capacity limits variety](#capacity-limits-variety-not-volume)), so tripling a stack changes no
+decision — whereas a rare item is a *new kind* of thing, which costs a slot and forces a choice.
+The rare-drop half also feeds the discovery pillar directly.
+
+**New, small system implied:** mining a tile can yield something **other than** that tile's
+material. That's a loot table on a block, and it's the mechanism the "unexpected item" rides on.
+
+**Still open:** whether **lantern vision** is an unlock, gear-driven, or a baseline the player can
+never trade away. Light is the game's atmosphere *and* its only current exploration cue, so a slot
+that costs you sight is either an excellent hard choice or a miserable one.
 
 ### The design rule behind both
 
@@ -1280,8 +1312,9 @@ Three properties worth building on:
   home from a deep trip.
 
 **Consequence for rich veins.** A 3× material drop costs nothing to carry and therefore presents
-no decision, which weakens the case for **Fortune** considerably — see
-[Progression is layered](#progression-is-layered), where its survival is still open.
+no decision. This is why Fortune's payload is weighted toward a **rare unexpected item** rather
+than a yield multiplier — see
+[Fortune survives, re-pointed at extraction](#fortune-survives-re-pointed-at-extraction).
 
 #### Slot count is a fine upgrade on its own
 
