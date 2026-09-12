@@ -308,21 +308,81 @@ Three things follow immediately, without waiting for the full roster:
   [hard edges decided](#hard-edges--but-not-a-visible-box) the compensation isn't needed, but the
   landmark value stands on its own.)_
 
-#### Parked for a dedicated biome session
+### The roster
+
+**Decided as a starting roster** — accepted to build from, expected to change. Four entries were
+already committed by earlier decisions and are marked. Each biome is specified by its **unique
+hazard**, what it **wants the player to bring**, and whether it's a **reward** (a destination) or a
+**toll** (a barrier that makes the world feel large).
+
+#### Surface regions
+
+Kept deliberately thin — the mine is the
+[primary space](#the-surface-is-real-content-subordinate-to-the-mine).
+
+| Biome | Hazard | Wants | Role |
+| --- | --- | --- | --- |
+| **Ocean** _(committed)_ | Drowning, depth | Diving gear | Toll. The world's [edge](#the-boundary-is-layered) |
+| **The Mine Head** | None — **safe at any hour** | — | Hub. Spawn, base, NPCs. Required safe by [§1](#death-you-lose-the-trip-never-the-character) |
+| **Woodland** | Night enemies | Light | Default surface. Wood, fibre |
+| **Crags** | Falling | Vertical traversal | Reward. Surface-exposed veins that tease depth |
+
+#### Bands — guaranteed
+
+Guaranteed by construction, so **this is where required materials live**. Five inherit the existing
+strata palettes, which preserves that tuning.
+
+| Biome | Hazard | Wants | Materials |
+| --- | --- | --- | --- |
+| **Root Zone** | None | — | Dirt, clay, copper. The safe teaching layer |
+| **Stonework** | None intrinsic | — | Iron, silver, quartz |
+| **The Deeps** | Absolute dark, long falls | Light, traversal | Gold, emerald, platinum |
+| **Basalt Reach** | Heat, tougher rock | Heat gear | Ruby, diamond |
+| **Molten Core** _(committed)_ | The [static lava ocean](#two-kinds-of-fluid) | Heat gear | Obsidian, mythril |
+
+#### Pockets — placed
+
+Placed rather than guaranteed, so **only optional materials may be exclusive here**
+([the invariant](#the-invariant-stated-precisely--and-the-soft-lock-it-prevents)).
+
+| Biome | Hazard | Wants | Role |
+| --- | --- | --- | --- |
+| **Glowing Mushroom Cavern** _(committed)_ | Low — a haven | — | Reward. **Visible through rock by its own light** ([§6](#light-an-untradeable-floor-everything-above-it-earned)) |
+| **Flooded Warren** | Drowning | Diving gear or the pump | Makes the fluid tool matter |
+| **Rime Hollow** | Slipping; ice floors that break | Careful traversal | Hazard is **movement**, not damage |
+| **Deadfall** | Cave-ins, load-bearing rock | The shoring tool | Makes shoring matter |
+| **The Works** | Enemies, traps | The tool that breaks the shell | Ruins at scale. Home for **Stone Bricks** |
+| **Crystal Vault** | None — **sealed** | The tool that breaks the shell | The jackpot. Gems in abundance |
+| **Nullshade** | **Absorbs your lamp light** | Better light, or nerve | Makes light-as-equipment matter |
+
+#### Three things the roster settles
+
+- **Six pockets exist to give an equipment axis a reason to be packed.** The pump is dead weight
+  until the Flooded Warren exists, shoring is pointless without Deadfall, and light is never worth a
+  slot without Nullshade. That's what keeps the
+  [loadout decision](#limited-slots-as-a-core-loop) real rather than theoretical.
+- **Every existing ore lands in a guaranteed band**, so **no current material is at soft-lock
+  risk.** The 12 shipped ores map onto the five bands cleanly.
+- **The pockets imply new materials.** Each wants a signature material that doesn't exist yet —
+  fungal, ice, crystal, whatever Nullshade holds. Roughly 7–12 new materials, all in the
+  **optional** tier, authored via the `delve-new-material` skill. That's the roster's real content
+  cost.
+
+Also new content, not just new labels: **The Mine Head, Woodland and Crags** are surface biomes and
+the surface currently has none.
+
+#### Still parked for this session
 
 Deliberately not answered here — this needs its own Q&A, starting from the **roster** and deriving
 the rest from it:
 
-1. **What biome types exist**, and which are bands, pockets, or **surface** regions — a third
-   shape, since the surface is [real content](#the-surface-is-real-content-subordinate-to-the-mine).
-   Everything below depends on this.
+1. ~~What biome types exist~~ — **done**, see [the roster](#the-roster).
 2. **How many pockets per world**, and whether the size preset scales the count (see the
    [per-player density](#player-cap-scales-with-world-size) invariant, which implies a Large world
    gets *more of each* biome rather than *more kinds*).
-3. **Per-biome scarcity** — which are single landmarks and which repeat.
-4. **Whether every world contains every biome.** Guaranteed presence is what would let a pocket
-   biome gate a material; variable presence makes worlds distinct and rerollable but forces the
-   gate to prove reachability without assuming any given biome.
+3. **Per-biome scarcity** — which pockets are single landmarks and which repeat.
+4. **Whether every world contains every pocket.** _(Bands and surface regions are guaranteed by
+   shape, so this question is now only about pockets.)_
 
 ### Biomes are the placement system
 
