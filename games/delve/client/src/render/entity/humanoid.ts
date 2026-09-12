@@ -8,6 +8,7 @@
 // stratum, so a character sits in the same tonal system as the rock it stands on.
 import { clothSurface, plateSurface } from './limb';
 import { band, type Part } from './part';
+import { solveTwoBone } from './ik';
 import type { Rig, Skeleton } from './rig';
 
 // ---- proportions (art px, feet at y = 0, up is negative) --------------------------------------
@@ -42,6 +43,32 @@ const Y_NECK = -33;
 const Y_HEAD_TOP = -46;
 const Y_ELBOW = -24;
 const Y_HAND = -17;
+
+// Bone lengths, so IK has something to solve against. A bone does NOT change length when a limb
+// moves, which is exactly what the old midpoint-knee walk violated.
+//
+// Two traps here, both hit on the first attempt:
+//
+// 1. These must be POSITIVE. Deriving them as `Y_HIP - Y_KNEE` gives -7, because y increases
+//    downward while the joint constants are upward measurements. A negative length inverts the
+//    solver — the knee solved ABOVE the hip and the elbow above the shoulder, which is what put a
+//    forearm across the character's face.
+// 2. They must total MORE than the joint span they cover. Hip to ankle is 15px; bones summing to
+//    exactly 15 leave the leg permanently straight, with no slack to bend at all. Real standing
+//    posture has a slightly bent knee, so the chain is deliberately a little longer than the gap.
+// Slack is 1px total, not 2: at 8+9 against a 15px span the solver put the knee 4px off the
+// hip→ankle line, which on a 15px leg reads as a permanent crouch rather than a standing bend.
+const FEMUR = 8;
+const TIBIA = 8;
+const HUMERUS = 8;
+const ULNA = 8;
+
+// Stride, measured off the reference's walk sheet: its near foot sweeps ~14px on a 28px figure —
+// half the figure's height. Scaled to ours that's ~±5px, kept inside the leg's reach so the chain
+// never has to straighten out to hit its target. The first pass used ±3 and read as a shuffle.
+const STRIDE = 10;
+const FOOT_LIFT = 5;
+const ARM_SWING = 10;
 // NO near/far x offset: the view is flat side-on, and depth is carried by VALUE (`shadeBias`), the
 // way the reference distinguishes its near and far limbs by colour rather than by position.
 const X_NEAR = 0;
@@ -126,29 +153,34 @@ export function idlePose(): Skeleton {
 export function walkPose(p: number): Skeleton {
   const pose = idlePose();
   const swing = Math.sin(p * Math.PI * 2);
-  const lift = Math.cos(p * Math.PI * 2);
   const bob = Math.abs(Math.sin(p * Math.PI * 2)) * 1.5;
 
   for (const joint of ['hip', 'waist', 'shoulder', 'neck', 'headTop', 'shoulderNear', 'shoulderFar'] as const) {
     pose[joint].y += bob;
   }
 
-  const leg = (knee: string, ankle: string, phase: number): void => {
+  // The pose sets END EFFECTORS (feet, hands) and lets IK place the joints between. That's the
+  // difference between a leg that bends and a rod that pivots: a knee's position is determined by
+  // the hip, the foot and two fixed bone lengths — never a midpoint.
+  const leg = (hip: string, knee: string, ankle: string, phase: number, bend: 1 | -1): void => {
     const s = Math.sin(phase * Math.PI * 2);
     const c = Math.cos(phase * Math.PI * 2);
-    pose[knee].x += s * 3;
-    pose[ankle].x += s * 6;
-    pose[ankle].y -= Math.max(0, c) * 4; // the foot only lifts on its forward half
+    pose[ankle].x = pose[hip].x + s * (STRIDE / 2);
+    pose[ankle].y = Y_ANKLE - Math.max(0, c) * FOOT_LIFT; // the foot lifts only on its forward half
+    pose[knee] = solveTwoBone(pose[hip], pose[ankle], FEMUR, TIBIA, bend);
   };
-  leg('kneeNear', 'ankleNear', p);
-  leg('kneeFar', 'ankleFar', p + 0.5);
+  // Knees bend BACKWARD, so both legs take the same sign; the mirror comes from the phase offset.
+  leg('hipNear', 'kneeNear', 'ankleNear', p, -1);
+  leg('hipFar', 'kneeFar', 'ankleFar', p + 0.5, -1);
 
-  // Arms counter-swing the legs — the cheapest cue that reads as walking rather than sliding.
-  pose.elbowNear.x -= swing * 2.5;
-  pose.handNear.x -= swing * 4.5;
-  pose.elbowFar.x += swing * 2.5;
-  pose.handFar.x += swing * 4.5;
-  pose.handNear.y += lift * 1.5;
-  pose.handFar.y -= lift * 1.5;
+  const arm = (shoulder: string, elbow: string, hand: string, dir: number, bend: 1 | -1): void => {
+    pose[hand].x = pose[shoulder].x - dir * swing * (ARM_SWING / 2);
+    pose[hand].y = Y_HAND;
+    pose[elbow] = solveTwoBone(pose[shoulder], pose[hand], HUMERUS, ULNA, bend);
+  };
+  // Arms counter-swing the legs, and elbows bend FORWARD — the opposite sign to a knee, which is
+  // why the bend direction is per-limb rather than a single global setting.
+  arm('shoulderNear', 'elbowNear', 'handNear', 1, 1);
+  arm('shoulderFar', 'elbowFar', 'handFar', -1, 1);
   return pose;
 }
