@@ -133,6 +133,19 @@ into them as it ships. Tracked as an epic in
 - **Reworked incremental / economy mechanics** — progression rebuilt around the
   inventory, collectibles, and exploration.
   [#6](https://github.com/inman-sebastian/agent-games/issues/6)
+- **Unify strata and ore into one material system** _(planned)_ — today strata
+  (`type:'strata'`: a depth band's background rock palette, no shader) and ores
+  (`type:'ore'`: a collectible, shaded, baked-in object) are separate shapes. The
+  direction is **one material shape and one system for everything mineable** —
+  dirt, clay, and stone become collectible too, sharing the same shader/surface-class
+  render path, inventory, and economy as ores. Phased: (1) strata visible in the
+  material lab _(shipped)_; (2) strata declare a surface class like ores, plain-rock
+  render dispatches through the shared system; (3) merge the resource types + make
+  the background rock collectible (pairs with the economy/`verify.ts` rework).
+- **Placement beyond depth** _(planned)_ — depth (`band` / strata `top`) is currently
+  the *only* factor deciding where a material spawns, and that's a **placeholder**.
+  Future placement will layer in more signals (noise regions / biomes, proximity,
+  features) so material distribution isn't a pure function of row.
 
 …and more to come — this is just the start.
 

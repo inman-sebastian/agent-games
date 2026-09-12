@@ -16,21 +16,34 @@ const BOX_W = 520; // fixed preview-pane size (px); scale zooms the render withi
 const BOX_H = 340;
 
 // ---- material catalogue ----
+// Two kinds share this list: STRATA (the background rock of a depth band — no shader; it renders as
+// plain rock in that depth's blended palette, so we preview it just by digging at that depth) and
+// ORES (a shader baked into specific tiles). Selecting a stratum jumps the preview to its depth.
 interface Mat {
   slug: string;
   label: string;
+  kind: 'strata' | 'ore';
   band: [number, number];
-  id?: number; // ore id (to find a vein of this material in the cave); undefined = rock
+  id?: number; // ore id (to find a vein of this material in the cave); undefined = strata/plain rock
   materialAt?: (column: number, row: number) => Material | null;
 }
 const slugify = (s: string): string => s.toLowerCase().replace(/\s+/g, '');
-const MATS: Mat[] = [{ slug: 'rock', label: 'Rock', band: [80, 200] }];
+const MATS: Mat[] = [];
+
+// strata first (shallow → deep); each spans from its `top` to the next stratum's `top`
+const strata = [...all('strata')].sort((a, b) => a.top - b.top);
+strata.forEach((s, i) => {
+  const bottom = strata[i + 1]?.top ?? s.top + 140;
+  MATS.push({ slug: slugify(s.id), label: s.id, kind: 'strata', band: [s.top, bottom] });
+});
+
 for (const ore of all('ore')) {
   const material = oreMaterial(ore.id);
   if (material)
     MATS.push({
       slug: slugify(ore.name),
       label: ore.name,
+      kind: 'ore',
       band: ore.band as [number, number],
       id: ore.id,
       materialAt: () => material,
@@ -191,7 +204,15 @@ function animateCave(canvas: HTMLCanvasElement): void {
 function renderSidebar(): void {
   const sidebar = document.getElementById('sidebar')!;
   sidebar.innerHTML = '';
+  let lastKind = '';
   for (const m of MATS) {
+    if (m.kind !== lastKind) {
+      lastKind = m.kind;
+      const head = document.createElement('div');
+      head.className = 'group';
+      head.textContent = m.kind === 'strata' ? 'Strata (rock by depth)' : 'Ores';
+      sidebar.append(head);
+    }
     const cell = document.createElement('div');
     cell.className = 'swatch' + (m.slug === state.mat ? ' sel' : '');
     const canvas = document.createElement('canvas');
