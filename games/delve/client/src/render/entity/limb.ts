@@ -299,7 +299,10 @@ export function clothSurface(ctx: PartCtx): Rgb {
   // finer reads as per-pixel speckle rather than the same organic clumping.
   b += (vnoise(ctx.localX * 0.17, ctx.localY * 0.17, TEX_BODY) - 0.5) * 0.34;
   b += (vnoise(ctx.localX * 0.44, ctx.localY * 0.44 + 4, TEX_BODY + 7) - 0.5) * 0.16;
-  b -= (1 - ctx.depth) * 0.34; // darken toward the silhouette edge so the limb reads round
+  // Rim darkening, kept LIGHT on purpose. At 0.34 this was tuned against one big isolated limb; on
+  // a body of many small parts it dominated — every part's rim is most of the part at 3px radius, so
+  // the whole figure read muddy and adjacent parts met in a dark seam where their rims touched.
+  b -= (1 - ctx.depth) * 0.14;
   return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
 }
 
@@ -308,7 +311,7 @@ export function plateSurface(ctx: PartCtx): Rgb {
   let b = ctx.brightness;
   b += (vnoise(ctx.localX * 0.1, ctx.localY * 0.1, TEX_BODY + 3) - 0.5) * 0.16;
   b += ctx.depth > 0.72 ? 0.12 : 0; // a tight spine highlight — reads as a hard, curved surface
-  b -= (1 - ctx.depth) * 0.3;
+  b -= (1 - ctx.depth) * 0.12; // see the note in clothSurface — light rim, small parts
   return quantize(bandsOf(ctx.colors), clamp01(b), ctx.px, ctx.py);
 }
 

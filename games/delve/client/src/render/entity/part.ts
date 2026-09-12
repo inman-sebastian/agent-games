@@ -86,6 +86,15 @@ export interface Part {
   readonly order: number;
   /** Silhouette erosion in px; see limb.ts. Left undefined to take the shared default. */
   readonly erode?: number;
+  /**
+   * Brightness offset applied before shading, for DEPTH SEPARATION.
+   *
+   * A side-on 2D figure reads by overlap, and two adjacent parts sharing a ramp merge into one
+   * shape — the near arm vanishes into the torso. The reference asset pack solves this by giving
+   * far-side limbs a different (darker) colour rather than by offsetting them in x, which keeps the
+   * view flat and head-on the way a platformer needs. Negative sits a part behind.
+   */
+  readonly shadeBias?: number;
 }
 
 /**
