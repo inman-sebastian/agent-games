@@ -233,6 +233,25 @@ nobody in it stops ticking") is only meaningful if there's a tick to stop. Once 
 fixed tick, **pause becomes impossible by construction** — the correct end state, rather than a rule
 the client has to remember to honour.
 
+## Open questions
+
+- **Is the UI an overlay, or diegetic?** Everything above assumes an overlay. A mining game has an
+  obvious in-fiction home for a HUD — depth on a gauge, materials in a satchel, vision tied to a
+  lamp the game already simulates — and **that is the only argument that legitimately moves UI onto
+  the canvas**, since a diegetic interface lives in world space. It's a design question, not a
+  technical one.
+
+  It pulls hard against readability. A UI that lives in the world is maximally cohesive and
+  *minimally legible*: lamp-lit, palette-quantised, occluded text is the same design that makes the
+  world atmospheric, and atmosphere is the enemy of a glanceable depth readout. The likely
+  resolution is a split — **diegetic for the ambient and persistent, overlay for the urgent and
+  precise**. A lamp that dims as a mood signal is diegetic; the number telling you how deep you are
+  is not.
+
+- **Is the recipe book its own surface, or a view inside the crafting menu?** It's a separate system
+  from the codex (which is a non-mechanical ledger), but that doesn't settle whether it gets its own
+  panel.
+
 ## Non-negotiables
 
 - **Never a found asset.** No emoji, no clip art, no downloaded icon fonts. Every glyph and frame is

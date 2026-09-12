@@ -145,9 +145,14 @@ the single place capability is resolved. See [Progression](#progression).
 # The decided design
 
 Everything above describes the game **as it exists today**. Everything below is **decided but not
-yet built** — the output of a full design session, with the reasoning preserved in the git history
-of `BRAINSTORM.md`. Where a decision here contradicts a section above, **the decision wins and the
-section above is what changes.**
+yet built** — the output of a full design session. Where a decision here contradicts a section
+above, **the decision wins and the section above is what changes.**
+
+> **Where the reasoning lives.** These decisions were worked out in a temporary scratchpad,
+> `docs/BRAINSTORM.md`, which was migrated into these docs and then deleted. **Its ~53 commits are
+> still on `main`** — `git log -- games/delve/docs/BRAINSTORM.md` replays the whole session,
+> including the arguments that were tried and rejected. That history is the record of *why*; this
+> doc is the record of *what*.
 
 Two topics have their own docs because they're large catalogues rather than mechanics:
 **[BIOMES.md](BIOMES.md)** owns the world's places, and **[UI.md](UI.md)** owns the interface.
@@ -445,6 +450,40 @@ for crafting is a separate system.
 
 Persistence scopes, world lifecycle and the protocol live in
 [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Open questions
+
+What's genuinely undecided, kept short deliberately — an open question is one where different
+answers would lead to different work, not everything that isn't built yet. Interface questions live
+in [UI.md](UI.md#open-questions); biome ones in [BIOMES.md](BIOMES.md#still-open).
+
+- **Is a base shared or per-player** in a multiplayer world? Shared bases need griefing and
+  permission answers; per-player bases need the world to hold many of them.
+- **Are respawn beacons per-player or shared**, and does a placed beacon keep occupying its
+  equipment slot? Beacons are *world*-scoped state while respawn is a *character* concern, so a
+  beacon in one world does nothing in another.
+- **Where in the arc does flight land, and is it metered?** Vertical traversal is currently a real
+  problem, and that's exactly why a jetpack is a good reward — but the moment it exists the problem
+  is gone, and with it the reason for ropes, ladders, platforms and shaft planning. Not a reason to
+  cut it; a reason to decide *when* it arrives and whether it's absolute or metered.
+- **How much does finite capacity tax discovery?** The rubble problem is solved (one material, one
+  slot), but the bag now fills at exactly the rate the player meets *new kinds* of material — so the
+  full-bag moment coincides with the game's best moment. That's a better problem than rubble spam,
+  and it's still pointed at the pillar. Residual: does a full bag **block the pickup** or
+  **auto-drop the least valuable stack**?
+- **Whose drone, and whose lava?** In a shared world one player's automation can flood a tunnel onto
+  someone else's head. Either the best emergent story in the game or the fastest way to end a
+  friendship, and it needs an answer alongside shared-world griefing generally.
+- **How does electricity work?** Wanted as a system alongside electric lighting; nothing designed.
+  Carry three things into that conversation: electric light *can fail* and the
+  [light floor](#light) cannot, so the two must stay separate; it's automation-adjacent, so
+  "automate the chore, never the choice" applies; and it implies generation, transmission and
+  consumers, which is a placement system — and building already exists.
+- **What's the concurrency ceiling of the current stack?** Unknown rather than known-to-be-fine —
+  nothing has been load-tested. A headless harness of N scripted clients against one world turns the
+  whole scaling conversation from a guess into a number, and would say early whether the blue-sky
+  case is a stretch or a fantasy. Tracked in
+  [#13](https://github.com/inman-sebastian/agent-games/issues/13).
 
 ## Glossary
 
