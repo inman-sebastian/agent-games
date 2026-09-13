@@ -6,6 +6,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 
 vi.mock('./icon', () => ({
+  ICON_PX: 32,
   materialIcon: (oreId: number, size: number) => {
     const stub = document.createElement('span');
     stub.dataset.ore = String(oreId);
@@ -48,8 +49,9 @@ describe('delve-slot', () => {
     const el = slot({ ore: '9', count: '4' });
     const icon = inner(el, '.icon span') as HTMLElement;
     expect(icon.dataset.ore).toBe('9');
-    // 16 art px inside a 20 art px slot leaves the frame's inner lip clear
-    expect(icon.dataset.size).toBe('16');
+    // ICON_PX, not a literal: an icon is one world tile at the size the world draws it. Asking for
+    // "16" looks like 16 art pixels and means 16 CSS pixels, which is half the art scale.
+    expect(icon.dataset.size).toBe('32');
     expect(inner(el, '.pip'), 'a filled slot has no pip').toBeNull();
   });
 

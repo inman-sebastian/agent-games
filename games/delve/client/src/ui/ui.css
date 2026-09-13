@@ -80,6 +80,9 @@
   --c-gold: #f9c22b;
   --c-good: #91db69;
   --c-lamp: #8ff8e2;
+  /* R64's white. Reserved for text that has to win over whatever is behind it — a slot count sits
+     directly on an item's texture, and the ramp's lightest step is not enough separation there. */
+  --c-white: #ffffff;
 
   /* type: a DISPLAY face for everything short, a BODY face for prose. See the @font-face note. */
   --font-display: 'Silkscreen', ui-monospace, monospace;

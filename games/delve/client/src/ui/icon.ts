@@ -12,12 +12,19 @@
 //
 // COHESION BY CONSTRUCTION, which is the same argument the material system won on: when a material's
 // shader changes, its icon changes with it, and there is no second definition to forget.
-import { T, setStrata, composeBand } from '../render/cave-render';
+import { T, UPSCALE, setStrata, composeBand } from '../render/cave-render';
 import { oreMaterial } from '../render/materials';
 import { STRATA, ORE_BY_ID } from '@delve/shared';
 
-/** Where in the world an icon's tile is sampled from. */
-const ICON_COLUMN = 0;
+/**
+ * Where in the world an icon's tile is sampled from — PER ORE, which matters.
+ *
+ * The compositor's edge erosion and texture are world-anchored, so every icon sampled at the same
+ * coordinates gets the identical eroded corner. Twelve icons in a grid all notched in exactly the
+ * same place stops reading as texture and starts reading as a defect, which is precisely what it
+ * looked like. Spacing them out gives each material its own chip and bite, for free.
+ */
+const iconColumn = (oreId: number): number => oreId * 7;
 /** Deep enough to sit in stone rather than topsoil, so the surround never tints the crop. */
 const ICON_ROW = 120;
 /** The 3x3 band the centre tile is cropped out of. */
@@ -48,7 +55,8 @@ function materialTile(oreId: number): HTMLCanvasElement {
   const bg = band.getContext('2d')!;
   bg.imageSmoothingEnabled = false;
 
-  const centreColumn = ICON_COLUMN + 1;
+  const left = iconColumn(oreId);
+  const centreColumn = left + 1;
   const centreRow = ICON_ROW + 1;
   const material = oreMaterial(oreId);
   composeBand(
@@ -61,7 +69,7 @@ function materialTile(oreId: number): HTMLCanvasElement {
     // compositor erodes a tile's boundary against open space, so a tile with open space on all four
     // sides is eaten from every direction at once. Correct behaviour, wrong request.
     (column, row) => !(column === centreColumn && row === centreRow - 1),
-    ICON_COLUMN,
+    left,
     ICON_ROW,
     BAND,
     BAND,
@@ -86,12 +94,22 @@ export function clearIconCache(): void {
 }
 
 /**
- * A material's icon as a canvas, `size` art pixels square.
+ * One tile at the size the world draws it: `T` art pixels, each `UPSCALE` CSS pixels wide.
  *
- * `size` should be a whole multiple of the tile so the upscale stays integer and the pixels stay
- * square — anything else resamples the very texture this exists to show.
+ * The natural size for an icon, and the reason it is a constant rather than a number a caller
+ * picks. Passing 16 looks like "16 art pixels" and means 16 CSS pixels, which is HALF the art scale
+ * — the icon came out at half the size of every other pixel on screen and simply read as small.
  */
-export function materialIcon(oreId: number, size = T): HTMLCanvasElement {
+export const ICON_PX = T * UPSCALE;
+
+/**
+ * A material's icon as a canvas, `size` CSS pixels square.
+ *
+ * `size` must be a whole multiple of `T` so the upscale stays integer and the pixels stay square;
+ * anything else resamples the very texture this exists to show. In practice that means `ICON_PX`
+ * or a doubling of it.
+ */
+export function materialIcon(oreId: number, size = ICON_PX): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;

@@ -17,7 +17,7 @@
 // empty slot has to read as a visible PROMISE — a deliberate, inviting hole — rather than as a
 // missing icon or a rendering failure. It is the state the player sees most before they see any
 // other, so it gets the inset frame and a centred pip rather than nothing at all.
-import { materialIcon } from './icon';
+import { ICON_PX, materialIcon } from './icon';
 
 /**
  * What a slot is showing.
@@ -40,10 +40,14 @@ const STATES: readonly SlotState[] = ['empty', 'filled', 'selected', 'locked', '
  */
 const SHEET = `
   :host {
-    /* How big a slot is, in art pixels. 24 with a one-pixel edge leaves a 22px interior: a 16px
-       tile with air around it, AND room for the count chip along the bottom without it running out
-       of the slot. At 20 a three-digit count overflowed the square. */
-    --slot-size: calc(var(--px, 2px) * 24);
+    /* How big a slot is, in art pixels. 20 with a one-pixel edge leaves an 18px interior for a 16px
+       tile, so the icon fills the square rather than floating in it.
+
+       THE ICON CANNOT SIMPLY BE DRAWN BIGGER. It is one 16px world tile, so the only sizes that keep
+       the pixels square are whole multiples of it — 16 or 32, nothing between. 32 would need a ~36px
+       slot, which is 72 CSS px, and six of those do not fit across a panel. So the icon stays 1:1
+       and the SLOT tightens around it, which is the same result by the only means available. */
+    --slot-size: calc(var(--px, 2px) * 20);
     display: inline-block;
     width: var(--slot-size);
     height: var(--slot-size);
@@ -104,22 +108,22 @@ const SHEET = `
   }
   .count {
     position: absolute;
-    right: 0;
+    right: var(--px, 2px);
     bottom: 0;
     line-height: 1;
     font-family: var(--font-display, monospace);
-    /* ON THE ART GRID. This was Silkscreen's native 8px, which sounds right and is not: at 8px one
-       glyph pixel is one CSS pixel, and everything else on screen draws one art pixel as TWO. The
-       count was the only thing in the interface rendering at half scale. 16px is 2x native, so a
-       glyph pixel is an art pixel like everything else. */
+    /* ON THE ART GRID: 2x Silkscreen's native 8px, so one glyph pixel is one art pixel like
+       everything else on screen. At native 8px the count was the only thing in the interface
+       rendering at half scale. */
     font-size: var(--t-label, 16px);
-    color: var(--c-ink, #c7dcd0);
-    /* A SOLID CHIP, not an outline. The outline was four offset copies of the glyph, which leaves
-       the diagonals unfilled — so it never closed around a letter and read as a detached blocky
-       halo rather than as a shadow. A chip is one hard rectangle: nothing to disconnect, and it is
-       how a count has been drawn over an item since inventories had items. */
-    background: var(--c-void, #2e222f);
-    padding: 0 var(--px, 2px);
+    /* White, because this sits directly on an item's texture and the ramp's lightest step is not
+       enough separation from a lit ore face. */
+    color: var(--c-white, #ffffff);
+    /* A DROP SHADOW IS ONE OFFSET COPY. This was four copies, one per side, which is an OUTLINE —
+       and a bad one, because four axis-aligned copies leave the diagonals unfilled, so it never
+       closed around a letter and read as a detached blocky halo. One hard copy, one art pixel down
+       and right, is what a pixel font has always used and what actually reads as a shadow. */
+    text-shadow: var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f);
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }
@@ -194,9 +198,9 @@ export class DelveSlot extends HTMLElement {
       pip.className = 'pip';
       this.#icon.append(pip);
     } else {
-      // A whole 16px tile, drawn 1:1 into the slot's 18px interior. Any other size would resample
-      // the very texture the icon exists to show.
-      this.#icon.append(materialIcon(ore, 16));
+      // One world tile at the size the world draws it. Any other size resamples the very texture
+      // the icon exists to show.
+      this.#icon.append(materialIcon(ore, ICON_PX));
     }
     // A count of 1 is noise: a slot holding one of something already says so by being filled.
     const count = this.count;

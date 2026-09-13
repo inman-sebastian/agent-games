@@ -328,16 +328,25 @@ at once. Correct behaviour, wrong request.
 
 Three sizing rules, all learned by looking:
 
-- **A slot is 24 art pixels** with a one-pixel edge: a 22px interior holding a 16px tile with air
-  around it, plus room for the count chip along the bottom. At 20 a three-digit count overflowed the
-  square.
-- **A count is 16px, which is 2× Silkscreen's native 8px.** Native sounds right and is wrong: at 8px
-  one glyph pixel is one CSS pixel, while everything else on screen draws one art pixel as *two*.
-  The count was the only thing in the interface rendering at half scale.
-- **A count sits on a solid chip, not behind a text outline.** A text-shadow outline is four offset
-  copies of the glyph, which leaves the diagonals unfilled, so it never closes around a letter and
-  reads as a detached blocky halo rather than a shadow. A chip is one hard rectangle with nothing to
-  disconnect.
+- **A slot is 20 art pixels** with a one-pixel edge, so the icon fills the square rather than
+  floating in it. **The icon cannot simply be drawn bigger**: it is one 16px world tile, so the only
+  sizes that keep the pixels square are whole multiples — 16 or 32, nothing between. 32 needs a ~36px
+  slot, and six of those do not fit across a panel. So the icon stays 1:1 and the slot tightens
+  around it, which is the same result by the only means available.
+- **Sizes are in CSS pixels, and one art pixel is two of them.** This caught *both* the count and the
+  icon, separately, which is what makes it worth writing down. The count was set at Silkscreen's
+  native 8px and the icon was asked for at "16" — both look like art-pixel numbers, both mean CSS
+  pixels, and both rendered at half the scale of everything else on screen. The icon is now
+  `ICON_PX` (a named constant, `T × UPSCALE`) rather than a number a caller picks, and the count is
+  16px, which is 2× native.
+- **A drop shadow is ONE offset copy.** The count had four, one per side, which is an *outline* — and
+  a poor one, because four axis-aligned copies leave the diagonals unfilled, so it never closed
+  around a letter and read as a detached blocky halo. One hard copy, one art pixel down and right,
+  in white over the item's own texture.
+- **Every icon samples a different world position.** The compositor's erosion and texture are
+  world-anchored, so icons sampled at the same coordinates all get the identical eroded corner.
+  Twelve of those in a grid stops reading as texture and starts reading as a defect. Spacing them
+  gives each material its own chip for free.
 - **The edge is one pixel, and it is a theme decision** (`--slot-edge`, `--slot-edge-w`), not the
   widget's. A slot started with the full inset frame — three pixels of bevelled recess — and a slot
   is repeated a dozen times in a grid, so whatever it spends on furniture it spends twelve times
