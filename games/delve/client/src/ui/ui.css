@@ -44,6 +44,15 @@
   src: url('./fonts/micro5-400.woff2') format('woff2');
 }
 @font-face {
+  /* Bundled for the bench: the condensed alternative for prose, and a candidate count face whose
+     10px design grid sits between Silkscreen's 8 and its doubling. */
+  font-family: 'Jersey 10';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/jersey10-400.woff2') format('woff2');
+}
+@font-face {
   font-family: 'Jersey 15';
   font-style: normal;
   font-weight: 400;
@@ -101,26 +110,27 @@
   /* The debug overlay is a TOOL, not chrome. It stays a real monospace: it prints aligned columns
      of live numbers, which is the one job a proportional pixel face would make worse. */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Numerals on items. SILKSCREEN, not the smaller badge face: a count needs a one-pixel outline to
-     survive sitting on an item's texture, and an outline only reads as an outline when the
-     letterforms have interior air to follow. At five pixels tall a Micro 5 digit is nearly a solid
-     rectangle, so its outline is one too. Compare them in client/labs/panel-lab.html. */
-  --font-count: var(--font-display);
+  /* Numerals on items. JERSEY 10, and the reason is SIZE GRANULARITY rather than style.
+     A pixel face only renders cleanly at whole multiples of its own design grid — measured, not
+     assumed. Silkscreen is an 8px design, so its clean sizes are 5 and 10 CSS pixels of glyph height
+     and nothing in between; 10px and 12px come out with some glyph pixels one CSS pixel wide and
+     others two, which shows as inconsistent stroke weight. Jersey 10 sits on a different grid and
+     lands at 7 — genuinely between the two, still one glyph pixel per CSS pixel so the one-pixel
+     outline still works, and condensed, so a four-character count stays narrow. */
+  --font-count: 'Jersey 10', var(--font-display);
   /* Silkscreen's 8px grid, doubled. Every display size must stay a multiple of 8. */
   --t-label: 16px;
   --t-display: 40px;
   --t-touch: 24px;
   /* Silkscreen's native 8px, for counts and badges drawn inside a slot */
   --t-small: 8px;
-  /* Silkscreen at its NATIVE 8px: digits five pixels tall, the same height as the smaller badge face
-     but with letterforms that have interior air — a zero has a hole in it — so a one-pixel outline
-     follows the shape instead of boxing it.
+  /* Jersey 10 at its native 10px: digits seven CSS pixels tall.
 
-     This is the one place in the interface that is deliberately off the art grid. At 8px a glyph
-     pixel is one CSS pixel rather than two, and the outline is sized to match (--t-count-outline).
-     The alternative, 16px, is on the grid and twice the height, which is simply too big for a number
-     tucked into the corner of a 20-pixel slot. Both are on the bench in client/labs/panel-lab.html. */
-  --t-count: 8px;
+     This is the one place in the interface that is deliberately off the art grid — a glyph pixel here
+     is one CSS pixel rather than two, and the outline is sized to match. The on-grid alternative is
+     Silkscreen at 16px, which is ten pixels tall and too big for a number tucked into the corner of a
+     20-pixel slot. Every candidate is on the bench in client/labs/panel-lab.html. */
+  --t-count: 10px;
   /* The count outline's unit: one GLYPH pixel, which at --t-count is one CSS pixel rather than one
      art pixel. Deliberately NOT in the --t-* namespace, which is for type sizes only — the style
      gate checks every --t-* token against its face's grid, and an offset has no grid. */

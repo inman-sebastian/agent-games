@@ -215,19 +215,24 @@ for (const edge of SLOT_EDGES) {
 
 const COUNTS: readonly { name: string; note: string; css: string }[] = [
   {
-    name: 'B · Micro 5 small, tracked out',
-    note: 'The small end. One glyph pixel is one CSS pixel, so the outline is a true single pixel — but at five pixels tall a Micro 5 digit is nearly a solid rectangle, so its outline is one too.',
-    css: "--count-face: 'Micro 5'; --count-size: 10px; --count-outline: 1px; --count-track: 1px;",
-  },
-  {
-    name: 'B/C · Silkscreen small, 1px outline',
-    note: "BETWEEN THE TWO: B's size with C's letterforms. Silkscreen at 8px is the same five pixels tall as Micro 5 at 10, but its digits have interior air — a zero has a hole in it — so a one-pixel outline follows the shape instead of boxing it. Off the art grid, which is the price.",
+    name: 'A · Silkscreen 8px (current)',
+    note: 'Digits five CSS pixels tall, one glyph pixel per CSS pixel.',
     css: "--count-face: 'Silkscreen'; --count-size: 8px; --count-outline: 1px;",
   },
   {
-    name: 'C · Silkscreen, 1px outline',
-    note: 'The large end, and the only one on the art grid: one glyph pixel is exactly one art pixel. The outline reads cleanly; the number is twice the height.',
-    css: "--count-face: 'Silkscreen'; --count-size: 16px; --count-outline: var(--px);",
+    name: 'B · Jersey 10 at 10px',
+    note: 'A different design grid, so it lands between: taller than Silkscreen 8, well short of 16, and condensed so wide numbers stay narrow.',
+    css: "--count-face: 'Jersey 10'; --count-size: 10px; --count-outline: 1px;",
+  },
+  {
+    name: 'C · Jersey 10 at 12px',
+    note: 'The same face a step up again.',
+    css: "--count-face: 'Jersey 10'; --count-size: 12px; --count-outline: 1px;",
+  },
+  {
+    name: 'D · Silkscreen 16px',
+    note: 'Exactly 2x Silkscreen, the only clean bump it has. Glyph pixels are art pixels; the number is twice the height of A.',
+    css: "--count-face: 'Silkscreen'; --count-size: 16px; --count-outline: 1px;",
   },
 ];
 

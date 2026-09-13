@@ -347,12 +347,16 @@ Three sizing rules, all learned by looking:
   between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
   to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
   one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
-- **The count face is Silkscreen at its native 8px**, the one place in the interface deliberately off
-  the art grid. Size and letterform pull against each other here: an outline only reads as an outline
-  when the glyphs have interior air to follow, and at five pixels tall a Micro 5 digit is nearly a
-  solid rectangle, so its outline is one too. Silkscreen at 8px is the same height with a hole in its
-  zero. The on-grid alternative is 16px, which is twice the height and too big for a number tucked in
-  the corner of a 20-pixel slot. All three are benched in `client/labs/panel-lab.html`.
+- **The count face is Jersey 10 at its native 10px**, and the reason is *size granularity* rather
+  than style. A pixel face only renders cleanly at whole multiples of its own design grid, which has
+  to be **measured** rather than assumed: Silkscreen is an 8px design, so its clean glyph heights are
+  5 and 10 CSS pixels and nothing in between — at 10px and 12px some glyph pixels come out one CSS
+  pixel wide and others two, which shows as inconsistent stroke weight. Jersey 10 sits on a different
+  grid and lands at **7**, genuinely between the two, still one glyph pixel per CSS pixel so the
+  one-pixel outline still works, and condensed, so a four-character count stays narrow.
+  This is the one place in the interface deliberately off the art grid. The on-grid alternative is
+  Silkscreen at 16px, twice the height of the original and too big for a number tucked into the
+  corner of a 20-pixel slot. Everything tried is benched in `client/labs/panel-lab.html`.
 - **Large counts are compacted** (`1280` → `1.2k`). Four digits do not fit, and the failure mode was
   the dangerous kind: `overflow: hidden` clipped the *leading* digit, so a stack of 1280 rendered as
   "280". A wrong number is worse than a truncated one, because nothing about it looks wrong. A screen
