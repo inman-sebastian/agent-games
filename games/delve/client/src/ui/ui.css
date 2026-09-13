@@ -105,19 +105,19 @@
   --c-white: #ffffff;
 
   /* type: a DISPLAY face for everything short, a BODY face for prose. See the @font-face note. */
-  --font-display: 'Silkscreen', ui-monospace, monospace;
+  --font-display: 'm5x7', ui-monospace, monospace;
   --font-body: 'Jersey 15', ui-sans-serif, system-ui, sans-serif;
   /* The debug overlay is a TOOL, not chrome. It stays a real monospace: it prints aligned columns
      of live numbers, which is the one job a proportional pixel face would make worse. */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Numerals on items: m5x7, a face designed at exactly this job's size. */
-  --font-count: 'm5x7', var(--font-display);
-  /* Silkscreen's 8px grid, doubled. Every display size must stay a multiple of 8. */
-  --t-label: 16px;
-  --t-display: 40px;
+  /* Numerals on items: the display face, at the small end of its clean sizes. */
+  --font-count: var(--font-display);
+  /* m5x7 sizes, every one of them MEASURED clean (labs/font-metrics.html): 11, 14, 16, 20, 24, 32,
+     40, 48 and nothing between. Glyph heights here are 11px for a label and 21px for the wordmark. */
+  --t-label: 24px;
+  --t-display: 48px;
   --t-touch: 24px;
-  /* Silkscreen's native 8px, for counts and badges drawn inside a slot */
-  --t-small: 8px;
+  --t-small: 16px;
   /* 16px, which is m5x7's own recommended size (16, 32, 48) and MEASURES clean: seven CSS pixels
      tall with every vertical stroke one pixel wide.
      Exempt from the stylesheet gate's grid rule, like every count size, because that rule is a proxy
@@ -209,6 +209,19 @@ button,
 .wordmark,
 .sub b {
   font-family: var(--font-display);
+}
+
+/* The bitmap bold, on the text that carries the interface's weight. m5x7 ships one weight, so this
+   is the smear — see --count-bold for what it is and why. Composed with each element's own hard
+   drop shadow rather than replacing it. */
+h1,
+h2,
+button,
+.stat b,
+.row .nm {
+  text-shadow:
+    var(--smear),
+    0 var(--px) 0 var(--c-void);
 }
 /* the game canvas fills the whole screen, edge to edge, behind the UI overlay */
 #c {

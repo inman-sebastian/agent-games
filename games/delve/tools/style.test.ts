@@ -70,43 +70,43 @@ describe('the UI stylesheet is measured in art pixels', () => {
 });
 
 describe('the UI type is drawn at its own grid', () => {
-  it("every pixel-type size is a whole multiple of ITS OWN face's grid", () => {
-    // A pixel face drawn at 17px is just a blurry face, which defeats the entire reason for using
-    // one. But "the grid" is per FACE, not global: Silkscreen is an 8px design and Micro 5 is a 5px
-    // one, so 10px is exactly right for the second and wrong for the first. Asserting one global
-    // grid was the first version of this and it rejected a correct size.
+  it('sizes pixel type only at sizes MEASURED to render cleanly', () => {
+    // This replaced a grid heuristic — "a whole multiple of the face's design grid" — which was wrong
+    // in both directions. It rejected Silkscreen at 11px, which renders with every stroke the same
+    // width, and would have accepted 10px, which does not. A font's em is not its glyph height, so
+    // the clean sizes cannot be derived from the grid number at all.
     //
-    // Two tokens have no grid at all, and not as a convenience. `--t-body` is the prose face, which
-    // should be sized for READING rather than for pixel purity, and `--t-mono` is the debug
-    // overlay's real monospace, which is a tool rather than chrome.
-    const GRIDS: Record<string, number> = {
-      '--t-label': 8, // Silkscreen
-      '--t-display': 8,
-      '--t-touch': 8,
-      '--t-small': 8,
+    // So these are MEASUREMENTS, taken by client/labs/font-metrics.html: the sizes at which every
+    // vertical stroke in a row of zeros comes out the same width. A face scaled badly lands some
+    // strokes on one pixel and others on two, which reads as inconsistent weight inside a single
+    // word and is invisible to the eye at these sizes.
+    //
+    // RE-RUN THE HARNESS when a face changes or a new size is wanted. A number not in this list is
+    // not necessarily wrong — it is unmeasured, which is the same thing as far as this test cares.
+    const MEASURED_CLEAN: Record<string, readonly number[]> = {
+      m5x7: [11, 14, 16, 20, 24, 32, 40, 48],
     };
+    /** Which face each type token is set in. Prose and the debug monospace are not pixel faces. */
+    const TOKEN_FACE: Record<string, string> = {
+      '--t-label': 'm5x7',
+      '--t-display': 'm5x7',
+      '--t-touch': 'm5x7',
+      '--t-small': 'm5x7',
+      '--t-count': 'm5x7',
+    };
+    const NOT_PIXEL = ['--t-body', '--t-mono'];
+
     const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)];
     expect(tokens.length, ':root declares type tokens').toBeGreaterThan(1);
-    const checked: string[] = [];
     for (const [, token, size] of tokens) {
-      const grid = GRIDS[token];
-      if (grid === undefined) continue; // --t-body, --t-mono: not pixel faces
-      checked.push(token);
-      expect(Number(size) % grid, `${token} is off its face's ${grid}px grid`).toBe(0);
+      if (NOT_PIXEL.includes(token)) continue;
+      const face = TOKEN_FACE[token];
+      expect(face, `${token} is declared in neither TOKEN_FACE nor NOT_PIXEL`).toBeDefined();
+      expect(
+        MEASURED_CLEAN[face],
+        `${token} does not render cleanly in ${face} at ${size}px — measured clean: ${MEASURED_CLEAN[face].join(', ')}`,
+      ).toContain(Number(size));
     }
-    // Guards the guard: a new token silently added to neither list would otherwise be unchecked.
-    // `--t-count` is exempt because the grid rule is a PROXY for clean rendering and it is wrong in
-    // both directions: it rejects Silkscreen at 11px, which measures uniform, and would accept 10px,
-    // which does not. The real property — every vertical stroke the same width — can only be seen in
-    // a rendered bitmap, so it is measured by client/labs/font-metrics.html instead of asserted here.
-    const ungridded = ['--t-body', '--t-mono', '--t-count'];
-    const known = [...Object.keys(GRIDS), ...ungridded];
-    for (const [, token] of tokens) {
-      expect(known, `${token} is declared in neither the grid map nor the exempt list`).toContain(
-        token,
-      );
-    }
-    expect(checked.length, 'at least the display and badge faces are checked').toBeGreaterThan(1);
   });
 
   it('sizes type through the tokens, never with a bare px', () => {

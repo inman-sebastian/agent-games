@@ -139,66 +139,36 @@ stand-in, which read as ribbons and tested almost nothing. Capture the lot with
 omission: it prints aligned columns of live numbers, which is the one job a proportional pixel face
 makes worse. It is a tool, not chrome.
 
-### Typography — decided: Silkscreen + Jersey 15
-
-The stylesheet work removed every soft material from the interface, which made the one remaining
-soft thing obvious: a **system sans** inside hard-edged boxes is now the loudest tell that the UI is
-not part of the game.
-
-`client/labs/font-lab.html` renders DELVE's real chrome in each candidate, because a font cannot be
-judged from a specimen sheet. What matters is whether it survives the **four jobs** the game actually
-asks of it, at the sizes they appear:
-
-1. the **wordmark** (display, ~44px)
-2. a **button label** (short, sentence case)
-3. a **tabular HUD number** (must align, must read at a glance)
-4. a **full sentence** of ore description
-
-Most pixel faces pass the first three and fail the fourth, so job 4 is the decision. Capture with
-`BUDGET=8000 tools/shot.sh 'only=silkscreen,vt323&w=58&h=46&scale=1' out.png labs/font-lab.html` —
-the budget flag is required, since capturing at `load` shoots every candidate as an invisible
-fallback.
-
-| Candidate | Grid | Reads as | Job 4 |
-| --- | --- | --- | --- |
-| Silkscreen | 8px | a classic 8px UI face, superb wordmark | lowercase renders as small caps, so prose SHOUTS |
-| Pixelify Sans | 5px | true lowercase, variable weight | the most prose-capable of the set |
-| Jersey 15 | 15px | blocky, substantial, stone-like | comfortable |
-| Jersey 10 | 10px | tall and condensed, fits a lot | comfortable, lighter |
-| VT323 | 8px | a CRT terminal — a machine, not stone | fine, but wrong genre for a mine |
-| Handjet | 8px | machine-stamped dot matrix, distinctive | thin and effortful |
-| Press Start 2P | 8px | the NES face | fails — one sentence costs four lines |
-| Micro 5 | 5px | the smallest legible pixel type | too small to be the body face |
+### Typography — decided: m5x7 + Jersey 15
 
 **A pairing, because no single face did all four jobs.**
 
-- **Silkscreen** carries everything **short**: wordmark, headings, buttons, HUD, labels. Used at
-  16px and 40px — whole multiples of its 8px design grid, or it stops being crisp, which is the only
-  reason to use a pixel face at all. Its lowercase renders as small caps, which is exactly right for
-  a label and exactly wrong for a sentence.
-- **Jersey 15** carries **prose**: ore descriptions, subtitles, the tagline. True lowercase,
-  comfortable at paragraph length, and blocky enough to sit beside Silkscreen without arguing.
+- **m5x7** (Daniel Linssen, CC0) carries everything **short**: wordmark, headings, buttons, HUD,
+  labels and slot counts. Used at 24px for labels and 48px for the wordmark — both sizes the harness
+  measured clean. It has **true lowercase**, which is the reason it displaced Silkscreen: Silkscreen
+  renders lowercase as small caps, so every material name shouted (`MYTHRIL`, `IRON`). Names now read
+  as names.
+- **Jersey 15** carries **prose**: ore descriptions, subtitles, the tagline. Prose is the *only*
+  thing that gets the body face; the split is one grouped rule, so moving a surface between them is
+  one line.
 
-Prose is the **only** thing that gets the body face; everything else is display. The split is one
-grouped rule in `ui.css`, so moving a surface between them is one line.
+m5x7 ships a single weight, so the interface's bold is the **smear** described under the slot count:
+one copy of the glyph a pixel to the side. It is a token (`--smear`) applied to headings, buttons and
+HUD values, composed with each element's own hard drop shadow rather than replacing it.
 
-**Self-hosted**, not fetched: `client/src/ui/fonts/`, four `.woff2` files totalling 16 KB, with
-licence and attribution in `OFL.txt` (both families are SIL OFL 1.1, which permits bundling in a
-game). The game must not hand a third party a request on every load, and it must boot offline.
-`font-display: block` rather than `swap` — a brief invisible label beats a flash of system sans
-reflowing the whole interface, since these faces have very different metrics from a fallback.
-`tools/style.test.ts` asserts the stylesheet fetches nothing remote, sizes type only through the
-tokens, and keeps every display size on the 8px grid.
+`client/labs/ui-lab.html?type=current|display|all` swaps whole type scales, which is how this was
+decided — one label at a time tells you nothing about a scale. The `all` variant (m5x7 for prose too)
+was rejected on prose height: descriptions fall to seven pixels, tighter than Jersey 15 sets them.
 
-**Jersey 10** is bundled alongside as the live alternative for the prose face — condensed, fits more
-per line, worth a look if the inventory and codex lists get dense. Swap `--font-body` and delete the
-loser. **Pixelify Sans** was rejected on look. Two strong candidates are not on Google Fonts and are
-worth reaching for if the prose face needs replacing: **Departure Mono** (OFL) and **Pixel
-Operator** (CC0), both full families rather than single faces.
+**Self-hosted**, not fetched: `client/src/ui/fonts/`, with licence and attribution in `OFL.txt`. The
+game must not hand a third party a request on every load, and it must boot offline. `font-display:
+block` rather than `swap` — a brief invisible label beats a flash of system sans reflowing the whole
+interface, since these faces have very different metrics from a fallback.
 
-Every candidate here is openly licensed (OFL or CC0). A licensed typeface is chrome, not a found
-game asset — the art direction's ban is on emoji, clip art and stock images standing in for art the
-agent should author, and it is satisfied by a font the way it is by a system sans.
+**Silkscreen and Jersey 10 stay bundled** as bench alternatives. `tools/style.test.ts` asserts the
+stylesheet fetches nothing remote, sizes type only through the tokens, and — the important one —
+that every pixel-type size is one the harness **measured** to render cleanly, rather than one that
+merely looks like a tidy multiple.
 
 ### Panel frames — built, and one rejected approach
 
