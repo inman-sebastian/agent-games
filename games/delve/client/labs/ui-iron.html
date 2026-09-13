@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — iron iterations</title>
+    <link rel="stylesheet" href="../src/ui/ui.css" />
+    <style>
+      body {
+        overflow: auto;
+        touch-action: auto;
+      }
+      #ground {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 0;
+        image-rendering: pixelated;
+        display: block;
+      }
+      #board {
+        position: relative;
+        z-index: 20;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--s5);
+        padding: var(--s5);
+      }
+      .iter {
+        /* re-resolve the ink, since `color` inherits as a computed value */
+        color: var(--c-ink);
+        width: 430px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--s2);
+      }
+      /* captions pinned to the mono face so they stay constant while the plate changes */
+      .head {
+        font-family: var(--font-mono);
+        font-size: var(--t-mono);
+        line-height: 1.5;
+        color: #9babb2;
+      }
+      .head .nm {
+        font-family: var(--font-display);
+        font-size: var(--t-label);
+        color: #fbb954;
+      }
+      /* THE ONLY THING AN ITERATION CHANGES: the panel's own frame. */
+      .iter .panel {
+        max-width: 100%;
+        background: var(--c-panel);
+        border: var(--panel-fw) solid var(--c-edge);
+        border-image: var(--panel-frame) var(--panel-slice) fill / var(--panel-fw) / 0 repeat;
+        image-rendering: pixelated;
+        box-shadow: var(--s1) var(--s1) 0 #2e222fcc;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="ground"></canvas>
+    <div id="board"></div>
+    <script type="module" src="./ui-iron.ts"></script>
+  </body>
+</html>

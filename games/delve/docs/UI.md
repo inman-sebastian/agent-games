@@ -281,6 +281,27 @@ Three things the prototypes taught immediately, all of which would have been inv
 - **Deriving a control's face from the bevel highlight** turns every button the highlight colour,
   which is invisible while the highlight is a grey and glaring the moment it is not.
 
+### Iterating within iron — `client/labs/ui-iron.html`
+
+The direction is settled: a cool flat plate, hard outline, bright top rim, brass as the single warm
+accent. What is not settled is how the plate is **built**, so six constructions, with the palette held
+**constant** across all of them — if the accent moved too, the comparison would answer nothing.
+
+| | Construction | Reads as |
+| --- | --- | --- |
+| B1 | outline, lit rim, flat face | the baseline; only the rim says metal |
+| B2 | B1 + a 3×3 bolt head in each corner | cast and fastened |
+| B3 | outline, lit lip, **dark groove**, second lip | milled rather than cast — the thickest-feeling plate |
+| B4 | corners **chamfered** | cut steel, at the cost of the outline no longer closing at 90° |
+| B5 | **corner brackets only**, empty edge slices | the sparsest; the only one that does not box content in |
+| B6 | B2 + the heading in a **recessed title strip** | a label plate on a machine |
+
+**Bolt heads are 3×3, not 2×2.** At two art pixels there is no room for a rivet to have a lit side,
+and a dot with no lighting is a dot rather than a fastener — which is exactly how the 2×2 attempt in
+the earlier panel bench read.
+
+B3 and B6 are the strongest, and they are **combinable**: a grooved frame with a title strip in it.
+
 ## Icons and the slot widget — built
 
 **Four surfaces are the same widget.** The action bar, the inventory, the equipment screen and a
