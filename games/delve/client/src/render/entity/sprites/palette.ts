@@ -29,4 +29,7 @@ export const TEMPLATE_PALETTE = [
   '#5fb4d9',
   '#d95763',
   '#ffffff',
+  '#2f3b3d',
+  '#ebf0ee',
+  '#d4d0cd',
 ] as const;

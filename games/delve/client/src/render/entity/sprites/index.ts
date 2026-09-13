@@ -4,3 +4,4 @@
 // re-run of the importer; nothing here is written by hand.
 export { TEMPLATE_PALETTE } from './palette';
 export * from './player';
+export * from './hana';

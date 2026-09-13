@@ -305,8 +305,8 @@ passing.
 ## Trialling a second pack — what the pipeline learned
 
 A second character pack (Hana Caraka Base Character, by Otterisk) was imported as a possible
-alternative. It did not survive the look, but getting it far enough to judge exposed four real
-limitations, three of which are now fixed.
+alternative. Getting it far enough to judge exposed four real limitations in the pipeline, three of
+which are now fixed — and the decision it leaves open is about scale, not art.
 
 ### The importer can now take one entity at a time
 
@@ -341,24 +341,38 @@ So `TEMPLATE_PARTS` cannot express a skin for it, and the test that every templa
 part fails by design. Per-slot **materials** already key on the slot name and would work; a
 per-slot *flat ramp* has no equivalent. That is the gap if a pack like this is ever adopted.
 
-### And the reason it was rejected
+### What it actually costs
 
 | | Current pack | Hana Caraka |
 | --- | --- | --- |
 | Height | 30 art px, ~1.9 tiles | **15 art px, ~0.9 tiles** |
-| View | side profile | **three-quarter, facing the viewer** |
+| View | side profile | three-quarter, facing the viewer |
 | Facings | one | three (`up`, `down`, `side`) |
 | Legs | own layers | none — the body carries them |
+| Encoding | colour-coded per part | blank base: 3 codes for the whole figure |
 
-The scale is a **gameplay** change, not an art change: the body was resized to 1.81 tiles *for* the
-current art, and the tunnel clearances follow from it (see DESIGN.md). The view is the harder problem
-— its `side` facing still shows both eyes, because in a top-down RPG the sideways walk faces the
-camera. In a side-scroller that reads as a character running sideways while staring at the player.
+**The three-quarter view is fine, and an earlier note in this file said otherwise.** Plenty of
+side-scrollers draw characters facing the viewer; it reads as deliberate as long as it is
+*consistent*. The complaint that produced that note was about the deleted procedural rig, whose
+perspective wandered frame to frame — inconsistency, not the angle itself. Corrected here because a
+wrong reason on record is worse than no reason.
 
-Its animations are also all 4-8 frames at 10fps, and phase-locking (below) can raise an effective
-rate but not invent frames.
+**The scale is the real decision, and it is a gameplay one.** Two options, and only two, because a
+sprite must be scaled by a whole number or it stops being pixel art:
 
-## Locomotion timing, and the step-up lift
+- **1×** — the figure is about one tile. The player body would come back down from 1.81 tiles, which
+  re-opens every clearance in DESIGN.md. A one-tile miner makes tight tunnels viable and two-tile
+  corridors generous, which is arguably a *better* fit for a digging game.
+- **2×** — the figure matches the current height exactly, but its pixels are twice the size of the
+  world's. That breaks the one-pixel-grid rule the rest of the project holds, and it is visible: the
+  outline comes out two art pixels thick against 16px tiles.
+
+**Per-part colour is the open gap.** `base` gives the whole figure one ramp, which is all the source
+encodes. Differentiating head from torso needs per-slot **materials**, which key on the slot name and
+so do not care how the source encoded parts — but there is no per-slot *flat ramp*, which is what a
+simple recolour would want.
+
+## Locomotion timing, and the step-up lift## Locomotion timing, and the step-up lift
 
 **The walk cycle is locked to DISTANCE, not to the clock.** One full cycle covers `STRIDE_TILES`
 (2.2 tiles, so 1.1 per step) and the frame is chosen from the fraction of a stride covered.

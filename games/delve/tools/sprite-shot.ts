@@ -22,6 +22,7 @@ import {
   MINER_WITH_PACK,
   PLATE_ARMOUR,
   PLAYER_LAMP,
+  HANA_SKIN,
 } from '../client/src/render/entity/skin';
 import { OVERHEAD, type SpriteLight } from '../client/src/render/entity/surface';
 
@@ -45,6 +46,7 @@ if (!registry) {
     .map((k) => k.replace('_SPRITES', '').toLowerCase());
   throw new Error(`no entity "${entity}" — imported entities: ${have.join(', ')}`);
 }
+const defaultSkin: SpriteSkin = entity === 'hana' ? HANA_SKIN : MINER_SKIN;
 const anim = registry[name];
 if (!anim || !out) {
   console.error(
@@ -74,7 +76,7 @@ const base: SpriteSkin = args.includes('--pack')
       ? PLATE_ARMOUR
       : args.includes('--steel')
         ? ALL_STEEL
-        : MINER_SKIN;
+        : defaultSkin;
 const skin: SpriteSkin = {
   ...base,
   hide: [...(base.hide ?? []), ...hide],

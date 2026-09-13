@@ -43,6 +43,11 @@ export const TEMPLATE_PARTS: readonly {
   { color: '#fbf236', part: 'legNear', shade: 1 },
   { color: '#d1cc60', part: 'legNear', shade: 0 },
 
+  // The Hana Caraka base character: three codes for the whole figure — see `base` on SkinPart.
+  { color: '#2f3b3d', part: 'base', shade: 0 },
+  { color: '#d4d0cd', part: 'base', shade: 1 },
+  { color: '#ebf0ee', part: 'base', shade: 2 },
+
   { color: '#df7126', part: 'torso', shade: 2 },
   { color: '#c46423', part: 'torso', shade: 1 },
   { color: '#b35b20', part: 'torso', shade: 0 },
@@ -68,7 +73,24 @@ export const TEMPLATE_PARTS: readonly {
 ];
 
 export type SkinPart =
-  'head' | 'torso' | 'armNear' | 'armFar' | 'legNear' | 'legFar' | 'flash' | 'unused';
+  | 'head'
+  | 'torso'
+  | 'armNear'
+  | 'armFar'
+  | 'legNear'
+  | 'legFar'
+  | 'flash'
+  /**
+   * A whole figure at once, for a pack that is a BLANK BASE rather than a colour-coded template.
+   *
+   * The player's pack gives each body part its own code, which is what lets a colour map to a part.
+   * A base character has three codes total — outline, light, shadow — shared by every part, so part
+   * identity lives only in the LAYERS. `base` is the honest mapping for that: one ramp for the whole
+   * figure. Per-part variation there has to come from per-slot MATERIALS, which key on the slot name
+   * and so do not care how the source encoded parts.
+   */
+  | 'base'
+  | 'unused';
 
 /** A ramp per part, DARKEST FIRST, long enough to cover that part's shade count. */
 export type SkinRamps = Readonly<Record<SkinPart, readonly string[]>>;
@@ -120,6 +142,7 @@ export const MINER_RAMPS: SkinRamps = {
   legNear: OVERALLS,
   legFar: OVERALLS_FAR,
   flash: ['#ffffff'],
+  base: [],
   unused: [],
 };
 
@@ -130,6 +153,16 @@ export const MINER_RAMPS: SkinRamps = {
 export const OUTLINE = '#2e222f';
 
 export const MINER_SKIN: SpriteSkin = { ...buildSkin(MINER_RAMPS), outline: OUTLINE };
+
+// ---- the trial base character --------------------------------------------------------------------
+//
+// One ramp for the whole figure, because that is all the source encodes (see `base`). Dark blue
+// cloth so it reads as the same miner rather than as a different character, all Resurrect-64.
+const HANA_CLOTH = ['#2e222f', '#484a77', '#8fd3ff'];
+
+export const HANA_RAMPS: SkinRamps = { ...MINER_RAMPS, base: HANA_CLOTH };
+
+export const HANA_SKIN: SpriteSkin = { ...buildSkin(HANA_RAMPS), outline: OUTLINE };
 
 /** The miner with the pack's baked damage flash suppressed — DELVE renders its own hit feedback. */
 export const MINER_SKIN_NO_FLASH: SpriteSkin = { ...MINER_SKIN, hide: ['fx.damage'] };
