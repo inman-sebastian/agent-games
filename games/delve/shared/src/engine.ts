@@ -340,6 +340,14 @@ export function physicsStep(
     for (let step = 1; step <= STEP_UP_TILES; step++) {
       if (bodyFits(world, x, player.y - step)) {
         player.y -= step;
+        // Emitted so the renderer can animate the rise. The sim's move is instant and stays
+        // instant; what the player sees does not have to be.
+        events.push({
+          type: 'step',
+          c: Math.floor(x),
+          r: Math.floor(player.y + HALF_HEIGHT),
+          tiles: step,
+        });
         return true;
       }
     }

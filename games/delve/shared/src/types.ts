@@ -162,12 +162,22 @@ export interface Input {
 
 /** An event emitted by a sim step, for the presentation layer to react to (juice). */
 export interface SimEvent {
-  type: 'chip' | 'break' | 'jump';
+  /**
+   * `step` is a STEP-UP ASSIST, and it exists purely so the presentation can animate it.
+   *
+   * The sim resolves a step instantly — it has to, or the assist would not be an assist — and an
+   * instant one-tile rise reads as the character teleporting onto the ledge. The event carries the
+   * height so the renderer can ease the figure up to a position the sim already decided, which is
+   * the separation the whole project runs on: resolve in logic, animate toward the result.
+   */
+  type: 'chip' | 'break' | 'jump' | 'step';
   c: number;
   r: number;
   ore?: number;
   qty?: number;
   rich?: boolean;
+  /** For `step`: how far up the body moved, in tiles. */
+  tiles?: number;
   hp?: number;
   maxHp?: number;
 }

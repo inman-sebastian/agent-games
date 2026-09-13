@@ -16,7 +16,7 @@ import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './ren
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
-import { drawPlayer, poseFor } from './render/entity/player';
+import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
 import { hydrate, load, save, fresh } from './save';
@@ -612,11 +612,11 @@ function render(t: number): void {
   const halfHeight = engine.PHYS.HH;
   const footX = Math.round(px * T);
   const footY = Math.round((py + halfHeight) * T);
-  // Frame timing follows the animation's own authored durations, scaled a little by run speed so a
-  // brisk walk does not look like it is sliding.
-  const gait =
-    miner.state === 'run' ? Math.max(0.6, Math.abs(s.player.vx) / engine.PHYS.RUN_SPEED) : 1;
-  drawPlayer(ctx, poseFor(miner.state, t * 1000, gait), footX, footY, {
+  // Drawn LOWER than the sim has it while a step-up is being carried up — the only place the
+  // renderer deliberately disagrees with the sim about where the player is, and it converges within
+  // STEP_LIFT_TIME.
+  const lift = stepTiles > 0 ? stepLift(stepTiles, stepAge) : 0;
+  drawPlayer(ctx, poseFor(miner.state, t * 1000, walked), footX, Math.round(footY + lift * T), {
     scale: 1,
     facing: s.player.facing,
   }); // lamp bloom is part of the lighting pass
@@ -824,6 +824,12 @@ let inputSeq = 0; // monotonic input counter; the server echoes the last-applied
 const pendingInputs: { seq: number; input: Input }[] = []; // un-acked inputs, replayed after each snapshot
 let correctionX = 0; // reconciliation error, absorbed into the render offset and decayed to 0
 let correctionY = 0;
+// Ground covered, in tiles. The walk cycle is phase-locked to this rather than to the clock, so the
+// feet turn over with the floor instead of skating across it (see STRIDE_TILES).
+let walked = 0;
+// A step-up the sim has already resolved, being carried up visually. `tiles` is how far it rose.
+let stepTiles = 0;
+let stepAge = 0;
 const CORRECTION_RETAIN = 0.0025; // fraction of the correction kept per second (fast; invisible on LAN)
 
 // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and the
@@ -831,6 +837,13 @@ const CORRECTION_RETAIN = 0.0025; // fraction of the correction kept per second 
 function onEvent(ev: SimEvent): void {
   const cx = ev.c * T + T / 2;
   const cy = ev.r * T + T / 2;
+  if (ev.type === 'step') {
+    // The sim moved the body a whole tile in one tick. Hold the figure where it WAS and carry it up
+    // over STEP_LIFT_TIME, so a resolved assist reads as a step rather than as a teleport.
+    stepTiles = ev.tiles ?? 1;
+    stepAge = 0;
+    return;
+  }
   if (ev.type === 'chip') {
     sfx.chip();
     chips(cx, cy, 2, '#8a7a66', 25);
@@ -895,6 +908,8 @@ function tick(): void {
   }
   lastFallSpeed = s.player.vy; // pre-step descent speed (vy>0 = falling); the landing hook reads it
   const res = engine.physicsStep(s, input, TICK_DT);
+  // Only while actually on the ground: a cycle advanced by airborne drift would land mid-stride.
+  if (s.player.grounded) walked += Math.abs(s.player.vx) * TICK_DT;
   for (const ev of res.events) onEvent(ev);
   moving = Math.abs(s.player.vx) > engine.MOVE_EPSILON;
   engine.driveMiner(miner, s.player, s.player.digKey !== null); // may fire the landing hook above
@@ -951,6 +966,12 @@ function frame(now: number): void {
       steps++;
     }
     if (steps === MAX_CATCHUP_TICKS) accumulator = 0; // fell far behind → drop the backlog
+  }
+
+  // carry a resolved step-up upward (see stepLift)
+  if (stepTiles > 0) {
+    stepAge += dt;
+    if (stepAge >= STEP_LIFT_TIME) stepTiles = 0;
   }
 
   // decay the reconciliation correction toward 0 (framerate-independent)

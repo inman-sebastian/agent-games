@@ -302,6 +302,40 @@ full swing, or resolving the anchor against the whole figure's silhouette rather
 Both are decisions rather than tweaks, which is why this is tracked as #48 rather than fixed in
 passing.
 
+## Locomotion timing, and the step-up lift
+
+**The walk cycle is locked to DISTANCE, not to the clock.** One full cycle covers `STRIDE_TILES`
+(2.2 tiles, so 1.1 per step) and the frame is chosen from the fraction of a stride covered.
+
+This began as a fix for the cycle reading as *slow* and turned out to be the same bug as the feet
+skating. Driven by the pack's authored 1.08s at DELVE's 6 tiles a second, one cycle covered **6.5
+tiles** — a 3.2-tile stride on a character 0.9 tiles wide. Locking to the ground fixes both at once:
+
+| | Cycle | Effective rate | Stride |
+| --- | --- | --- | --- |
+| Clock-driven | 1.08 s | 7.4 fps | 6.5 tiles |
+| Distance-locked | 0.37 s at full speed | **21.8 fps** | 2.2 tiles (1.1 per step) |
+
+**No new art.** The frames were always there, being shown too slowly — which is worth remembering
+before reaching for more frames, because the pack has none to give.
+
+Distance only accumulates while grounded; a cycle advanced by airborne drift would land mid-stride.
+A stationary player holds its frame, which is correct and is why there is no minimum gait.
+
+### The step-up lift
+
+The step-up assist (#44) moves the body a whole tile in one tick, and it has to — an assist that
+took time would not be an assist. But an instant one-tile rise reads as the character *teleporting*
+onto the ledge, which is exactly how it was reported.
+
+So the sim emits a `step` event carrying the height, and the renderer draws the figure **below** its
+true position and carries it up over `STEP_LIFT_TIME` (110 ms), eased out so the rise is fast off the
+back foot and settles. This is the one place the renderer deliberately disagrees with the sim about
+where the player is, and it converges within a tenth of a second.
+
+It is also the project's own rule applied to a case that had broken it: resolve in logic, animate
+toward the already-decided result. The sim never moved.
+
 ## The outline
 
 Entities carry a **one-pixel dark rim**; the world does not. Rock separates itself geometrically —
