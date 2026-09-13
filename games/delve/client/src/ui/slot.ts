@@ -121,24 +121,14 @@ const SHEET = `
     /* White, because this sits directly on an item's texture and the ramp's lightest step is not
        enough separation from a lit ore face. */
     color: var(--c-white, #ffffff);
-    /* A ONE-PIXEL OUTLINE, all eight directions. A count sits directly on an item's texture, which
-       can be any value from near-black to a lit gold face, so it needs to be readable against all of
-       them — an outline does that where a drop shadow only helps on one side.
-       EIGHT offsets, not four: four axis-aligned copies leave the DIAGONALS unfilled, so the outline
-       never closes around a letter. That was the earlier version, and it read as a detached blocky
-       halo rather than as an outline. It also looked twice as thick as intended, because the count
-       was then set at a font size where one glyph pixel was one CSS pixel, so a one-art-pixel offset
-       moved it two glyph pixels. At Micro 5's 2x size one glyph pixel IS one art pixel, so this is
-       genuinely one pixel. */
-    text-shadow:
-      var(--px, 2px) 0 0 var(--c-void, #2e222f),
-      calc(var(--px, 2px) * -1) 0 0 var(--c-void, #2e222f),
-      0 var(--px, 2px) 0 var(--c-void, #2e222f),
-      0 calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f),
-      var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f),
-      calc(var(--px, 2px) * -1) var(--px, 2px) 0 var(--c-void, #2e222f),
-      var(--px, 2px) calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f),
-      calc(var(--px, 2px) * -1) calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f);
+    /* A ONE-PIXEL DROP SHADOW: a single offset copy, down and right, which is the direction the
+       light comes from everywhere else in the interface. It lifts the number off the item's texture
+       without drawing anything AROUND it.
+       Not a ring. An eight-way offset closes a dark border around every glyph, and at five art
+       pixels tall that border is a third of the letter — it reads as a box with a number in it
+       rather than as text standing proud of the surface. A shadow describes where the light is; an
+       outline just fences the text in. */
+    text-shadow: var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f);
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }

@@ -339,18 +339,13 @@ Three sizing rules, all learned by looking:
   pixels, and both rendered at half the scale of everything else on screen. The icon is now
   `ICON_PX` (a named constant, `T × UPSCALE`) rather than a number a caller picks, and the count is
   16px, which is 2× native.
-- **A count is white with a one-pixel outline, on all EIGHT sides.** It sits directly on an item's
-  texture, which can be anything from near-black to a lit gold face, so it has to read against all of
-  them — an outline does that where a drop shadow only helps on one side. Eight offsets rather than
-  four, because four axis-aligned copies leave the *diagonals* unfilled and the outline never closes
-  around a letter. An earlier version was exactly that, and compounded it by being set at a size where
-  one glyph pixel was one CSS pixel, so each offset moved *two* glyph pixels. The result read as a
-  detached blocky halo, which is a fair description of a double-thick outline with holes in it.
-- **A count uses the badge face, not the display face.** Micro 5 is drawn on a 5px grid, so at 10px
-  it is 2× native and **5 art pixels tall**. Silkscreen's smallest on-grid size is 8, and at that
-  height a three-digit count read as a label stretched across the item rather than a number tucked in
-  its corner. Staying on the grid is not negotiable, which is *why* the answer was a different face
-  rather than a smaller size.
+- **A count is white with a one-pixel drop shadow**: a single offset copy, down and right, matching
+  the light direction the bevels use. It lifts the number off the item's texture without drawing
+  anything *around* it.
+  Not an outline. An eight-way offset closes a dark border around every glyph, and at five art pixels
+  tall that border is a third of the letter — it reads as a box with a number in it rather than as
+  text standing proud of the surface. A shadow says where the light is; an outline just fences the
+  text in. (Both were tried, in that order.)
 - **An icon is a perfect square.** An item in a slot is an object, not a piece of the world, and a
   bitten corner reads as damage. The compositor erodes a tile wherever it meets open space, so the
   icon's tile is buried with its opening **two rows up** — far enough that nothing erodes it, and the
