@@ -54,6 +54,37 @@ surroundings out of the dark** by the identical rule, and the **first rock layer
 around a lit tunnel catches a warm rim for free** (one attenuated step of warm light)
 — the SteamWorld dug-edge signature, emergent rather than special-cased.
 
+## Cost
+
+The pass is **bounded by the lamp, not by the screen** — every step below does work proportional to
+how far light actually carries, so a bigger window costs almost nothing extra. This is what made the
+system affordable at cell granularity after the 2×2 split (#44) quadrupled the grid; before it, the
+lighting alone was 16ms of a 25ms frame.
+
+Two bounds, both **derived rather than tuned**, so they stay correct if the attenuation or the lamp's
+strength changes:
+
+- **Propagation reach.** Each sweep step multiplies by at most `OPEN_ATTEN`, so the strongest seed is
+  down to `seed × OPEN_ATTEN^n` after `n` steps. Solve for the `n` where that drops under
+  `PROPAGATION_EPS` and every cell beyond is provably invisible; the four sweeps run over that box
+  instead of the grid. Cells outside keep the zero they were cleared to — which is what the
+  propagation would have written anyway.
+- **Scrim extent.** A pixel no light reaches always resolves to the _same_ value: with brightness 0
+  the darkness term lands exactly on a dither step, so the Bayer offset drops out and the result is
+  independent of x and y. So the buffer is filled with that one word (memset-speed) and the per-pixel
+  loop runs only where the answer can differ — inside the lit box, and in the band where the sky
+  boundary crosses the screen. Open sky is the other constant (it clears to nothing regardless of
+  light), so only the ~terrain-height band between the shallowest and deepest column boundary varies
+  across a row.
+
+`PROPAGATION_EPS` is deliberately a quarter of `LIGHT_FLOOR`: the cut has to land well inside the
+range the scrim already crushes to black, or the additive glow shows a faint square edge where the
+sweep stopped.
+
+**Don't reintroduce a full-screen pass here.** If you add a light source, it seeds the field and the
+box grows to fit it — that's automatic. If you add something that needs a value at _every_ cell, it
+is not a lighting feature, and the bounds above are load-bearing.
+
 ### Exposed-rock transition band
 
 Exposed rock reads as a **broad, softly-fading lit band** ~2–3 tiles deep (SteamWorld/Core
@@ -65,7 +96,7 @@ real canvas — damage FX lives in `client/src/render/materials/fx.ts` (`drawDam
 
 ### Lamp-only visibility (the void)
 
-> **Terminology: "vision" is retired.** It implies *revealing tiles*, and there is **no fog of war
+> **Terminology: "vision" is retired.** It implies _revealing tiles_, and there is **no fog of war
 > and no seen-memory** here — only per-pixel illumination. The player's own light source is the
 > **lamp** (`stats().lamp` — reach in tiles); what's actually lit is **illumination**.
 
@@ -77,7 +108,7 @@ colour — ore included. Above the surface the scrim is currently forced off (`a
 is unaffected — see [below](#daylight-and-the-daynight-cycle), which changes that.
 
 **Crucially, the light isn't the player's — it's the world's.** A player walking in pitch darkness
-still *sees* the moment they stumble into a lit area, because any emitter lights them regardless of
+still _sees_ the moment they stumble into a lit area, because any emitter lights them regardless of
 their own lamp. This is the difference between an illumination model and a reveal radius, and the
 design depends on it.
 
@@ -91,7 +122,7 @@ would be a separate feature layered on top).
 > was deliberately removed — veins read purely by their baked surface plus sparkle/twinkle, lit like
 > any other rock, so with lamp-only visibility unlit ore stays hidden in the void and never washes
 > the dark. The coloured-emitter path below is **built, proven and idle**, waiting for the first
-> world light source. That's a *feature*: the hook the design needs already exists.
+> world light source. That's a _feature_: the hook the design needs already exists.
 
 Coloured light obeys the same occlusion rules as the lamp, in its **own colour field**
 (`ogR/ogG/ogB`) so the lamp doesn't swamp it. Ore only emits when **exposed**
@@ -118,10 +149,10 @@ real state.
 **The fix simplifies the model rather than complicating it.** Make the sun an **ambient term that
 varies with time** and reaches **zero at night**:
 
-| | Ambient |
-| --- | --- |
+|                  | Ambient                                      |
+| ---------------- | -------------------------------------------- |
 | **Above ground** | Time-varying — full at midday, zero at night |
-| **Below ground** | Always zero |
+| **Below ground** | Always zero                                  |
 
 Then there is **one model everywhere**, and the special case disappears. `AMB` stops being a
 constant and becomes a function of time and depth. The lamp matters on the surface at night by
@@ -132,7 +163,7 @@ protecting if this gets implemented differently.
 
 > **Decided, not built.** See [DESIGN.md](DESIGN.md#light).
 
-Light is the game's atmosphere *and* its only real exploration cue, so it gets a **floor the player
+Light is the game's atmosphere _and_ its only real exploration cue, so it gets a **floor the player
 can never trade away**: always enough lamp to not be lost in the dark. Everything above the floor is
 **earned and riskable** — it comes from equipment, and equipment occupies scarce slots.
 
@@ -152,30 +183,30 @@ the lamp is the only emitter — but none of it needs new lighting code:
   (`ROCK_ATTEN`), so a glowing cavern **blooms on the rock face before you break through**. That is
   the "there's something here" cue exploration needs, with no HUD marker and no map.
 - **Lava telegraphs itself.** A molten pocket is an emitter, so its glow shows through the rock
-  before it's breached — which turns *"don't dig into lava"* from a gotcha into a **learnable rule**.
+  before it's breached — which turns _"don't dig into lava"_ from a gotcha into a **learnable rule**.
   Any hazard that emits gets this property automatically.
 - **The dropped bag is findable.** On death the inventory drops as a light-emitting, bobbing object,
   so it blooms on the rock face from outside line of sight — recovery without a marker, in a game
   with no seen-memory.
 
-**Consequence for implementers:** anything the design wants the player to *notice from a distance*
+**Consequence for implementers:** anything the design wants the player to _notice from a distance_
 should be an emitter. That's the cheapest signalling layer available here, and it's already built.
 
 ## Tuning knobs
 
 All constants live at the top of `client/src/render/lighting.ts`:
 
-| Knob                        | Meaning                                                                           |
-| --------------------------- | --------------------------------------------------------------------------------- |
-| `LAMP_COLOR`                | Warm lantern colour — a lantern reads **warm**, not a cool flashlight-from-above. |
-| `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                |
-| `ADD`                       | How strongly the light field shows as additive glow.                              |
-| `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                  |
+| Knob                        | Meaning                                                                                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LAMP_COLOR`                | Warm lantern colour — a lantern reads **warm**, not a cool flashlight-from-above.                                                                                                     |
+| `OPEN_ATTEN` / `ROCK_ATTEN` | Per-step conduction: how far light runs down tunnels vs into rock.                                                                                                                    |
+| `ADD`                       | How strongly the light field shows as additive glow.                                                                                                                                  |
+| `ADD_MAX`                   | Ceiling on total additive per channel (lamp+ore) — anti-sunspot.                                                                                                                      |
 | `AMB`                       | Ambient floor — `[0,0,0]` for lamp-only visibility (unlit → the void). Raise to preview the map. _Becomes time-and-depth-varying with [day/night](#daylight-and-the-daynight-cycle)._ |
-| `MAX_DARKNESS`              | How fully the scrim hides a wholly-unlit pixel — `1` = true void; lower reveals more.        |
-| `SCRIM`                     | The deep cool colour the darkness fades toward (the void's tint).                 |
-| `ORE_GLOW` / `GLOW_CAP`     | Coloured-emitter seed strength and its per-channel anti-bloom ceiling. _(Idle — nothing emits yet.)_ |
-| `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).               |
+| `MAX_DARKNESS`              | How fully the scrim hides a wholly-unlit pixel — `1` = true void; lower reveals more.                                                                                                 |
+| `SCRIM`                     | The deep cool colour the darkness fades toward (the void's tint).                                                                                                                     |
+| `ORE_GLOW` / `GLOW_CAP`     | Coloured-emitter seed strength and its per-channel anti-bloom ceiling. _(Idle — nothing emits yet.)_                                                                                  |
+| `DSTEP`                     | Dither steps for the darkness scrim + vignette (high → fine grain).                                                                                                                   |
 
 The lamp's seed brightness scales gently with `stats().lamp` (`LAMP_REACH_GAIN` per tile of
 reach), so the **Deep Lantern** unlock reaches further down the tunnel. The same stat widens the

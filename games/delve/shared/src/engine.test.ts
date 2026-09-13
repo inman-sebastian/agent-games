@@ -260,6 +260,19 @@ describe('derived stats at base levels', () => {
     expect(st.fortune).toBe(0);
   });
 
+  it('lights several BLOCKS, not several cells (#44 regression)', () => {
+    // The 2x2 split scaled every length in here into cells but left the lamp behind, which halved
+    // how far the miner could see without changing a single line of the lighting code. The lamp is
+    // a distance, so it belongs in the same units as the body and the reach it has to out-range:
+    // stated in blocks, so a future re-scale can't silently shrink it again.
+    const st = stats(newSession(1).player);
+    expect(st.lamp / SUB).toBeGreaterThanOrEqual(3);
+    expect(st.lamp).toBeGreaterThan(PHYS.REACH); // you can always see further than you can dig
+    const withLantern = newSession(1).player;
+    withLantern.tech.lantern = true;
+    expect(stats(withLantern).lamp / SUB).toBeGreaterThanOrEqual(6);
+  });
+
   it("the row at a column's own surface is open", () => {
     // Per column, not at row 0: the surface is a heightmap (#44), so a hill puts rock above row 0
     // and a valley puts sky below it.
@@ -305,8 +318,8 @@ describe('the player body is taller than one tile (#47)', () => {
   it('is taller than a block and narrower than one', () => {
     // In CELLS after the 2x2 split (#44); the claim is about BLOCKS, which is what the world is
     // generated in and what the player reads as a "block" of rock.
-    expect(PHYS.HH * 2 / SUB, 'taller than a block').toBeGreaterThan(1);
-    expect(PHYS.HW * 2 / SUB, 'narrower than a block').toBeLessThan(1);
+    expect((PHYS.HH * 2) / SUB, 'taller than a block').toBeGreaterThan(1);
+    expect((PHYS.HW * 2) / SUB, 'narrower than a block').toBeLessThan(1);
   });
 
   it('spans two block rows when standing', () => {

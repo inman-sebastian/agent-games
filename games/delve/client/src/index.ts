@@ -261,6 +261,12 @@ let worker: Worker | null = null;
 const pending = new Map<string, Array<[number, number]> | null>(); // key -> dig patches queued while generating
 let rebuildCount = 0;
 let lastRebuildMs = 0;
+// Worker bake accounting. The 2x2 split (#44) left CW/CH in CELLS, so a chunk covers a quarter of
+// the world it used to and the bake RATE quadrupled while moving. Rate is the number that matters
+// (each bake is a quarter the pixels), so count them and time the round trip.
+let bakeCount = 0;
+let bakeMsEMA = 0;
+const bakeSentAt = new Map<string, number>();
 
 const canOffloadChunks =
   typeof Worker !== 'undefined' &&
@@ -277,6 +283,13 @@ if (canOffloadChunks) {
     worker.onmessage = (e: MessageEvent<ChunkResult>) => {
       const { cx, cy, bmp } = e.data;
       const key = ckey(cx, cy);
+      const sentAt = bakeSentAt.get(key);
+      if (sentAt !== undefined) {
+        bakeSentAt.delete(key);
+        bakeCount++;
+        const ms = performance.now() - sentAt;
+        bakeMsEMA = bakeMsEMA === 0 ? ms : bakeMsEMA + (ms - bakeMsEMA) * FPS_EMA_ALPHA;
+      }
       const queued = pending.get(key);
       pending.delete(key);
       const chunk = chunks.get(key) || newChunkCanvas();
@@ -315,6 +328,7 @@ function requestChunk(cx: number, cy: number): void {
   const key = ckey(cx, cy);
   if (chunks.has(key) || pending.has(key)) return;
   pending.set(key, null);
+  bakeSentAt.set(key, performance.now());
   worker!.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
 }
 
@@ -435,7 +449,27 @@ const motes = Array.from({ length: 10 }, () => ({
   s: 0.3 + Math.random(),
 }));
 
+// ---- per-phase frame timing (debug) -----------------------------------------------------
+// The 2x2 split (#44) quadrupled the cell count behind an unchanged screen, and "the game runs at
+// 34fps" is a symptom, not a diagnosis. The render passes run in sequence, so one timestamp between
+// each is enough for every pass to report its own cost in the debug panel — the expensive one names
+// itself instead of being guessed at. Smoothed with the same EMA as the fps readout so it's legible
+// while playing rather than a flicker of per-frame noise.
+const phaseMs: Record<string, number> = {};
+let phaseMark = 0;
+function beginPhases(): void {
+  phaseMark = performance.now();
+}
+function endPhase(name: string): void {
+  const now = performance.now();
+  const ms = now - phaseMark;
+  phaseMark = now;
+  phaseMs[name] =
+    phaseMs[name] === undefined ? ms : phaseMs[name] + (ms - phaseMs[name]) * FPS_EMA_ALPHA;
+}
+
 function render(t: number): void {
+  beginPhases();
   ctx.clearRect(0, 0, LW, LH);
   const px = s.player.x + correctionX; // continuous player centre (tile units) + reconciliation smoothing
   const py = s.player.y + correctionY;
@@ -508,6 +542,8 @@ function render(t: number): void {
     }
   }
 
+  endPhase('chunks');
+
   // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the lamp's reach
   const lightAt = (c: number, r: number): number => {
     const dist = Math.hypot(c - px, r - py);
@@ -553,15 +589,27 @@ function render(t: number): void {
       (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
     }
 
+  endPhase('damage');
+
   // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
   // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
   // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
   if (debugFlags.twinkle) {
+    // Scanned over the LAMP's box, not the viewport's. Every cell the scan visits costs a solidAt
+    // plus an oreAt on all four faces, and `lit` already rejects everything past the lamp anyway —
+    // so the old full-screen band paid for ~19k cells to keep a couple of hundred. The 2x2 split
+    // (#44) made that the second-biggest cost in the frame (9.3ms of a 25ms frame at 160x120).
+    // `lightAt` floors at LAMP_MIN_LIT, so beyond this radius no cell can clear `minLit`.
+    const twinkleReach = Math.ceil(1 + (st.lamp + 0.5)) + 1;
+    const tL = Math.max(colL, Math.floor(px) - twinkleReach);
+    const tR = Math.min(colR, Math.floor(px) + twinkleReach);
+    const tT = Math.max(rowT, Math.floor(py) - twinkleReach);
+    const tB = Math.min(rowB, Math.floor(py) + twinkleReach);
     const twinkleEdges = collectTwinkleEdges({
-      bandLeft: colL,
-      bandTop: rowT,
-      cols: colR - colL + 1,
-      rows: rowB - rowT + 1,
+      bandLeft: tL,
+      bandTop: tT,
+      cols: tR - tL + 1,
+      rows: tB - tT + 1,
       solid: solidTile,
       materialAt,
       lit: lightAt,
@@ -571,8 +619,8 @@ function render(t: number): void {
     if (twinkleEdges.length) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const offX = colL * T;
-      const offY = rowT * T;
+      const offX = tL * T;
+      const offY = tT * T;
       for (const edge of twinkleEdges) {
         edge.material.twinkle!({
           g: ctx,
@@ -589,6 +637,8 @@ function render(t: number): void {
       ctx.restore();
     }
   }
+
+  endPhase('twinkle');
 
   // idle dust motes drifting near the lamp
   ctx.fillStyle = '#fff';
@@ -647,6 +697,7 @@ function render(t: number): void {
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  endPhase('entities');
 
   // lighting: push the miner's lamp emitter (seed brightness scales with lamp reach, so the Deep
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
@@ -672,6 +723,7 @@ function render(t: number): void {
       scrim: debugFlags.fog,
     });
   }
+  endPhase('lighting');
 }
 
 // ---- input ------------------------------------------------------------------------------
@@ -871,8 +923,15 @@ function onEvent(ev: SimEvent): void {
     // The big floaty is the celebration, so it belongs to the top two tiers and a rich vein of
     // anything. Narrower than before, when it reached down to emerald — but before, it also reached
     // stone bricks.
-    floaty(cx, cy - 4, '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''), col, prize >= 0.6 || ev.rich);
-    for (let i = 0; i < 4 + Math.round(prize * 8) + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
+    floaty(
+      cx,
+      cy - 4,
+      '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''),
+      col,
+      prize >= 0.6 || ev.rich,
+    );
+    for (let i = 0; i < 4 + Math.round(prize * 8) + (ev.rich ? 8 : 0); i++)
+      chips(cx, cy, 1, col, 55);
   }
 }
 
@@ -1042,6 +1101,11 @@ function updateDebug(): void {
     `depth ${s.player.depth}m\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
+    `phase ${Object.entries(phaseMs)
+      .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
+      .join('  ')}\n` +
+    `light field ${lighting.fieldMs.toFixed(1)}ms  scrim ${lighting.scrimMs.toFixed(1)}ms\n` +
+    `bakes ${bakeCount}  ${bakeMsEMA.toFixed(1)}ms round trip  inflight ${bakeSentAt.size}  chunk ${CW}x${CH} cells\n` +
     `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
@@ -1190,8 +1254,13 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 // free — no per-DPR render path needed. The camera centres the miner and the canvas is centred in
 // the viewport.
 // ponytail: fixed 1:1 for now; revisit fit + true fill when we tackle viewport framing.
-const MIN_VIEW_TILES = 9;
-const MAX_VIEW_TILES = 160;
+// Both bounds are in CELLS, so the 2x2 split (#44) scales them — they were left behind, which
+// capped a wide window at half the world it used to show and stopped the canvas filling the
+// viewport at all. The cap only exists to stop a huge window asking for an unbounded canvas; the
+// lighting no longer scales with screen area (it tracks the lamp's reach), so the old world-area
+// limit is still the right one to express.
+const MIN_VIEW_TILES = 9 * engine.SUB;
+const MAX_VIEW_TILES = 160 * engine.SUB;
 function fit(): void {
   VIEW_COLS = Math.max(
     MIN_VIEW_TILES,

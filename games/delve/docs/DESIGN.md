@@ -596,11 +596,11 @@ ore veins and rock texture pixel-identical.
 
 **Why it was worth doing**, and it is a gameplay change more than a visual one:
 
-| | Before | After |
-| --- | --- | --- |
-| Smallest step the world can express | 1 block | **half a block** |
-| That step as % of body height | 55% | **27%** |
-| Worst natural hill riser | 1 block per column | **1 cell per column** |
+|                                     | Before             | After                 |
+| ----------------------------------- | ------------------ | --------------------- |
+| Smallest step the world can express | 1 block            | **half a block**      |
+| That step as % of body height       | 55%                | **27%**               |
+| Worst natural hill riser            | 1 block per column | **1 cell per column** |
 
 Terraria's figure is 38%, so the split lands finer than the thing that prompted it. A mined staircase
 now has half-block risers and the step-up assist walks them, which is the whole point.
@@ -630,7 +630,33 @@ now has half-block risers and the step-up assist walks them, which is the whole 
 3. The playtest's shaft fixture dug only the body's two edge columns, leaving a pillar under the
    middle one. The player stood on it and never descended.
 
-### Also queued### Also queued### Also queued### Also queued
+**And it cost 34fps, which is the interesting part.** Four times the cells behind an unchanged
+screen, so every per-cell pass in the frame quadrupled. The fix was not to make those passes faster;
+it was to notice that **three of them were already throwing away almost everything they computed**,
+and to stop computing it:
+
+| Pass              | Was   | Now   | Why                                                                                 |
+| ----------------- | ----- | ----- | ----------------------------------------------------------------------------------- |
+| Twinkle edge scan | 9.3ms | 0.3ms | scanned all 19k viewport cells, then rejected everything outside the lamp           |
+| Darkness scrim    | 8.8ms | 1.5ms | every pixel the lamp can't reach resolves to one constant — a memset, not a loop    |
+| Light propagation | 8.2ms | 0.4ms | swept the whole screen when the field is provably under the floor a dozen cells out |
+
+Frame time went 25.8ms → 2.7ms at the same 160×120 view; the whole render is now cheaper than the
+lighting alone used to be, and it **no longer scales with screen area** — it scales with the lamp.
+Note the direction of the lesson: the split didn't make the renderer slow, it made an existing
+sloppiness expensive enough to find. See [LIGHTING.md](LIGHTING.md#cost) for the bounds and their
+derivations.
+
+**Two more lengths were left in block units** by the migration, both found while measuring rather
+than by playing:
+
+- `BASE_LAMP`/`LANTERN_LAMP_BONUS` — the lamp is a distance, so leaving it at 3.4 halved how far the
+  miner could see, with no change to a line of lighting code. Now `* SUB`, with a test that states
+  the reach in blocks so a future re-scale can't shrink it again.
+- `MIN_VIEW_TILES`/`MAX_VIEW_TILES` — counted in cells now, so the cap bound at half the world area
+  it used to and a wide window's canvas stopped filling the viewport entirely.
+
+### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
@@ -640,5 +666,9 @@ now has half-block risers and the step-up assist walks them, which is the whole 
 - **Placement beyond depth.** Superseded in principle by [BIOMES.md](BIOMES.md): biome resolves from
   several signals, then decides contents. `strata.top` and per-material `band` ranges become
   obsolete.
-- **Rendering perf** — bake ore blocks / cheaper lighting for deep, fully-lit scenes.
+- **Rendering perf** — the per-frame passes are done (above); what's left is the chunk BAKE rate.
+  Chunks are still `CW`×`CH` in cells, so they cover a quarter of the world area they used to and
+  the worker bakes four times as many while you move. It keeps up (bakes are off-thread and the
+  blits cost 0.4ms), so this is a queued tidy, not a problem: doubling `CW`/`CH` restores the old
+  world area per chunk and cuts the per-chunk overscan overhead.
 - **Miner sprite** — redraw + animate for the finer 32px grid.

@@ -75,8 +75,10 @@ const BASE_DIG_INTERVAL_MS = 200; // ms between dig hits at Agility 0
 const DIG_INTERVAL_FALLOFF = 0.9; // each Agility level multiplies the interval by this (faster digging)
 const FORTUNE_PER_LEVEL = 0.045; // +4.5% rich-vein chance per Fortune level
 const FORTUNE_CAP = 0.6; // maximum rich-vein chance
-const BASE_LAMP = 3.4; // lamp reach in tiles with no lantern
-const LANTERN_LAMP_BONUS = 3; // extra lamp reach from the Deep Lantern
+// Lamp reach is a DISTANCE, so the 2x2 split (#44) scales it like every other length here — it was
+// left in the old block units by the migration, which quietly halved how far the miner could see.
+const BASE_LAMP = 3.4 * SUB; // lamp reach in cells with no lantern
+const LANTERN_LAMP_BONUS = 3 * SUB; // extra lamp reach from the Deep Lantern
 
 const clamp = (value: number, min: number, max: number): number =>
   value < min ? min : value > max ? max : value;

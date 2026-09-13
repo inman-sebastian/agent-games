@@ -61,6 +61,33 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 The authoritative-server roundtrip that used to live here (`server-check.ts`) is now the
 `server/src/protocol.e2e.test.ts` Vitest suite (run by `pnpm test`).
 
+## The debug overlay's frame breakdown — where a frame actually goes
+
+`?debug` (or F3) prints a **per-pass cost breakdown**, which is the tool to reach for before
+optimising anything in the renderer:
+
+```
+fps   120.0   frame 2.72ms
+phase chunks 0.4  damage 0.0  twinkle 0.3  entities 0.0  lighting 2.3
+light field 0.4ms  scrim 1.5ms
+bakes 408  1606.8ms round trip  inflight 0  chunk 12x6 cells
+```
+
+The render passes run in sequence, so one timestamp between each is enough. `light field` / `scrim`
+split the lighting pass, because the two scale with completely different things (cells vs pixels) and
+the split is the only way to tell which one a change actually hit. `bakes` covers the chunk worker:
+the **rate** is what matters, not the round trip, since a queue of 400 at startup inflates the
+latency while costing the main thread nothing.
+
+Alongside it are per-pass toggles (`lighting`, `fog`, `twinkle`, `damage`) to isolate a pass by
+switching it off.
+
+**"The game feels slow" is not a diagnosis.** A frame budget read off this panel at the window size
+that actually hurts is — the 2×2 split's regression turned out to be three passes computing things
+they immediately discarded, which no amount of reading the code had suggested. Note that headless
+Chrome caps rAF at ~30fps regardless of load, so read `frame`, not `fps`, unless you're on real
+hardware.
+
 ## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
 `client/labs/render.html` draws EXACTLY one world region through the shared render modules
