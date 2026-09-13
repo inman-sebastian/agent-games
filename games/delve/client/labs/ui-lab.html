@@ -29,11 +29,43 @@
         gap: var(--s2);
       }
       .lbl {
+        /* The lab's OWN captions, pinned to the mono face: they must stay legible while the type
+           scale under test is being swapped, or the labels become part of the experiment. */
+        font-family: var(--font-mono);
         color: var(--c-dim);
         font-size: 11px;
         letter-spacing: 0.14em;
         text-transform: uppercase;
       }
+      /* ---- TYPE SCALE TRIALS (?type=) -------------------------------------------------------
+         Swaps which face does which job, so the whole interface can be compared at once rather than
+         one label at a time. Only the tokens change; no surface is restyled. m5x7's clean sizes are
+         11, 14, 16, 24 and 32 (measured — see labs/font-metrics.html), so every size here is one of
+         those, and the display sizes step 16 -> 24 -> 48 rather than being chosen by eye. */
+      body[data-type='display'],
+      body[data-type='all'] {
+        --font-display: 'm5x7', ui-monospace, monospace;
+        --t-label: 24px;
+        --t-display: 48px;
+        --t-touch: 24px;
+        --t-small: 16px;
+      }
+      body[data-type='all'] {
+        --font-body: 'm5x7', ui-sans-serif, sans-serif;
+        --t-body: 16px;
+      }
+      /* the bitmap bold, applied to the faces that carry the interface's weight */
+      body[data-type='display'] h1,
+      body[data-type='display'] h2,
+      body[data-type='display'] button,
+      body[data-type='display'] .stat b,
+      body[data-type='all'] h1,
+      body[data-type='all'] h2,
+      body[data-type='all'] button,
+      body[data-type='all'] .stat b {
+        text-shadow: var(--smear), 0 var(--px) 0 var(--c-void);
+      }
+
       /* the surfaces the game shows behind a state flag or a click; force them visible */
       #board .overlay {
         position: static;

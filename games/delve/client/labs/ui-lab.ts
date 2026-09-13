@@ -86,6 +86,9 @@ export function draw(): void {
   });
 }
 
+// ?type=current | display | all — which face does which job. See the note in ui-lab.html.
+document.body.dataset.type = new URLSearchParams(location.search).get('type') ?? 'current';
+
 installSurfaces(); // the same frames the game installs, from the same module
 defineSlot();
 

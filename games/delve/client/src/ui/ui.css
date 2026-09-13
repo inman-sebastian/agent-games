@@ -157,6 +157,10 @@
     calc(var(--count-outline) * -1) calc(var(--count-outline) * -1) 0 var(--c-void);
 
   --count-shadow: var(--count-bold);
+
+  /* The same smear, for any other text that wants a bitmap bold: one copy of the glyph a pixel to
+     the side, in its own colour. Composed with whatever shadow that element already has. */
+  --smear: 1px 0 0 currentColor;
   /* Jersey 15 reads cleanly at 20px; prose is not on the pixel grid, so this need not be a multiple */
   --t-body: 20px;
   /* the debug overlay prints dense live numbers; 12px monospace is the readable floor */
