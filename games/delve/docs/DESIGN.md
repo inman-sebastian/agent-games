@@ -580,6 +580,40 @@ content density possible.
 | [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava                                           |
 | [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes          |
 
+### Block granularity — open question, not yet decided
+
+**Observed:** Terraria's mining and its step-up feel better than ours, and part of the reason is that
+its blocks are smaller relative to the player. Measured rather than assumed:
+
+| | Body (blocks) | A 1-block step, as % of body height | Block on screen |
+| --- | --- | --- | --- |
+| Terraria | 1.25 × 2.63 | **38%** | 16px |
+| DELVE today | 0.90 × 1.81 | **55%** | 32px |
+| DELVE, blocks split 2×2 | 1.80 × 3.62 | **28%** | 16px |
+
+Two facts often get merged here, and they have different fixes:
+
+1. **On-screen size.** Our blocks are 2× linear, so 4× the area of Terraria's. That is purely the
+   render upscale, and changing it would show more world at a smaller size — it does *not* change how
+   a step feels, because the step stays the same fraction of the body.
+2. **Player-to-block ratio.** This is the one that governs step-up feel, and the gap is **1.45×**, not
+   4×. Matching Terraria means our blocks shrinking to 0.69× — a 2×2 split *overshoots* it.
+
+Splitting blocks 2×2 also buys something proportion alone cannot: **finer terrain**, so a generated
+slope or a dug passage has half-height risers and a staircase forms naturally instead of every rise
+being a full block. That is the real argument for it.
+
+**The cost is a world-model migration**, not a tuning pass: 4× the cells across world-gen, the dug
+set, tile damage, the chunk cache and lighting; strata bands and ore veins are all in tile rows; the
+material shaders are calibrated against a 16px tile and would all need recalibrating (the sprite work
+already proved a treatment sized for a tile is most of a small part); and every clearance, the slope
+bound, and dig reach are derived from the current size.
+
+**Cheapest informative experiment first**, and it is already in `client/labs/char-lab.html` as
+candidate 4: a Terraria-proportioned hitbox on the current world. It isolates the single variable. If
+a 38% step stops feeling like a yank, the fix is proportion and costs a sprite. If it still yanks, the
+fix is granularity and costs the world model.
+
 ### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores

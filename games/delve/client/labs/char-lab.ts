@@ -61,6 +61,24 @@ const CANDIDATES: readonly Candidate[] = [
     note: '15px sprite, 0.94-tile body. One tile of headroom is enough — every tunnel opens up.',
   },
   {
+    // A PROPORTION TEST, not a character. The box is Terraria's player scaled onto our tiles
+    // (20x42px on 16px tiles = 1.25 x 2.63 blocks), with our sprite left at its own size — so the
+    // sprite deliberately does not fill it, and the hitbox overlay is the thing to watch.
+    //
+    // It isolates the ONE variable that governs how a step-up feels: the step as a fraction of body
+    // height. Ours is 55%, Terraria's is 38%. If a 38% step stops feeling like a yank, the fix is
+    // proportion and costs a sprite. If it still yanks, the fix is finer terrain and costs the world
+    // model.
+    id: 'ratio',
+    label: '4 · Terraria proportions (box only)',
+    body: { hw: 0.625, hh: 1.31 },
+    registry: P,
+    skin: MINER_SKIN,
+    skinId: 'miner',
+    scale: 1,
+    note: '1.25 x 2.63-block body — a 1-block step is 38% of it, against 55% today. Sprite is unchanged on purpose; watch the box.',
+  },
+  {
     id: 'hana2',
     label: '3 · Base character 2x',
     body: null, // matches the miner's box, since the sprite matches its height
