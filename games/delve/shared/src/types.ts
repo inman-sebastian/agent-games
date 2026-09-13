@@ -140,6 +140,18 @@ export interface PlayerState {
   depth: number;
   up: UpgradeLevels;
   tech: TechOwned;
+  /**
+   * The body's half-extents in tiles, if this player is not the default size.
+   *
+   * Optional so every existing save and snapshot keeps the default without migration. They exist
+   * because BODY SIZE IS AN ART DECISION with physics consequences: the current 0.9 x 1.82 box was
+   * derived from the character sprite (#47), and trialling a sprite half that tall means trialling a
+   * body half that tall — the clearances in DESIGN.md all follow from it.
+   *
+   * Entities will need this too; an enemy is not player-sized.
+   */
+  hw?: number;
+  hh?: number;
 }
 
 /**

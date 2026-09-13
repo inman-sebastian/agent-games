@@ -105,7 +105,7 @@ export function newWorld(seed: number): WorldState {
  *
  * Takes the seed because the surface is a heightmap: where the ground is depends on the world.
  */
-export function newPlayer(seed = 1): PlayerState {
+export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
     x: startColumn + 0.5, // player CENTRE (tile units); starts on the surface
@@ -118,7 +118,7 @@ export function newPlayer(seed = 1): PlayerState {
     // The surface is a heightmap now (#44), so this reads the actual ground under the spawn column
     // rather than a constant — on a hill or in a valley the old expression would have buried or
     // dropped the player.
-    y: surfaceAt(seed, startColumn) + 1 - HALF_HEIGHT,
+    y: surfaceAt(seed, startColumn) + 1 - (body?.hh ?? HALF_HEIGHT),
     vx: 0,
     vy: 0,
     grounded: false,
@@ -146,11 +146,18 @@ export function newPlayer(seed = 1): PlayerState {
  * someone across the map.
  */
 /** Whether the player's body would be clear of rock centred at `(x, y)`. */
-export function bodyFits(world: WorldState, x: number, y: number): boolean {
-  const left = Math.floor(x - HALF_WIDTH + EPSILON);
-  const right = Math.floor(x + HALF_WIDTH - EPSILON);
-  const top = Math.floor(y - HALF_HEIGHT + EPSILON);
-  const bottom = Math.floor(y + HALF_HEIGHT - EPSILON);
+export function bodyFits(
+  world: WorldState,
+  x: number,
+  y: number,
+  body?: { hw?: number; hh?: number },
+): boolean {
+  const hw = body?.hw ?? HALF_WIDTH;
+  const hh = body?.hh ?? HALF_HEIGHT;
+  const left = Math.floor(x - hw + EPSILON);
+  const right = Math.floor(x + hw - EPSILON);
+  const top = Math.floor(y - hh + EPSILON);
+  const bottom = Math.floor(y + hh - EPSILON);
   for (let row = top; row <= bottom; row++) {
     if (anySolidInRow(world, left, right, row)) return false;
   }
@@ -158,7 +165,7 @@ export function bodyFits(world: WorldState, x: number, y: number): boolean {
 }
 
 export function unstick(world: WorldState, player: PlayerState, maxTiles = 6): boolean {
-  const fits = (y: number): boolean => bodyFits(world, player.x, y);
+  const fits = (y: number): boolean => bodyFits(world, player.x, y, player);
   if (fits(player.y)) return true;
   for (let step = 1; step <= maxTiles; step++) {
     for (const y of [player.y - step, player.y + step]) {
@@ -296,6 +303,11 @@ export function physicsStep(
   const { world, player } = session;
   if (dt <= 0) return { events: [], grounded: player.grounded, jumped: false };
 
+  // The body, read from the player so a differently-sized character collides as itself. Defaults to
+  // the constants above, so an existing save or snapshot needs no migration.
+  const HW = player.hw ?? HALF_WIDTH;
+  const HH = player.hh ?? HALF_HEIGHT;
+
   const events: SimEvent[] = [];
   let minedThisFrame = false;
   const mine = (column: number, row: number): void => {
@@ -338,14 +350,14 @@ export function physicsStep(
   const stepUp = (x: number): boolean => {
     if (!player.grounded) return false;
     for (let step = 1; step <= STEP_UP_TILES; step++) {
-      if (bodyFits(world, x, player.y - step)) {
+      if (bodyFits(world, x, player.y - step, player)) {
         player.y -= step;
         // Emitted so the renderer can animate the rise. The sim's move is instant and stays
         // instant; what the player sees does not have to be.
         events.push({
           type: 'step',
           c: Math.floor(x),
-          r: Math.floor(player.y + HALF_HEIGHT),
+          r: Math.floor(player.y + HH),
           tiles: step,
         });
         return true;
@@ -356,18 +368,18 @@ export function physicsStep(
 
   // --- integrate + resolve X (stop at walls; mining no longer happens here) ---
   let nextX = player.x + player.vx * dt;
-  const rowTop = Math.floor(player.y - HALF_HEIGHT + EPSILON);
-  const rowBottom = Math.floor(player.y + HALF_HEIGHT - EPSILON);
+  const rowTop = Math.floor(player.y - HH + EPSILON);
+  const rowBottom = Math.floor(player.y + HH - EPSILON);
   if (player.vx > 0) {
-    const column = Math.floor(nextX + HALF_WIDTH);
+    const column = Math.floor(nextX + HW);
     if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
-      nextX = column - HALF_WIDTH - EPSILON;
+      nextX = column - HW - EPSILON;
       player.vx = 0;
     }
   } else if (player.vx < 0) {
-    const column = Math.floor(nextX - HALF_WIDTH);
+    const column = Math.floor(nextX - HW);
     if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
-      nextX = column + 1 + HALF_WIDTH + EPSILON;
+      nextX = column + 1 + HW + EPSILON;
       player.vx = 0;
     }
   }
@@ -375,20 +387,20 @@ export function physicsStep(
 
   // --- integrate + resolve Y (land / bonk head) ---
   let nextY = player.y + player.vy * dt;
-  const columnLeft = Math.floor(player.x - HALF_WIDTH + EPSILON);
-  const columnRight = Math.floor(player.x + HALF_WIDTH - EPSILON);
+  const columnLeft = Math.floor(player.x - HW + EPSILON);
+  const columnRight = Math.floor(player.x + HW - EPSILON);
   player.grounded = false;
   if (player.vy > 0) {
-    const row = Math.floor(nextY + HALF_HEIGHT); // falling → check the floor below the feet
+    const row = Math.floor(nextY + HH); // falling → check the floor below the feet
     if (anySolidInRow(world, columnLeft, columnRight, row)) {
-      nextY = row - HALF_HEIGHT - EPSILON;
+      nextY = row - HH - EPSILON;
       player.vy = 0;
       player.grounded = true;
     }
   } else if (player.vy < 0) {
-    const row = Math.floor(nextY - HALF_HEIGHT); // rising → check the ceiling above the head
+    const row = Math.floor(nextY - HH); // rising → check the ceiling above the head
     if (anySolidInRow(world, columnLeft, columnRight, row)) {
-      nextY = row + 1 + HALF_HEIGHT + EPSILON;
+      nextY = row + 1 + HH + EPSILON;
       player.vy = 0;
     }
   }
@@ -404,10 +416,10 @@ export function physicsStep(
   // exactly.
   if (input.mine) {
     const { column, row } = input.mine;
-    const left = Math.floor(player.x - HALF_WIDTH + EPSILON);
-    const right = Math.floor(player.x + HALF_WIDTH - EPSILON);
-    const top = Math.floor(player.y - HALF_HEIGHT + EPSILON);
-    const bottom = Math.floor(player.y + HALF_HEIGHT - EPSILON);
+    const left = Math.floor(player.x - HW + EPSILON);
+    const right = Math.floor(player.x + HW - EPSILON);
+    const top = Math.floor(player.y - HH + EPSILON);
+    const bottom = Math.floor(player.y + HH - EPSILON);
     const dx = Math.max(left - column, 0, column - right);
     const dy = Math.max(top - row, 0, row - bottom);
     if (Math.max(dx, dy) <= REACH && solidCell(world, column, row)) mine(column, row);
