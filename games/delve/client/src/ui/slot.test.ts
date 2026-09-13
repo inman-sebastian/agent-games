@@ -16,7 +16,7 @@ vi.mock('./icon', () => ({
   clearIconCache: () => {},
 }));
 
-import { defineSlot, DelveSlot, type SlotState } from './slot';
+import { compact, defineSlot, DelveSlot, type SlotState } from './slot';
 
 beforeAll(() => defineSlot());
 
@@ -55,10 +55,33 @@ describe('delve-slot', () => {
     expect(inner(el, '.pip'), 'a filled slot has no pip').toBeNull();
   });
 
+  it('never shows a wrong number, however large the stack', () => {
+    // The failure this guards was the dangerous kind: four digits did not fit, `overflow: hidden`
+    // clipped the LEADING one, and a stack of 1280 rendered as "280". A wrong number is worse than a
+    // truncated one, because nothing about it looks wrong.
+    expect(compact(999)).toBe('999');
+    expect(compact(1000)).toBe('1k');
+    expect(compact(1280)).toBe('1.2k');
+    expect(compact(9999)).toBe('9.9k');
+    expect(compact(12345)).toBe('12k');
+    expect(compact(999999)).toBe('1000k');
+    expect(compact(1_500_000)).toBe('1.5m');
+    // Whatever the value, it stays short enough to fit the slot.
+    for (const n of [1, 42, 999, 1000, 5678, 99999, 4_200_000]) {
+      expect(compact(n).length, `${n} fits`).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('gives a screen reader the EXACT count, not the compacted one', () => {
+    // The compaction is a space constraint on the glyphs, not on the information.
+    expect(slot({ ore: '2', count: '1280' }).getAttribute('aria-label')).toBe('1280 held');
+  });
+
   it('hides a count of one, because a filled slot already says "one"', () => {
     expect(inner(slot({ ore: '2', count: '1' }), '.count')!.textContent).toBe('');
     expect(inner(slot({ ore: '2', count: '2' }), '.count')!.textContent).toBe('2');
     expect(inner(slot({ ore: '2', count: '340' }), '.count')!.textContent).toBe('340');
+    expect(inner(slot({ ore: '2', count: '1280' }), '.count')!.textContent).toBe('1.2k');
   });
 
   it('shows no count at all when empty, whatever the attribute says', () => {

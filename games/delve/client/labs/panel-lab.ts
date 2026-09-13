@@ -205,6 +205,57 @@ for (const edge of SLOT_EDGES) {
   slotBoard.append(section);
 }
 
+// ---- count treatments --------------------------------------------------------------------------
+//
+// A count sits on an item's texture at five-ish pixels tall, which is the hardest place in the whole
+// interface to make text readable. The variables are the FACE, the size, and the outline's unit —
+// and the unit is not simply "one art pixel", because a font's em is not its glyph height. Micro 5's
+// em is twice its glyph height, so at 10px one glyph pixel is one CSS pixel; Silkscreen at 16px puts
+// one glyph pixel on two, which is an art pixel.
+
+const COUNTS: readonly { name: string; note: string; css: string }[] = [
+  {
+    name: 'B · Micro 5 small, tracked out',
+    note: 'The small end. One glyph pixel is one CSS pixel, so the outline is a true single pixel — but at five pixels tall a Micro 5 digit is nearly a solid rectangle, so its outline is one too.',
+    css: "--count-face: 'Micro 5'; --count-size: 10px; --count-outline: 1px; --count-track: 1px;",
+  },
+  {
+    name: 'B/C · Silkscreen small, 1px outline',
+    note: "BETWEEN THE TWO: B's size with C's letterforms. Silkscreen at 8px is the same five pixels tall as Micro 5 at 10, but its digits have interior air — a zero has a hole in it — so a one-pixel outline follows the shape instead of boxing it. Off the art grid, which is the price.",
+    css: "--count-face: 'Silkscreen'; --count-size: 8px; --count-outline: 1px;",
+  },
+  {
+    name: 'C · Silkscreen, 1px outline',
+    note: 'The large end, and the only one on the art grid: one glyph pixel is exactly one art pixel. The outline reads cleanly; the number is twice the height.',
+    css: "--count-face: 'Silkscreen'; --count-size: 16px; --count-outline: var(--px);",
+  },
+];
+
+const countBoard = document.getElementById('counts')!;
+for (const variant of COUNTS) {
+  const section = el('section', 'treat');
+  const head = el('div', 'head');
+  head.append(el('div', 'nm', variant.name));
+  head.append(el('div', 'note', variant.note));
+  section.append(head);
+  const strip = el('div', 'slotrow');
+  strip.setAttribute('style', variant.css);
+  for (const [ore, count] of [
+    [3, 7],
+    [9, 19],
+    [12, 340],
+    [5, 1280],
+  ] as const) {
+    const slot = document.createElement('delve-slot');
+    slot.setAttribute('state', 'filled');
+    slot.setAttribute('ore', String(ore));
+    slot.setAttribute('count', String(count));
+    strip.append(slot);
+  }
+  section.append(strip);
+  countBoard.append(section);
+}
+
 // ---- real rock behind it, same as the UI lab ----------------------------------------------------
 
 const SEED = 12345;

@@ -107,6 +107,8 @@ const SHEET = `
     background: var(--c-panel, #3e3546);
   }
   .count {
+    /* the outline's unit: ONE GLYPH PIXEL, which is not always one art pixel — see the note below */
+    --ol: var(--count-outline, 1px);
     position: absolute;
     right: var(--px, 2px);
     bottom: var(--px, 2px);
@@ -116,19 +118,28 @@ const SHEET = `
        height a three-digit count read as a label stretched across the item rather than as a number
        tucked in its corner. Still on the art grid — that constraint is not negotiable, it is why the
        answer was a different face rather than a smaller size. */
-    font-family: var(--font-count, monospace);
-    font-size: var(--t-count, 10px);
+    font-family: var(--count-face, var(--font-count, monospace));
+    font-size: var(--count-size, var(--t-count, 20px));
+    letter-spacing: var(--count-track, 0);
     /* White, because this sits directly on an item's texture and the ramp's lightest step is not
        enough separation from a lit ore face. */
     color: var(--c-white, #ffffff);
-    /* A ONE-PIXEL DROP SHADOW: a single offset copy, down and right, which is the direction the
-       light comes from everywhere else in the interface. It lifts the number off the item's texture
-       without drawing anything AROUND it.
-       Not a ring. An eight-way offset closes a dark border around every glyph, and at five art
-       pixels tall that border is a third of the letter — it reads as a box with a number in it
-       rather than as text standing proud of the surface. A shadow describes where the light is; an
-       outline just fences the text in. */
-    text-shadow: var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f);
+    /* A ONE-PIXEL TEXT OUTLINE: eight copies of the glyph, each offset by exactly one GLYPH pixel,
+       so the dark hugs the letterforms themselves rather than fencing a box around them.
+       Eight and not four, because four axis-aligned copies leave the diagonals open and the outline
+       never closes. And one GLYPH pixel, not one art pixel — those are the same thing only when the
+       face is drawn at 2x, and this one deliberately is not (see --t-count). Getting that wrong is
+       what made every earlier attempt read as a box: the offset was two glyph pixels, wide enough to
+       swallow both the gaps between digits and the counters inside them. */
+    text-shadow:
+      var(--ol) 0 0 var(--c-void, #2e222f),
+      calc(var(--ol) * -1) 0 0 var(--c-void, #2e222f),
+      0 var(--ol) 0 var(--c-void, #2e222f),
+      0 calc(var(--ol) * -1) 0 var(--c-void, #2e222f),
+      var(--ol) var(--ol) 0 var(--c-void, #2e222f),
+      calc(var(--ol) * -1) var(--ol) 0 var(--c-void, #2e222f),
+      var(--ol) calc(var(--ol) * -1) 0 var(--c-void, #2e222f),
+      calc(var(--ol) * -1) calc(var(--ol) * -1) 0 var(--c-void, #2e222f);
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }
@@ -209,16 +220,31 @@ export class DelveSlot extends HTMLElement {
     }
     // A count of 1 is noise: a slot holding one of something already says so by being filled.
     const count = this.count;
-    this.#count.textContent = ore !== null && count > 1 ? String(count) : '';
+    this.#count.textContent = ore !== null && count > 1 ? compact(count) : '';
     this.setAttribute('aria-label', describe(this.state, ore, count));
   }
+}
+
+/**
+ * A count, short enough to fit inside a slot.
+ *
+ * Four digits do not fit, and the failure mode was the dangerous kind: `overflow: hidden` clipped the
+ * leading digit, so a stack of 1280 rendered as "280". A wrong number is worse than a truncated one,
+ * because nothing about it looks wrong.
+ */
+export function compact(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 10000) return Math.floor(count / 100) / 10 + 'k';
+  if (count < 1_000_000) return Math.round(count / 1000) + 'k';
+  if (count < 10_000_000) return Math.floor(count / 100_000) / 10 + 'm';
+  return Math.round(count / 1_000_000) + 'm';
 }
 
 /** What a screen reader is told. The state is part of it, because the state is the information. */
 function describe(state: SlotState, ore: number | null, count: number): string {
   if (state === 'locked') return 'Locked slot';
   if (ore === null) return 'Empty slot';
-  const held = count > 1 ? `${count} held` : '1 held';
+  const held = count > 1 ? `${count} held` : '1 held'; // the exact count, never the compacted one
   if (state === 'unaffordable') return `${held}, not enough`;
   if (state === 'selected') return `${held}, selected`;
   return held;

@@ -84,7 +84,7 @@ describe('the UI type is drawn at its own grid', () => {
       '--t-display': 8,
       '--t-touch': 8,
       '--t-small': 8,
-      '--t-count': 5, // Micro 5
+      '--t-count': 8, // also Silkscreen — the count face changed, and so must its grid
     };
     const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)];
     expect(tokens.length, ':root declares type tokens').toBeGreaterThan(1);

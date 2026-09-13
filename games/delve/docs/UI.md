@@ -339,13 +339,25 @@ Three sizing rules, all learned by looking:
   pixels, and both rendered at half the scale of everything else on screen. The icon is now
   `ICON_PX` (a named constant, `T × UPSCALE`) rather than a number a caller picks, and the count is
   16px, which is 2× native.
-- **A count is white with a one-pixel drop shadow**: a single offset copy, down and right, matching
-  the light direction the bevels use. It lifts the number off the item's texture without drawing
-  anything *around* it.
-  Not an outline. An eight-way offset closes a dark border around every glyph, and at five art pixels
-  tall that border is a third of the letter — it reads as a box with a number in it rather than as
-  text standing proud of the surface. A shadow says where the light is; an outline just fences the
-  text in. (Both were tried, in that order.)
+- **A count is white with a one-pixel text OUTLINE** — eight offset copies, so the dark hugs the
+  letterforms rather than fencing a box around them. Eight and not four: four axis-aligned copies
+  leave the *diagonals* open and the outline never closes.
+  **The unit is one GLYPH pixel, which is not always one art pixel.** That is what made every earlier
+  attempt read as a box: the offset was two glyph pixels, wide enough to swallow both the gaps
+  between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
+  to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
+  one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
+- **The count face is Silkscreen at its native 8px**, the one place in the interface deliberately off
+  the art grid. Size and letterform pull against each other here: an outline only reads as an outline
+  when the glyphs have interior air to follow, and at five pixels tall a Micro 5 digit is nearly a
+  solid rectangle, so its outline is one too. Silkscreen at 8px is the same height with a hole in its
+  zero. The on-grid alternative is 16px, which is twice the height and too big for a number tucked in
+  the corner of a 20-pixel slot. All three are benched in `client/labs/panel-lab.html`.
+- **Large counts are compacted** (`1280` → `1.2k`). Four digits do not fit, and the failure mode was
+  the dangerous kind: `overflow: hidden` clipped the *leading* digit, so a stack of 1280 rendered as
+  "280". A wrong number is worse than a truncated one, because nothing about it looks wrong. A screen
+  reader still gets the exact count — the compaction is a constraint on the glyphs, not on the
+  information.
 - **An icon is a perfect square.** An item in a slot is an object, not a piece of the world, and a
   bitten corner reads as damage. The compositor erodes a tile wherever it meets open space, so the
   icon's tile is buried with its opening **two rows up** — far enough that nothing erodes it, and the
