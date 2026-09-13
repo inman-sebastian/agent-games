@@ -616,16 +616,42 @@ So there are three separable moves, cheapest first:
 2. **Make the player taller in blocks** (1.81 → ~2.6). Closes the 1.45× ratio gap, which is the thing
    that governs the yank. Costs a sprite. Candidate 4 in the character lab is this hitbox on the
    current world, so it can be felt before anything is drawn.
-3. **Split blocks 2×2.** The only move that buys **finer terrain** — half-height risers, so a
-   staircase forms naturally instead of every rise being a full block. It overshoots the ratio (a step
-   becomes 28% of body height) and costs a world-model migration: 4× the cells across world-gen, the
-   dug set, tile damage, the chunk cache and lighting; strata bands and ore veins are expressed in
-   tile rows; and every material shader is calibrated against a 16px tile — the sprite work already
-   proved a treatment sized for a tile is most of a small part.
+3. **Split blocks 2×2 at the same rendered scale** — a cell becomes 8 art px, still drawn at 2×, so a
+   cell is 16 screen px and four of them occupy today's 32px block. The only move that buys **finer
+   terrain**: half-height risers, so a staircase forms naturally instead of every rise being a full
+   block.
 
-Do 1 and 2 first, because they are nearly free and they answer whether 3 is needed at all.
+#### What splitting actually costs — prototyped, not estimated
 
-### Also queued### Also queued
+The first estimate here was wrong in an encouraging direction and wrong in a discouraging one, so it
+was prototyped: cell size halved, erosion constants halved, a crop rendered and compared.
+
+**The material art survives for free, and that is the good news.** No material shader uses
+`localX`/`localY` — all fourteen seed their texture from `worldX`/`worldY`, so the texture is anchored
+to the world rather than to cells. Halving the cell does not halve the texture. The rendered scale is
+unchanged, which is exactly the property this option was chosen for.
+
+**Three constants need halving, and they are the only renderer change.** Edge erosion and corner
+rounding are in *absolute pixels* (`EDGE_EROSION_BASE` 0.4, `EDGE_EROSION_RANGE` 1.4,
+`CORNER_ROUND_BASE` 2.6), so on an 8px cell the corner rounding alone would eat a third of it and the
+rock would read as gravel. Halved, it held up.
+
+**The real work is world generation, and it is bigger than the renderer.** Everything the generator
+produces is sized in cells, so at half the cell size the world's *content* halves too — which the
+prototype showed plainly: ore came out as scattered flecks rather than veins. To keep the world
+looking the same, every one of these has to be rescaled:
+
+- ore cluster frequency (`CLUSTER_FREQUENCY`)
+- the surface heightmap's amplitudes and frequencies, and the slope bound derived from them
+- every stratum's `top` row and every ore's `band` — 18 resource files
+- clearances, step-up, dig reach, chunk dimensions, the lighting grid
+
+None of it is hard. All of it is a coordinated migration with a save-format break, and the dug set
+grows 4× for the same excavated volume.
+
+**Do 1 and 2 first**, because they are nearly free and they answer whether 3 is needed at all.
+
+### Also queued### Also queued### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
