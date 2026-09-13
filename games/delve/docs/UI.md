@@ -277,142 +277,67 @@ Reference for browsing real examples: [Game UI Database](https://www.gameuidatab
 games, 55,000+ screenshots, filterable by style and colour) and
 [Interface In Game](https://interfaceingame.com/).
 
-## Icons
+## Icons and the slot widget — built
 
-**Two categories, two pipelines.** This distinction matters because the first is the cohesion win
-and the second can't use it.
+**Four surfaces are the same widget.** The action bar, the inventory, the equipment screen and a
+crafting recipe's ingredients are all a square holding an item icon, a count and a state. Built once
+as `<delve-slot>` (`client/src/ui/slot.ts`), so the other three come nearly free.
 
-- **Materials → rendered with their real shaders**, into a small canvas inside the component. An
-  inventory slot shows the _actual_ material as drawn in the world. This is cohesion **by
-  construction rather than by imitation** — the same principle the material system already won on —
-  and it's what kills the seven glyphs.
-- **Abilities → authored glyphs, drawn in code.** A grapple or a jetpack burst has no material to
-  render, so verbs need hand-authored icons on the palette. Different job, same rules: no emoji, no
-  found art.
+**A custom element**, per the component decision above — native, no dependency. This is the case
+where **Shadow DOM earns itself** rather than being applied on principle: a slot appears dozens of
+times on a screen, and the boundary makes the palette-via-custom-properties discipline *mandatory*
+rather than encouraged. Custom properties are the only styling that pierces a shadow root, so a slot
+is themed by the same `--c-*`, `--px` and `--frame-*` roles as everything else and cannot invent a
+colour even by accident.
 
-## The surfaces
+| State | Reads as |
+| --- | --- |
+| `empty` | an inset recess with a drawn pip |
+| `filled` | the material, plus a count when it is more than one |
+| `selected` | a **lit gold outline** — the way every inventory since the 16-bit era has said "this one" |
+| `locked` | dimmed; progression has not opened this yet |
+| `unaffordable` | icon dimmed, count in gold; you lack the materials |
 
-| Surface                       | Kind       | Made of                          | Blocked on                       |
-| ----------------------------- | ---------- | -------------------------------- | -------------------------------- |
-| **Action bar**                | Persistent | Slots + icons; assignable, paged | Equipment existing               |
-| **Mini map**                  | Persistent | **World render**                 | Bounded world; a _memory_ system |
-| **Inventory**                 | Invoked    | Slots + icons, scrolling         | —                                |
-| **Character / equipment**     | Invoked    | Slots + icons                    | Equipment, slot progression      |
-| **Crafting menu**             | Invoked    | Slots + recipe text, scrolling   | The crafting tree                |
-| **Codex**                     | Invoked    | Prose, scrolling _(exists)_      | —                                |
-| **Full map**                  | Invoked    | **World render** + chrome        | Bounded world; a _memory_ system |
-| **In-game menu**              | Invoked    | Settings, leave-world _(exists)_ | —                                |
-| **Character select / create** | Pre-game   | Roster + creation form           | Portable characters              |
-| **World creation**            | Pre-game   | Settings form                    | Size presets                     |
+`locked` and `unaffordable` are deliberately distinct. Both mean "not right now", but one is answered
+by playing on and the other by going and mining.
 
-**Four of these are the same widget.** Action bar, inventory, equipment slots and crafting
-ingredients are all a slot holding an item icon with a count and a state (empty / filled / selected
-/ locked / unaffordable). Build the slot once and four surfaces come nearly free — which is why the
-slot plus the icon pipeline is the first thing to build.
+**The empty state is a requirement, not polish.** It is what a new player sees most, and an actually
+blank box reads as a rendering failure rather than as a place something goes. So it is *drawn*: the
+inset frame plus a centred pip.
 
-**The maps are not a rendering of where you've been.** There is no persistent explored/seen memory
-in the lighting model — walk away from a tunnel and it returns to the void. A map is therefore a
-**new memory system**, which is also what makes gating it thematically apt: acquiring one grants the
-player a memory the game otherwise doesn't have.
+### Icons render through the game's own compositor
 
-### Gating
+An inventory slot shows the material **as it actually appears in the world**, not an imitation of it.
+`client/src/ui/icon.ts` composes a real 3×3 band through `composeBand` with the ore's own material
+and crops the middle tile. Every shader, dither and bit of world-anchored texture comes along for
+free because none of it is reimplemented — **cohesion by construction**, the same argument the
+material system won on. When a material's shader changes, its icon changes with it, and there is no
+second definition to forget.
 
-| Surface               | Available                         |
-| --------------------- | --------------------------------- |
-| Inventory, action bar | **Immediately**, never locked     |
-| Mini map, full map    | **Earned** — a progression reward |
+The band is solid **except for one open tile directly above the centre**, which is the shape an
+exposed vein face actually has underground: the top edge catches light and the rest of the tile stays
+whole. Leaving the centre isolated was the first attempt and produced a small blob — the compositor
+erodes a tile's boundary against open space, so open on all four sides is eaten from every direction
+at once. Correct behaviour, wrong request.
 
-### The action bar
+Three sizing rules, all learned by looking:
 
-One bar with a **fixed footprint** and **multiple pages** the player toggles through, to which
-almost anything can be assigned — the Satisfactory model.
+- **A slot is 20 art pixels** with a one-pixel edge, leaving an 18px interior for a 16px tile plus a
+  pixel of air.
+- **A count is Silkscreen's native 8px**, not the 16px label size. At label size it covered the
+  material it was counting.
+- **The edge is one pixel, and it is a theme decision** (`--slot-edge`, `--slot-edge-w`), not the
+  widget's. A slot started with the full inset frame — three pixels of bevelled recess — and a slot
+  is repeated a dozen times in a grid, so whatever it spends on furniture it spends twelve times
+  over. The frames ended up louder than the materials in them. Alternatives are benched in
+  `client/labs/panel-lab.html`: one pixel, none at all, two pixels, and the rejected inset frame.
 
-**It's an _access_ layer, not a _capability_ layer.** Slots hold **references**, so assigning
-something neither moves nor consumes it. Two consequences protect decisions made elsewhere: the bar
-stays entirely out of the inventory-capacity system, and **unlimited pages don't undermine scarce
-equipment slots**, because the scarcity that matters is what you _can_ do, not how fast you reach it.
-Stated explicitly because limiting pages is a tempting way to "balance" the wrong layer.
+That last one generalises, and it is the third time this pass has taught it: **a treatment that reads
+well once can read badly repeated.** A panel appears alone and can afford a frame. A slot appears
+twelve times and cannot.
 
-- **Assignable:** equipped-gear abilities, tools, placeable materials, consumables.
-- **Not assignable:** mining. It's the core verb; the player always has it.
-- **It starts empty**, and empty slots are a **visible promise**. So an empty slot must read as
-  _deliberately_ empty — a styled, inviting hole, never a missing icon. That's a requirement on the
-  slot widget, not a polish pass. (It fills as soon as the player crafts their first torch.)
-- **Paging must work on touch and gamepad**, not just number keys and a scroll wheel. Swipe across
-  the bar and shoulder buttons are the natural mappings.
+This also retires the last of the glyph characters standing in as art in these panels: the codex's
+`?` for an undiscovered material is now a `locked` slot, which reads as something you have not got
+rather than as missing data. The remaining glyphs are in the top bar and touch controls, and they
+need authored icons rather than this pipeline — a verb has no material to render.
 
-## Nothing pauses. Ever.
-
-**There is no pause in DELVE.** It's an online game on a server-hosted world, so pausing isn't a
-feature that was cut — it's a thing that cannot coherently exist. The world runs whether or not
-you're looking at it.
-
-That includes the menu. **A menu is not a pause**, and calling it a "pause menu" is the mistake that
-let the current implementation happen.
-
-### Pre-game vs in-game
-
-The right division isn't screens-vs-panels, it's **whether you're in a world at all**:
-
-| Phase        | Surfaces                                                           | The world                               |
-| ------------ | ------------------------------------------------------------------ | --------------------------------------- |
-| **Pre-game** | Title, character select, world creation                            | You aren't in one yet. Nothing to pause |
-| **In-game**  | HUD, action bar, inventory, codex, crafting, character, maps, menu | **Always running**                      |
-
-**The title screen isn't a menu and isn't part of the game** — it's _pre-game_, the step before you
-enter a world. That's why it stops nothing: there's nothing running yet.
-
-Everything in-game follows from that:
-
-- Every panel must be **safe to browse while something walks toward you** — which rules out opaque
-  full-screen panels, the in-game menu included.
-- The player is **deliberately vulnerable** whenever a panel is open.
-- **No panel may block the frame loop**, and input routing decides **per key** whether the UI or the
-  game receives it.
-- Reading the map is itself risky, which is a good property for an earned surface.
-
-### Why the code currently pauses — and the real bug underneath
-
-`openMenu()` in `client/src/index.ts` calls `app.send('pause')`, and the Inventory and Collection
-overlays both route through it, so opening either one stops the sim today. The app machine's
-`paused` state should not exist at all; the phases are **pre-game** and **in-game**.
-
-But the deeper issue is on the server: **`physicsStep` runs on receipt of an input message, not on a
-clock** (`server/src/index.ts`). Snapshots go out on a timer; the _simulation_ only advances when a
-client sends input. So client-side pause "works" purely because **the server has no tick of its
-own** — which is the thing that actually has to change.
-
-Several decisions already depend on that clock existing: a **day/night cycle** needs time to pass,
-**fluid** must keep flowing, **entities** must keep acting, and **world hibernation** ("a world with
-nobody in it stops ticking") is only meaningful if there's a tick to stop. Once the server owns a
-fixed tick, **pause becomes impossible by construction** — the correct end state, rather than a rule
-the client has to remember to honour.
-
-## Open questions
-
-- **Is the UI an overlay, or diegetic?** Everything above assumes an overlay. A mining game has an
-  obvious in-fiction home for a HUD — depth on a gauge, materials in a satchel, vision tied to a
-  lamp the game already simulates — and **that is the only argument that legitimately moves UI onto
-  the canvas**, since a diegetic interface lives in world space. It's a design question, not a
-  technical one.
-
-  It pulls hard against readability. A UI that lives in the world is maximally cohesive and
-  *minimally legible*: lamp-lit, palette-quantised, occluded text is the same design that makes the
-  world atmospheric, and atmosphere is the enemy of a glanceable depth readout. The likely
-  resolution is a split — **diegetic for the ambient and persistent, overlay for the urgent and
-  precise**. A lamp that dims as a mood signal is diegetic; the number telling you how deep you are
-  is not.
-
-- **Is the recipe book its own surface, or a view inside the crafting menu?** It's a separate system
-  from the codex (which is a non-mechanical ledger), but that doesn't settle whether it gets its own
-  panel.
-
-## Non-negotiables
-
-- **Never a found asset.** No emoji, no clip art, no downloaded icon fonts. Every glyph and frame is
-  drawn in code on the [Resurrect-64](PALETTE.md) palette.
-- **Accessibility is not traded for cohesion.** Keyboard navigation, focus order, and screen reader
-  output survive every decision here — that's the main reason the DOM keeps the document surfaces.
-- **Responsive and device-aware.** The UI scales from phone to desktop, touch gets native inputs and
-  larger targets, and prompts match the device — never show keyboard bindings on a touch device.
-- **One palette.** If a colour isn't in Resurrect 64, it isn't in the UI — same rule as every other asset ([PALETTE.md](PALETTE.md)).

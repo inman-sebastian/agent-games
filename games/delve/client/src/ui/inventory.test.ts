@@ -1,52 +1,67 @@
-// inventory.test.ts — the Inventory panel row builder (happy-dom). The icon factory is stubbed so
-// the test never touches canvas; we assert the DOM structure, sorting, counts, and empty state.
-import { describe, it, expect, vi } from 'vitest';
-import { buildInventoryRows, type InvOreInfo } from './inventory';
+// inventory.test.ts — the Inventory panel's slot grid (happy-dom).
+//
+// Asserts the ATTRIBUTES rather than the rendered slot: a `<delve-slot>` is an unupgraded element
+// here (registering it would drag canvas in, which happy-dom has no answer for), and the attributes
+// are the actual contract between the panel and the widget. slot.test.ts covers what the widget then
+// does with them.
+import { describe, it, expect } from 'vitest';
+import { buildInventoryGrid, MIN_SLOTS, type InvOreInfo } from './inventory';
 
 const ORES: Record<number, InvOreInfo> = {
   2: { name: 'Copper', desc: 'A ruddy metal.' },
   5: { name: 'Gold', desc: 'Heavy and radiant.' },
   8: { name: 'Diamond', desc: 'Flawless.' },
 };
-const stubIcon = () => document.createElement('span');
 
-describe('buildInventoryRows', () => {
-  it('renders the empty state when nothing is held', () => {
-    const rows = buildInventoryRows({}, ORES, stubIcon);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].className).toBe('sub');
-    expect(rows[0].textContent).toMatch(/dig to collect/i);
+const slots = (grid: HTMLElement): HTMLElement[] => [...grid.querySelectorAll('delve-slot')];
+const filled = (grid: HTMLElement): HTMLElement[] =>
+  slots(grid).filter((s) => s.getAttribute('state') !== 'empty');
+
+describe('buildInventoryGrid', () => {
+  it('is all empty slots when nothing is held, never a blank panel', () => {
+    // The empty state is a requirement rather than polish: a new player's inventory has to read as
+    // somewhere things go.
+    const grid = buildInventoryGrid({}, ORES);
+    expect(slots(grid)).toHaveLength(MIN_SLOTS);
+    expect(filled(grid)).toHaveLength(0);
+    expect(slots(grid).every((s) => s.getAttribute('state') === 'empty')).toBe(true);
   });
 
-  it('renders one row per held material, sorted by id, with names + counts', () => {
-    const rows = buildInventoryRows({ 5: 3, 2: 40, 8: 1 }, ORES, stubIcon);
-    expect(rows).toHaveLength(3);
-    // sorted by ore id → Copper(2), Gold(5), Diamond(8)
-    expect(rows.map((r) => r.querySelector('.nm')!.textContent)).toEqual([
-      'Copper',
-      'Gold',
-      'Diamond',
-    ]);
-    expect(rows.map((r) => r.querySelector('.lv')!.textContent)).toEqual(['×40', '×3', '×1']);
-    expect(rows[0].querySelector('.ds')!.textContent).toBe('A ruddy metal.');
+  it('renders one filled slot per held material, sorted by id', () => {
+    // Sorted by ID, not by count — an inventory that reshuffles as you mine is one you cannot build
+    // muscle memory for.
+    const grid = buildInventoryGrid({ 5: 3, 2: 40, 8: 1 }, ORES);
+    expect(filled(grid).map((s) => s.getAttribute('ore'))).toEqual(['2', '5', '8']);
+    expect(filled(grid).map((s) => s.getAttribute('count'))).toEqual(['40', '3', '1']);
   });
 
-  it('omits materials with a zero/negative count', () => {
-    const rows = buildInventoryRows({ 2: 0, 5: 7, 8: -1 }, ORES, stubIcon);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].querySelector('.nm')!.textContent).toBe('Gold');
+  it('pads to a full grid so the container keeps its shape', () => {
+    const grid = buildInventoryGrid({ 2: 1 }, ORES);
+    expect(slots(grid)).toHaveLength(MIN_SLOTS);
+    expect(filled(grid)).toHaveLength(1);
   });
 
-  it('formats large counts with locale separators', () => {
-    const rows = buildInventoryRows({ 2: 1234 }, ORES, stubIcon);
-    expect(rows[0].querySelector('.lv')!.textContent).toBe(`×${(1234).toLocaleString()}`);
+  it('grows past the minimum when more is held than fits', () => {
+    const many: Record<number, number> = {};
+    for (let id = 1; id <= MIN_SLOTS + 5; id++) many[id] = 1;
+    const grid = buildInventoryGrid(many, ORES);
+    expect(slots(grid)).toHaveLength(MIN_SLOTS + 5);
   });
 
-  it('asks the icon factory for each held material at the panel size', () => {
-    const makeIcon = vi.fn(() => document.createElement('span'));
-    buildInventoryRows({ 2: 1, 5: 1 }, ORES, makeIcon);
-    expect(makeIcon).toHaveBeenCalledTimes(2);
-    expect(makeIcon).toHaveBeenCalledWith(2, 22);
-    expect(makeIcon).toHaveBeenCalledWith(5, 22);
+  it('omits materials with a zero or negative count', () => {
+    const grid = buildInventoryGrid({ 2: 0, 5: 7, 8: -1 }, ORES);
+    expect(filled(grid).map((s) => s.getAttribute('ore'))).toEqual(['5']);
+  });
+
+  it('marks the selected material, and only it', () => {
+    const grid = buildInventoryGrid({ 2: 1, 5: 1 }, ORES, 5);
+    expect(filled(grid).map((s) => s.getAttribute('state'))).toEqual(['filled', 'selected']);
+  });
+
+  it('names each material for hover and for a screen reader', () => {
+    const grid = buildInventoryGrid({ 2: 4 }, ORES);
+    expect(filled(grid)[0].getAttribute('title')).toBe('Copper');
+    expect(grid.getAttribute('role')).toBe('list');
+    expect(filled(grid)[0].getAttribute('role')).toBe('listitem');
   });
 });

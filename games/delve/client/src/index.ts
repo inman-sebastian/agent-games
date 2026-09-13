@@ -14,14 +14,14 @@ import type {
 } from '@delve/shared';
 import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './render/cave-render';
 import { UPSCALE } from './render/palette';
-import { ORE_ART, SHAPES } from './render/ore-art';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
 import { drawPlayer, poseFor } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
 import { hydrate, load, save, fresh } from './save';
-import { buildInventoryRows } from './ui/inventory';
+import { buildInventoryGrid } from './ui/inventory';
+import { defineSlot, type DelveSlot } from './ui/slot';
 import { installSurfaces } from './ui/surface';
 
 // ---- display + world-view geometry ------------------------------------------------------
@@ -250,22 +250,6 @@ function newChunkCanvas(): Chunk {
 
 // draw an ore's authored crystal/nugget art into a small canvas — used as its item icon in the
 // inventory and the collection codex (so ores read as distinct collectibles).
-function oreIcon(oreId: number, artPx = 16): HTMLCanvasElement {
-  const art = ORE_ART[oreId];
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = artPx;
-  cv.className = 'oreic';
-  const g = cv.getContext('2d')!;
-  g.imageSmoothingEnabled = false;
-  if (art) {
-    const pen: Pen = (a, b, w, h, col) => {
-      g.fillStyle = col;
-      g.fillRect(a, b, w || 1, h || 1);
-    };
-    SHAPES[art.shape](pen, artPx >> 1, artPx >> 1, (artPx >> 1) - 2, art.c);
-  }
-  return cv;
-}
 
 // ---- off-thread chunk generation (Worker) with a synchronous fallback -------------------
 interface ChunkResult {
@@ -1081,8 +1065,7 @@ function refreshInventory(): void {
   el('invTotal').textContent = engine.invCount(s.player).toLocaleString();
   const listEl = el('invList');
   listEl.innerHTML = '';
-  for (const row of buildInventoryRows(s.player.inv, engine.ORE_BY_ID, oreIcon))
-    listEl.appendChild(row);
+  listEl.appendChild(buildInventoryGrid(s.player.inv, engine.ORE_BY_ID));
 }
 function openInventory(): void {
   refreshInventory();
@@ -1103,22 +1086,21 @@ function renderCodex(): void {
     const found = !!entry;
     const row = document.createElement('div');
     row.className = 'row';
-    const icon = document.createElement('div');
-    icon.style.cssText = 'width:30px; text-align:center; flex:0 0 auto';
-    if (found) {
-      icon.appendChild(oreIcon(ore.id, 22));
-    } else {
-      icon.textContent = '?';
-      icon.style.color = 'var(--dim)';
-      icon.style.fontWeight = '700';
-    }
+
+    // The same slot widget the inventory is made of: FOUND shows the real material, undiscovered is
+    // a `locked` slot. That kills the `?` glyph, which was a found asset standing in for art, and it
+    // means an undiscovered entry reads as a thing you have not got rather than as missing data.
+    const slot = document.createElement('delve-slot') as DelveSlot;
+    slot.setAttribute('state', found ? 'filled' : 'locked');
+    if (found) slot.setAttribute('ore', String(ore.id));
+
     const info = document.createElement('div');
     info.className = 'info';
     info.innerHTML = found
       ? `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>` +
-        `<div class="ds" style="color:var(--gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
-      : `<div class="nm" style="color:var(--dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
-    row.appendChild(icon);
+        `<div class="ds" style="color:var(--c-gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
+      : `<div class="nm" style="color:var(--c-dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
+    row.appendChild(slot);
     row.appendChild(info);
     codexList.appendChild(row);
   }
@@ -1236,7 +1218,8 @@ if (matchMedia('(pointer: coarse)').matches) {
   bind('tJ', 'jump');
 }
 
-installSurfaces(); // generate the nine-slice panel frames into CSS custom properties (ui/frame.ts)
+installSurfaces(); // generate the nine-slice panel frames into CSS custom properties (ui/surface.ts)
+defineSlot(); // register <delve-slot>, the widget four surfaces are made of (ui/slot.ts)
 setRenderStrata(engine.STRATA); // hand the strata palette to the rock renderer (main thread)
 fit();
 snapCam();

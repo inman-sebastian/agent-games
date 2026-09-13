@@ -13,6 +13,9 @@ import { WIDTH, STRATA, oreAt, surfaceAt } from '@delve/shared';
 import { oreMaterial } from '../src/render/materials';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import { installSurfaces } from '../src/ui/surface';
+import { defineSlot } from '../src/ui/slot';
+import { buildInventoryGrid } from '../src/ui/inventory';
+import { ORE_BY_ID } from '@delve/shared';
 
 const SEED = 12345;
 const CENTER_ROW = 96; // deep enough for the stone/deepstone boundary and some ore
@@ -84,6 +87,28 @@ export function draw(): void {
 }
 
 installSurfaces(); // the same frames the game installs, from the same module
+defineSlot();
+
+// The slot grid, built by the same function the game's Inventory panel calls — so the lab cannot
+// drift from what ships. A spread of counts and states, plus the empty tail.
+const grid = buildInventoryGrid({ 2: 1, 3: 19, 5: 4, 9: 2, 12: 340 }, ORE_BY_ID, 9);
+document.getElementById('slots')!.append(grid);
+const states = document.getElementById('slot-states')!;
+for (const [state, ore] of [
+  ['empty', null],
+  ['filled', 3],
+  ['selected', 9],
+  ['unaffordable', 5],
+  ['locked', null],
+] as const) {
+  const el = document.createElement('delve-slot');
+  el.setAttribute('state', state);
+  if (ore !== null) {
+    el.setAttribute('ore', String(ore));
+    el.setAttribute('count', '12');
+  }
+  states.append(el);
+}
 draw();
 addEventListener('resize', draw);
 

@@ -91,6 +91,8 @@
   --t-label: 16px;
   --t-display: 40px;
   --t-touch: 24px;
+  /* Silkscreen's native 8px, for counts and badges drawn inside a slot */
+  --t-small: 8px;
   /* Jersey 15 reads cleanly at 20px; prose is not on the pixel grid, so this need not be a multiple */
   --t-body: 20px;
   /* the debug overlay prints dense live numbers; 12px monospace is the readable floor */
@@ -317,9 +319,21 @@ button:disabled {
   border-image: var(--frame-inset, none) 3 fill / var(--frame-w) / 0 repeat;
   image-rendering: pixelated;
 }
+/* The inventory grid: `<delve-slot>` repeated, which is what an inventory is (#41). Wraps rather
+   than fixing a column count, so the same grid serves a narrow phone and a wide panel. */
+.grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
 .row .info {
   flex: 1;
   min-width: 0;
+}
+.row delve-slot {
+  flex: 0 0 auto;
 }
 .row .nm {
   font-weight: 700;

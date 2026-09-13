@@ -1,49 +1,72 @@
-// ui/inventory.ts — builds the Inventory panel's material rows (icon + name + desc + count).
-// Extracted from index.ts so the DOM output is testable under happy-dom; the ore-icon factory
-// is INJECTED so tests can stub it (the real icon draws to a canvas, which happy-dom can't).
-// Pure DOM construction — no game state, no side effects, reads nothing global but `document`.
+// ui/inventory.ts — the Inventory panel's grid of slots (#41).
+//
+// This built descriptive ROWS — icon, name, description, count — which is a list of materials rather
+// than an inventory. An inventory is a grid you read at a glance, and it is one of the four surfaces
+// made out of `<delve-slot>` (the others being the action bar, equipment, and a recipe's
+// ingredients). The flavour text moved to where it belongs: the Collection panel is the codex, and
+// a codex is the thing that exists to tell you what a material IS.
+//
+// Pure DOM construction — no game state, no side effects, reads nothing global but `document` — so
+// it stays testable under happy-dom. The slot element is registered by the caller; a slot that has
+// not been upgraded yet is still a `<delve-slot>` with the right attributes on it, which is what
+// these assertions read.
+import type { DelveSlot, SlotState } from './slot';
 
-/** The bits of an ore an inventory row shows. */
+/** The bits of a material the inventory needs. Names are shown on hover and to a screen reader. */
 export interface InvOreInfo {
   name: string;
   desc: string;
 }
-/** Produces an ore's icon node (real = the canvas from index.ts `oreIcon`; test = a stub). */
-export type MakeIcon = (oreId: number, px: number) => Node;
 
 /**
- * One row per held material (count > 0), sorted by ore id, or a single empty-state row when the
- * inventory is empty. Returns detached nodes; the caller clears the list and appends them.
+ * Empty slots padded out after the held ones, so the grid reads as a container with room in it
+ * rather than as a list that happens to be short.
+ *
+ * The empty state is a visible PROMISE — see the note in slot.ts. A new player's inventory should
+ * look like somewhere things go, which a completely blank panel does not.
  */
-export function buildInventoryRows(
+export const MIN_SLOTS = 12;
+
+/**
+ * Build the inventory grid: one filled slot per held material, sorted by ore id, padded with empty
+ * slots to at least `MIN_SLOTS`.
+ *
+ * Sorted by id rather than by count, so a material never moves as you mine — an inventory that
+ * reshuffles under the cursor is one you cannot build muscle memory for.
+ */
+export function buildInventoryGrid(
   inv: Record<number, number>,
   oreById: Record<number, InvOreInfo>,
-  makeIcon: MakeIcon,
-): HTMLElement[] {
+  selected: number | null = null,
+): HTMLElement {
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+  grid.setAttribute('role', 'list');
+
   const ids = Object.keys(inv)
     .map(Number)
     .filter((id) => inv[id] > 0)
     .sort((a, b) => a - b);
-  if (!ids.length) {
-    const empty = document.createElement('div');
-    empty.className = 'sub';
-    empty.textContent = 'Nothing yet — dig to collect materials.';
-    return [empty];
+
+  for (const id of ids) {
+    const state: SlotState = id === selected ? 'selected' : 'filled';
+    grid.append(slot({ ore: id, count: inv[id], state, title: oreById[id]?.name }));
   }
-  return ids.map((id) => {
-    const ore = oreById[id];
-    const row = document.createElement('div');
-    row.className = 'row';
-    const icon = document.createElement('div');
-    icon.style.cssText = 'width:30px; text-align:center; flex:0 0 auto';
-    icon.appendChild(makeIcon(id, 22));
-    const info = document.createElement('div');
-    info.className = 'info';
-    info.innerHTML = `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>`;
-    const count = document.createElement('div');
-    count.className = 'lv';
-    count.textContent = `×${inv[id].toLocaleString()}`;
-    row.append(icon, info, count);
-    return row;
-  });
+  for (let i = ids.length; i < MIN_SLOTS; i++) grid.append(slot({ state: 'empty' }));
+  return grid;
+}
+
+function slot(spec: {
+  ore?: number;
+  count?: number;
+  state: SlotState;
+  title?: string;
+}): DelveSlot {
+  const el = document.createElement('delve-slot') as DelveSlot;
+  el.setAttribute('state', spec.state);
+  el.setAttribute('role', 'listitem');
+  if (spec.ore !== undefined) el.setAttribute('ore', String(spec.ore));
+  if (spec.count !== undefined) el.setAttribute('count', String(spec.count));
+  if (spec.title) el.title = spec.title;
+  return el;
 }

@@ -17,6 +17,7 @@
 // panel is not, because a panel has text on it. So every treatment below keeps flat fills and spends
 // its detail where a human would have placed it by hand.
 import { patternUrl, framePixels, FRAME_SLICE, type Pattern } from '../src/ui/surface';
+import { defineSlot } from '../src/ui/slot';
 import { T, setStrata, composeBand, UPSCALE } from '../src/render/cave-render';
 import { WIDTH, STRATA, oreAt, surfaceAt } from '@delve/shared';
 import { oreMaterial } from '../src/render/materials';
@@ -138,6 +139,70 @@ for (const t of TREATMENTS) {
   panel.append(btn);
   section.append(panel);
   board.append(section);
+}
+
+// ---- slot edge treatments -----------------------------------------------------------------------
+//
+// A slot is repeated a dozen times in a grid, so whatever it spends on furniture it spends twelve
+// times over. The full bevelled recess each square started with was far too much of it.
+
+defineSlot();
+
+const SLOT_EDGES: readonly { id: string; name: string; note: string; css: string }[] = [
+  {
+    id: 'outline',
+    name: 'A · one-pixel outline (current)',
+    note: 'A dark line and a darker fill. The grid reads as a grid; nothing competes with the materials in it.',
+    css: '--slot-edge: none; --slot-edge-w: var(--px);',
+  },
+  {
+    id: 'none',
+    name: 'B · no edge at all',
+    note: 'Just a darker square, separated by the gap. The quietest possible; the slots stop being objects and become holes.',
+    css: '--slot-edge: none; --slot-edge-w: 0px; ',
+  },
+  {
+    id: 'double',
+    name: 'C · outline, two pixels',
+    note: 'The same dark line, doubled. Reads heavier and more deliberate without adding a second colour.',
+    css: '--slot-edge: none; --slot-edge-w: calc(var(--px) * 2);',
+  },
+  {
+    id: 'inset',
+    name: 'D · full inset frame (rejected)',
+    note: 'What was shipped. Three pixels of bevelled recess per square, twelve times over — the frames end up louder than the contents.',
+    css: '--slot-edge: var(--frame-inset); --slot-edge-w: var(--frame-w);',
+  },
+];
+
+const slotBoard = document.getElementById('slots')!;
+for (const edge of SLOT_EDGES) {
+  const section = el('section', 'treat');
+  const head = el('div', 'head');
+  head.append(el('div', 'nm', edge.name));
+  head.append(el('div', 'note', edge.note));
+  section.append(head);
+
+  const strip = el('div', 'slotrow');
+  strip.setAttribute('style', edge.css);
+  for (const [state, ore, count] of [
+    ['filled', 3, 19],
+    ['filled', 9, 2],
+    ['selected', 12, 340],
+    ['filled', 5, 1],
+    ['empty', null, 0],
+    ['empty', null, 0],
+  ] as const) {
+    const slot = document.createElement('delve-slot');
+    slot.setAttribute('state', state);
+    if (ore !== null) {
+      slot.setAttribute('ore', String(ore));
+      slot.setAttribute('count', String(count));
+    }
+    strip.append(slot);
+  }
+  section.append(strip);
+  slotBoard.append(section);
 }
 
 // ---- real rock behind it, same as the UI lab ----------------------------------------------------
