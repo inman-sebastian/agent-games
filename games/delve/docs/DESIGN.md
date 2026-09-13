@@ -582,39 +582,50 @@ content density possible.
 
 ### Block granularity — open question, not yet decided
 
-**Observed:** Terraria's mining and its step-up feel better than ours, and part of the reason is that
-its blocks are smaller relative to the player. Measured rather than assumed:
+**Observed in play:** Terraria's mining and step-up feel better than ours, and its blocks look
+smaller relative to the player. Both halves of that are true, but they have *different causes* and
+only one of them is expensive to fix.
 
-| | Body (blocks) | A 1-block step, as % of body height | Block on screen |
+**Terraria's tiles are 16×16 pixels** — the same as ours — with 2px of sheet padding
+([tModLoader](https://github.com/tModLoader/tModLoader/wiki/Basic-Tile)). The on-screen difference is
+entirely our render upscale:
+
+| | Art px | Upscale | On screen |
 | --- | --- | --- | --- |
-| Terraria | 1.25 × 2.63 | **38%** | 16px |
-| DELVE today | 0.90 × 1.81 | **55%** | 32px |
-| DELVE, blocks split 2×2 | 1.80 × 3.62 | **28%** | 16px |
+| Terraria block | 16 | 1× | **16px** |
+| DELVE block | 16 | 2× | **32px** |
 
-Two facts often get merged here, and they have different fixes:
+So a 2×2 patch of Terraria blocks tiles into exactly one of ours on screen. That is real, and it
+costs **nothing** to change — it is a zoom decision, not a world-model one.
 
-1. **On-screen size.** Our blocks are 2× linear, so 4× the area of Terraria's. That is purely the
-   render upscale, and changing it would show more world at a smaller size — it does *not* change how
-   a step feels, because the step stays the same fraction of the body.
-2. **Player-to-block ratio.** This is the one that governs step-up feel, and the gap is **1.45×**, not
-   4×. Matching Terraria means our blocks shrinking to 0.69× — a 2×2 split *overshoots* it.
+And the player, which is the other half:
 
-Splitting blocks 2×2 also buys something proportion alone cannot: **finer terrain**, so a generated
-slope or a dug passage has half-height risers and a staircase forms naturally instead of every rise
-being a full block. That is the real argument for it.
+| | On screen | In blocks | A 1-block step, as % of body |
+| --- | --- | --- | --- |
+| Terraria | 42px tall | 2.63 | **38%** |
+| DELVE | 60px tall | 1.81 | **55%** |
 
-**The cost is a world-model migration**, not a tuning pass: 4× the cells across world-gen, the dug
-set, tile damage, the chunk cache and lighting; strata bands and ore veins are all in tile rows; the
-material shaders are calibrated against a 16px tile and would all need recalibrating (the sprite work
-already proved a treatment sized for a tile is most of a small part); and every clearance, the slope
-bound, and dig reach are derived from the current size.
+**Our character is bigger on screen than Terraria's while being shorter in blocks.** We are zoomed in
+*and* stubbier, and only the second part governs how a step feels — a step is the same fraction of the
+body at any zoom.
 
-**Cheapest informative experiment first**, and it is already in `client/labs/char-lab.html` as
-candidate 4: a Terraria-proportioned hitbox on the current world. It isolates the single variable. If
-a 38% step stops feeling like a yank, the fix is proportion and costs a sprite. If it still yanks, the
-fix is granularity and costs the world model.
+So there are three separable moves, cheapest first:
 
-### Also queued
+1. **Zoom out** (upscale 2× → 1×). Blocks become Terraria-sized on screen and you see 4× more world.
+   Free. Changes nothing about step-up feel. Cycle it with `Z` in the character lab.
+2. **Make the player taller in blocks** (1.81 → ~2.6). Closes the 1.45× ratio gap, which is the thing
+   that governs the yank. Costs a sprite. Candidate 4 in the character lab is this hitbox on the
+   current world, so it can be felt before anything is drawn.
+3. **Split blocks 2×2.** The only move that buys **finer terrain** — half-height risers, so a
+   staircase forms naturally instead of every rise being a full block. It overshoots the ratio (a step
+   becomes 28% of body height) and costs a world-model migration: 4× the cells across world-gen, the
+   dug set, tile damage, the chunk cache and lighting; strata bands and ore veins are expressed in
+   tile rows; and every material shader is calibrated against a 16px tile — the sprite work already
+   proved a treatment sized for a tile is most of a small part.
+
+Do 1 and 2 first, because they are nearly free and they answer whether 3 is needed at all.
+
+### Also queued### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything

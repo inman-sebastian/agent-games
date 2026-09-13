@@ -179,6 +179,18 @@ const held = { left: false, right: false, jump: false };
 let showHitbox = true;
 let showGrid = false;
 
+/**
+ * Display upscale, cycled with `Z`. `UPSCALE` (2) is what the game ships.
+ *
+ * Here because a block's ON-SCREEN size and the player-to-block RATIO are different things, and
+ * conflating them is easy: Terraria's tiles are 16px like ours, but it draws them at 1x, so two of
+ * its blocks tile into one of ours on screen. Matching that costs a zoom change and nothing else.
+ * It will NOT change how a step-up feels — the step is the same fraction of the body at any zoom —
+ * and this control exists so that can be confirmed rather than argued.
+ */
+const ZOOMS = [1, 2, 3];
+let zoom = ZOOMS.indexOf(UPSCALE);
+
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.key === 'ArrowLeft' || e.key === 'a') held.left = true;
   else if (e.key === 'ArrowRight' || e.key === 'd') held.right = true;
@@ -189,7 +201,10 @@ addEventListener('keydown', (e: KeyboardEvent) => {
     baked = null; // the fixture is the only thing that can change the rock
   } else if (e.key === 'h' || e.key === 'H') showHitbox = !showHitbox;
   else if (e.key === 'g' || e.key === 'G') showGrid = !showGrid;
-  else if (e.key >= '1' && e.key <= String(CANDIDATES.length)) {
+  else if (e.key === 'z' || e.key === 'Z') {
+    zoom = (zoom + 1) % ZOOMS.length;
+    applyZoom();
+  } else if (e.key >= '1' && e.key <= String(CANDIDATES.length)) {
     pick = Number(e.key) - 1;
     spawn();
     render();
@@ -211,8 +226,12 @@ const LW = COLS * T;
 const LH = ROWS * T;
 canvas.width = LW;
 canvas.height = LH;
-canvas.style.width = `${LW * UPSCALE}px`;
-canvas.style.height = `${LH * UPSCALE}px`;
+function applyZoom(): void {
+  const up = ZOOMS[zoom];
+  canvas.style.width = `${LW * up}px`;
+  canvas.style.height = `${LH * up}px`;
+}
+applyZoom();
 g.imageSmoothingEnabled = false;
 
 const bandTop = ROW - 12; // 12 tiles of air above the ground line, plus the shaft below
@@ -344,7 +363,9 @@ function render(): void {
   readout.textContent =
     `${c.label}   body ${(hw * 2).toFixed(2)} x ${(hh * 2).toFixed(2)} tiles   ` +
     `sprite ${c.scale}x   state ${minerState}   ${fps.toFixed(0)} fps   ` +
-    `${drawMs.toFixed(2)} ms/frame\n${c.note}`;
+    `${drawMs.toFixed(2)} ms/frame\n` +
+    `block ${T * ZOOMS[zoom]}px on screen at ${ZOOMS[zoom]}x ` +
+    `(Terraria draws a 16px block at 1x)   ${c.note}`;
 }
 
 function frame(now: number): void {
