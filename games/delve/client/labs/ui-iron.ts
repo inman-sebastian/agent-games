@@ -155,6 +155,56 @@ const ITERATIONS: readonly Iteration[] = [
       }
     `,
   },
+  {
+    id: 'groovebar',
+    name: 'B7 · Groove + title strip',
+    pitch:
+      "B3's machined frame with B6's heading strip in it. The two strongest constructions combined, and the frame stays five pixels so the panel does not get heavier as well as busier.",
+    slice: 5,
+    pixels: build(11, (x, y, ring, lit) => {
+      if (ring === 0) return DARK;
+      if (ring === 1) return lit ? LIT : DARK;
+      if (ring === 2) return GROOVE;
+      if (ring === 3) return lit ? EDGE : GROOVE;
+      return PLATE;
+    }),
+    css: `
+      .panel h2 {
+        margin: calc(var(--s4) * -1) calc(var(--s4) * -1) var(--s3);
+        padding: var(--s2) var(--s4);
+        background: ${DARK};
+        border-bottom: var(--px) solid ${LIT};
+        color: ${BRIGHT};
+      }
+    `,
+  },
+  {
+    id: 'grooveboltbar',
+    name: 'B8 · Groove + bolts + title strip',
+    pitch:
+      'All three, on a seven-pixel frame so the bolts have somewhere to sit that is not the groove. The heaviest option here: a thick milled plate, fastened, with a label on it.',
+    slice: 7,
+    pixels: build(15, (x, y, ring, lit) => {
+      // The bolt sits INSIDE the frame's rings, on the plate margin — at slice 5 there is no room
+      // for it that does not collide with the groove, which is why this one is thicker.
+      const bolt = rivetAt(x, y, 15, 4);
+      if (bolt) return bolt;
+      if (ring === 0) return DARK;
+      if (ring === 1) return lit ? LIT : DARK;
+      if (ring === 2) return GROOVE;
+      if (ring === 3) return lit ? EDGE : GROOVE;
+      return PLATE;
+    }),
+    css: `
+      .panel h2 {
+        margin: calc(var(--s4) * -1) calc(var(--s4) * -1) var(--s3);
+        padding: var(--s2) var(--s4);
+        background: ${DARK};
+        border-bottom: var(--px) solid ${LIT};
+        color: ${BRIGHT};
+      }
+    `,
+  },
 ];
 
 // ---- render -------------------------------------------------------------------------------------

@@ -300,7 +300,13 @@ accent. What is not settled is how the plate is **built**, so six constructions,
 and a dot with no lighting is a dot rather than a fastener — which is exactly how the 2×2 attempt in
 the earlier panel bench read.
 
-B3 and B6 are the strongest, and they are **combinable**: a grooved frame with a title strip in it.
+| B7 | **B3 + B6**: grooved frame with the title strip in it | milled, labelled, and still light |
+| B8 | B7 + bolts, on a **seven**-pixel frame | the heaviest: thick, milled, fastened, labelled |
+
+B7 and B8 are the combinations. **B8 has to be thicker** — at a five-pixel frame there is nowhere for
+a 3×3 bolt to sit that does not collide with the groove, so adding bolts costs two more pixels of
+border and the interior space that goes with them. That is the trade in one sentence: bolts are not
+free on a grooved plate.
 
 ## Icons and the slot widget — built
 
