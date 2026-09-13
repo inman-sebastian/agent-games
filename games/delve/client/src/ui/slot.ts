@@ -109,7 +109,7 @@ const SHEET = `
   .count {
     position: absolute;
     right: var(--px, 2px);
-    bottom: 0;
+    bottom: var(--px, 2px);
     line-height: 1;
     /* The BADGE face, not the display face. Micro 5 is drawn on a 5px grid, so at 10px it is 2x
        native and 5 art pixels tall. Silkscreen's smallest on-grid size is 8 art pixels, and at that
@@ -121,11 +121,24 @@ const SHEET = `
     /* White, because this sits directly on an item's texture and the ramp's lightest step is not
        enough separation from a lit ore face. */
     color: var(--c-white, #ffffff);
-    /* A DROP SHADOW IS ONE OFFSET COPY. This was four copies, one per side, which is an OUTLINE —
-       and a bad one, because four axis-aligned copies leave the diagonals unfilled, so it never
-       closed around a letter and read as a detached blocky halo. One hard copy, one art pixel down
-       and right, is what a pixel font has always used and what actually reads as a shadow. */
-    text-shadow: var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f);
+    /* A ONE-PIXEL OUTLINE, all eight directions. A count sits directly on an item's texture, which
+       can be any value from near-black to a lit gold face, so it needs to be readable against all of
+       them — an outline does that where a drop shadow only helps on one side.
+       EIGHT offsets, not four: four axis-aligned copies leave the DIAGONALS unfilled, so the outline
+       never closes around a letter. That was the earlier version, and it read as a detached blocky
+       halo rather than as an outline. It also looked twice as thick as intended, because the count
+       was then set at a font size where one glyph pixel was one CSS pixel, so a one-art-pixel offset
+       moved it two glyph pixels. At Micro 5's 2x size one glyph pixel IS one art pixel, so this is
+       genuinely one pixel. */
+    text-shadow:
+      var(--px, 2px) 0 0 var(--c-void, #2e222f),
+      calc(var(--px, 2px) * -1) 0 0 var(--c-void, #2e222f),
+      0 var(--px, 2px) 0 var(--c-void, #2e222f),
+      0 calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f),
+      var(--px, 2px) var(--px, 2px) 0 var(--c-void, #2e222f),
+      calc(var(--px, 2px) * -1) var(--px, 2px) 0 var(--c-void, #2e222f),
+      var(--px, 2px) calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f),
+      calc(var(--px, 2px) * -1) calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f);
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }
