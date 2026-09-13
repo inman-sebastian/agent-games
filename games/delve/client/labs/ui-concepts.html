@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — UI concepts</title>
+    <!-- the game's own stylesheet; each concept overrides only role tokens and frames -->
+    <link rel="stylesheet" href="../src/ui/ui.css" />
+    <style>
+      body {
+        overflow: auto;
+        touch-action: auto;
+      }
+      #ground {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 0;
+        image-rendering: pixelated;
+        display: block;
+      }
+      #board {
+        position: relative;
+        z-index: 20;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: var(--s5);
+        padding: var(--s5);
+      }
+      .concept {
+        /* Re-resolve the ink here. `color` inherits as a COMPUTED value, so a concept overriding
+           --c-ink deeper in the tree changes nothing unless something re-reads it — which is why the
+           inverted concept's headings came out light on light the first time. */
+        color: var(--c-ink);
+        width: 430px;
+        display: flex;
+        flex-direction: column;
+        gap: var(--s2);
+      }
+      /* The captions are pinned to the mono face: they must stay constant while the thing under test
+         changes, or the labels become part of the experiment. */
+      .head {
+        font-family: var(--font-mono);
+        font-size: var(--t-mono);
+        line-height: 1.5;
+      }
+      .head .nm {
+        font-family: var(--font-display);
+        font-size: var(--t-label);
+        color: #f9c22b;
+      }
+      .head .note {
+        color: #9babb2;
+      }
+      .head .cost {
+        color: #7f708a;
+      }
+      .stage {
+        display: flex;
+        flex-direction: column;
+        gap: var(--s3);
+      }
+      .stage .topbar {
+        position: static;
+      }
+      .stage .panel {
+        max-width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="ground"></canvas>
+    <div id="board"></div>
+    <script type="module" src="./ui-concepts.ts"></script>
+  </body>
+</html>

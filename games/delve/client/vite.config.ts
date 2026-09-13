@@ -30,6 +30,7 @@ export default defineConfig({
         fontLab: resolve(__dirname, 'labs/font-lab.html'),
         panelLab: resolve(__dirname, 'labs/panel-lab.html'),
         fontMetrics: resolve(__dirname, 'labs/font-metrics.html'),
+        uiConcepts: resolve(__dirname, 'labs/ui-concepts.html'),
       },
     },
   },

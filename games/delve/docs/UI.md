@@ -253,6 +253,34 @@ Reference for browsing real examples: [Game UI Database](https://www.gameuidatab
 games, 55,000+ screenshots, filterable by style and colour) and
 [Interface In Game](https://interfaceingame.com/).
 
+## Choosing a direction — `client/labs/ui-concepts.html`
+
+Four answers to "what is a DELVE panel made of", each complete enough to judge — top bar, buttons,
+an inventory grid and a description row — rendered over the same real cave. Built because refining
+one direction had stopped being the question.
+
+| | Direction | The idea | The trade |
+| --- | --- | --- | --- |
+| A | **Cut stone** | The Stone ramp, bevelled frame with an inner well. The interface is made of the rock the player is looking at. | Panel and world are close in value, so the frame does all the separating. |
+| B | **Riveted iron** | Cooler and flatter, heavier outline, brass accent. The interface is *equipment* rather than geology. | Colder than the game around it; brass carries every highlight alone. |
+| C | **Miner's ledger** | The value structure **inverted** — warm paper, dark ink, on the Clay ramp. Your notebook, not a window. | A bright panel over a dark world is a hole punched in the screen. Wants to be smaller and rarer. |
+| D | **Lamp-lit, no panel** | Almost no chrome: content on a dithered scrim, a lamp-coloured rule under each heading, the world visible behind. | Only the scrim separates content from world, so a busy background can eat it. |
+
+What varies, in order of how much it changes: the **value structure** (dark panel with light text, or
+light panel with dark ink), then **what the panel is made of**, then **how much chrome there is**.
+Every colour is R64 or a strata ramp already in the game — the point is that one palette supports
+very different interfaces.
+
+Three things the prototypes taught immediately, all of which would have been invisible in a mockup:
+
+- **A light-panel direction needs two inks.** Dark ink is right on paper and invisible over a dark
+  cave, so the top bar and HUD need their own. Obvious in hindsight, not before building C.
+- **`color` inherits as a computed value**, so overriding `--c-ink` deeper in the tree changes
+  nothing unless something re-reads it. C's headings came out light-on-light until the concept
+  container re-resolved it.
+- **Deriving a control's face from the bevel highlight** turns every button the highlight colour,
+  which is invisible while the highlight is a grey and glaring the moment it is not.
+
 ## Icons and the slot widget — built
 
 **Four surfaces are the same widget.** The action bar, the inventory, the equipment screen and a
