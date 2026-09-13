@@ -347,6 +347,13 @@ Three sizing rules, all learned by looking:
   between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
   to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
   one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
+- **The count is emboldened by smearing, not by a bold weight.** m5x7 ships one weight and there is
+  no bold to switch to. A browser's synthetic bold blurs and thickens unevenly, which is the one
+  thing a pixel face exists to avoid. The technique bitmap faces have always used instead is to draw
+  the glyph **twice, one pixel apart**, so every stroke goes from one pixel to two — crisp, on the
+  glyph's own grid, and reversible. The dark outline then has to wrap the *thickened* shape, so it
+  runs from −1 to +2 rather than −1 to +1. Both variants are tokens (`--count-bold`, `--count-plain`)
+  so switching is one line.
 - **The count face is m5x7 at 16px** — Daniel Linssen's pixel face, CC0, *designed at this job's
   size*: its documentation recommends 16, 32, 48, and at 16 its digits are seven CSS pixels tall with
   a one-pixel stroke. Five pixels wide, so a four-character count stays narrow.
@@ -374,6 +381,10 @@ Doto 10px.
 
 m5x7 is the one that was *designed* for it rather than merely surviving it, which is why it won: the
 sizes its author recommends are exactly the sizes the harness independently found clean.
+
+**m6x11, its larger sibling, was rejected on two counts**: at eleven pixels tall it is the wrong size
+for a slot count, and its licence is "free with attribution" rather than CC0 — vague enough that it
+is not worth bundling when a clearly-licensed alternative exists.
 
 **m3x6, its smaller sibling, is not here.** itch.io gates its download behind an interactive click,
 so it cannot be fetched from a script. At three pixels wide its digits would also be very narrow for

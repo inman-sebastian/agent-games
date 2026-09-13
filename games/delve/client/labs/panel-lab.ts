@@ -224,24 +224,19 @@ for (const edge of SLOT_EDGES) {
  */
 const COUNTS: readonly { name: string; note: string; css: string }[] = [
   {
-    name: 'A · m5x7 16px',
-    note: "Daniel Linssen's m5x7, CC0. Designed AT this size — its documentation recommends 16, 32, 48 — so seven pixels tall with a one-pixel stroke, and five pixels wide so a four-character count stays narrow.",
-    css: "--count-face: 'm5x7'; --count-size: 16px; --count-outline: 1px;",
+    name: 'A · m5x7 16px, smeared bold (current)',
+    note: 'The glyph drawn twice, one pixel apart, so every stroke goes from one pixel to two. How a bitmap face has always been emboldened; crisp, on the glyph grid, reversible.',
+    css: '--count-shadow: var(--count-bold);',
   },
   {
-    name: 'B · Silkscreen 11px (current)',
-    note: 'Stroke 2, seven pixels tall. Introduces no new family; heavier, which a number on a lit ore face can use.',
-    css: "--count-face: 'Silkscreen'; --count-size: 11px; --count-outline: 1px;",
+    name: 'B · m5x7 16px, plain',
+    note: 'The same face at the same size with a one-pixel stroke. What it looked like before.',
+    css: '--count-shadow: var(--count-plain);',
   },
   {
-    name: 'C · m5x7 24px',
-    note: 'The same face a full step up: eleven pixels tall, stroke 2. Included because m5x7 only renders cleanly at its recommended multiples.',
-    css: "--count-face: 'm5x7'; --count-size: 24px; --count-outline: var(--px);",
-  },
-  {
-    name: 'D · Tiny5 11px',
-    note: 'The other purpose-built tiny face on the bench. Stroke 1, seven tall.',
-    css: "--count-face: 'Tiny5'; --count-size: 11px; --count-outline: 1px;",
+    name: 'C · Silkscreen 11px',
+    note: 'A genuinely two-pixel stroke, for comparison — the heaviest clean candidate at this height.',
+    css: "--count-face: 'Silkscreen'; --count-size: 11px; --count-shadow: var(--count-plain);",
   },
 ];
 

@@ -124,22 +124,9 @@ const SHEET = `
     /* White, because this sits directly on an item's texture and the ramp's lightest step is not
        enough separation from a lit ore face. */
     color: var(--c-white, #ffffff);
-    /* A ONE-PIXEL TEXT OUTLINE: eight copies of the glyph, each offset by exactly one GLYPH pixel,
-       so the dark hugs the letterforms themselves rather than fencing a box around them.
-       Eight and not four, because four axis-aligned copies leave the diagonals open and the outline
-       never closes. And one GLYPH pixel, not one art pixel — those are the same thing only when the
-       face is drawn at 2x, and this one deliberately is not (see --t-count). Getting that wrong is
-       what made every earlier attempt read as a box: the offset was two glyph pixels, wide enough to
-       swallow both the gaps between digits and the counters inside them. */
-    text-shadow:
-      var(--ol) 0 0 var(--c-void, #2e222f),
-      calc(var(--ol) * -1) 0 0 var(--c-void, #2e222f),
-      0 var(--ol) 0 var(--c-void, #2e222f),
-      0 calc(var(--ol) * -1) 0 var(--c-void, #2e222f),
-      var(--ol) var(--ol) 0 var(--c-void, #2e222f),
-      calc(var(--ol) * -1) var(--ol) 0 var(--c-void, #2e222f),
-      var(--ol) calc(var(--ol) * -1) 0 var(--c-void, #2e222f),
-      calc(var(--ol) * -1) calc(var(--ol) * -1) 0 var(--c-void, #2e222f);
+    /* Outline and weight both come from the page, because both are theme decisions — see
+       --count-bold in ui.css for how a single-weight bitmap face is emboldened. */
+    text-shadow: var(--count-shadow, var(--count-plain, none));
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }

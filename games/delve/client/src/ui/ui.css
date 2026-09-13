@@ -127,6 +127,36 @@
      art pixel. Deliberately NOT in the --t-* namespace, which is for type sizes only — the style
      gate checks every --t-* token against its face's grid, and an offset has no grid. */
   --count-outline: 1px;
+
+  /* HOW A BITMAP FACE IS EMBOLDENED: smear it one pixel sideways.
+     m5x7 ships one weight, and there is no bold to switch to. A browser's synthetic bold blurs and
+     thickens unevenly, which is exactly what a pixel face exists to avoid. The technique that has
+     always been used instead is to draw the glyph twice, one pixel apart, so every stroke goes from
+     one pixel to two — crisp, on the glyph's own grid, and reversible.
+     The dark outline then has to wrap the THICKENED shape, so it runs from -1 to +2 rather than
+     -1 to +1. Painted after the white smear in the list, so the smear stays on top of it. */
+  --count-bold:
+    var(--count-outline) 0 0 currentColor,
+    calc(var(--count-outline) * -1) calc(var(--count-outline) * -1) 0 var(--c-void),
+    calc(var(--count-outline) * -1) 0 0 var(--c-void),
+    calc(var(--count-outline) * -1) var(--count-outline) 0 var(--c-void),
+    0 calc(var(--count-outline) * -1) 0 var(--c-void), 0 var(--count-outline) 0 var(--c-void),
+    var(--count-outline) calc(var(--count-outline) * -1) 0 var(--c-void),
+    var(--count-outline) var(--count-outline) 0 var(--c-void),
+    calc(var(--count-outline) * 2) calc(var(--count-outline) * -1) 0 var(--c-void),
+    calc(var(--count-outline) * 2) 0 0 var(--c-void),
+    calc(var(--count-outline) * 2) var(--count-outline) 0 var(--c-void);
+
+  /* The same outline without the smear, for comparison in the lab. */
+  --count-plain:
+    var(--count-outline) 0 0 var(--c-void), calc(var(--count-outline) * -1) 0 0 var(--c-void),
+    0 var(--count-outline) 0 var(--c-void), 0 calc(var(--count-outline) * -1) 0 var(--c-void),
+    var(--count-outline) var(--count-outline) 0 var(--c-void),
+    calc(var(--count-outline) * -1) var(--count-outline) 0 var(--c-void),
+    var(--count-outline) calc(var(--count-outline) * -1) 0 var(--c-void),
+    calc(var(--count-outline) * -1) calc(var(--count-outline) * -1) 0 var(--c-void);
+
+  --count-shadow: var(--count-bold);
   /* Jersey 15 reads cleanly at 20px; prose is not on the pixel grid, so this need not be a multiple */
   --t-body: 20px;
   /* the debug overlay prints dense live numbers; 12px monospace is the readable floor */
