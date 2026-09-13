@@ -5,10 +5,11 @@
 import { describe, it, expect } from 'vitest';
 import { poseFor, stepLift, STEP_LIFT_TIME } from './player';
 import { PLAYER_SPRITES } from './sprites';
+import { SUB } from '@delve/shared';
 
 const WALK = PLAYER_SPRITES.walk;
 /** Must match STRIDE_TILES in player.ts; asserted below by measuring a full cycle. */
-const STRIDE = 2.2;
+const STRIDE = 2.2 * SUB;
 
 describe('the walk cycle is locked to the ground', () => {
   it('advances with distance, not with the clock', () => {

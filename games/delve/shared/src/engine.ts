@@ -13,7 +13,7 @@
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
-import { blockAt, solidAt, rockHp, WIDTH, SURFACE_BASE, surfaceAt } from './blocks';
+import { blockAt, solidAt, rockHp, WIDTH, SURFACE_BASE, surfaceAt, SUB } from './blocks';
 import { tileRand } from './rng';
 import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from './types';
 
@@ -27,11 +27,11 @@ export * from './blocks';
 // Sized to the character art rather than chosen: the imported sprite's figure is 18 x 29 art px on a
 // 16px tile, so 1.12 x 1.81 tiles. The hitbox is the figure's height exactly and a little narrower
 // than its width, so shoulders and swinging limbs overhang rather than snagging on corners.
-const HALF_WIDTH = 0.45;
-const HALF_HEIGHT = 0.91;
-const GRAVITY = 46;
-const MAX_FALL = 30;
-const RUN_SPEED = 6;
+const HALF_WIDTH = 0.45 * SUB;
+const HALF_HEIGHT = 0.91 * SUB;
+const GRAVITY = 46 * SUB;
+const MAX_FALL = 30 * SUB;
+const RUN_SPEED = 6 * SUB;
 const RUN_ACCEL = 85;
 const AIR_ACCEL = 46;
 const FRICTION = 60;
@@ -39,12 +39,15 @@ const FRICTION = 60;
 // property of this and gravity, not of the body, so the player still clears a one-tile step exactly
 // as before. What did change is headroom — a 1.82-tall body in a 2-tall tunnel has 0.18 tiles above
 // its head, so jumping indoors needs a three-tall tunnel.
-const JUMP_VELOCITY = 10.7;
-const REACH = 1; // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
-const STEP_UP_TILES = 1; // how high a rise the player walks over unaided — see `stepUp`
+const JUMP_VELOCITY = 10.7 * SUB;
+const REACH = 1 * SUB; // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
+// One CELL, which after the 2x2 split is HALF A BLOCK — and that is the whole point of the split
+// (#44). A mined staircase now has half-block risers, so walking up one is a small correction rather
+// than the character hopping a whole block. It was 1 block before, 55% of body height; it is now 27%.
+const STEP_UP_TILES = 1;
 const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
-const MAX_STEP_DT = 1 / 30; // clamp per-step dt so fast motion can't tunnel a tile
+const MAX_STEP_DT = 1 / (30 * SUB); // clamp per-step dt so fast motion can't tunnel a tile
 
 // Fixed simulation rate. The authoritative server and each client's prediction step at this exact
 // dt, so a replayed input on the client reproduces the server's result (no lockstep needed — the
@@ -105,6 +108,17 @@ export function newWorld(seed: number): WorldState {
  *
  * Takes the seed because the surface is a heightmap: where the ground is depends on the world.
  */
+/** The row the feet rest on at `x`: one below the highest surface the body spans. */
+function groundUnder(seed: number, x: number, hw: number): number {
+  const left = Math.floor(x - hw + EPSILON);
+  const right = Math.floor(x + hw - EPSILON);
+  let highest = Infinity;
+  for (let column = left; column <= right; column++) {
+    highest = Math.min(highest, surfaceAt(seed, column));
+  }
+  return highest + 1;
+}
+
 export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
@@ -118,7 +132,13 @@ export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerSt
     // The surface is a heightmap now (#44), so this reads the actual ground under the spawn column
     // rather than a constant — on a hill or in a valley the old expression would have buried or
     // dropped the player.
-    y: surfaceAt(seed, startColumn) + 1 - (body?.hh ?? HALF_HEIGHT),
+    // The HIGHEST ground under the body, not the ground under its centre column.
+    //
+    // The body is wider than one cell, so it straddles columns whose surface rows differ — and
+    // resting the feet on the centre column's ground buries them in the neighbour's when the
+    // neighbour is a step higher. It spawned inside rock and was ejected upward over the next few
+    // frames. Latent before the 2x2 split and certain after it, since the body now spans more cells.
+    y: groundUnder(seed, startColumn + 0.5, body?.hw ?? HALF_WIDTH) - (body?.hh ?? HALF_HEIGHT),
     vx: 0,
     vy: 0,
     grounded: false,

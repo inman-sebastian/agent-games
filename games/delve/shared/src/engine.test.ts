@@ -20,6 +20,7 @@ import {
   TICK_DT,
   WIDTH,
   SURFACE_BASE,
+  SUB,
   surfaceAt,
   blockAt,
   oreAt,
@@ -46,8 +47,15 @@ function inputFor(step: Step, session: Session): Input {
   if (step.left) input.left = true;
   if (step.right) input.right = true;
   if (step.jump) input.jump = true;
-  if (step.mine)
-    input.mine = { column: Math.floor(session.player.x), row: Math.floor(session.player.y) + 1 };
+  if (step.mine) {
+    // The cell below the FEET, derived from the body rather than from the centre. `floor(y) + 1` was
+    // a cell the body itself occupies once the body is taller than two cells — so the fuzzer asked
+    // to mine thin air and broke nothing, silently, for four hundred steps.
+    input.mine = {
+      column: Math.floor(session.player.x),
+      row: Math.floor(session.player.y + PHYS.HH) + 1,
+    };
+  }
   return input;
 }
 
@@ -294,17 +302,21 @@ describe('the player body is taller than one tile (#47)', () => {
     Math.floor(session.player.y + PHYS.HH - 1e-6),
   ];
 
-  it('is taller than a tile and narrower than one', () => {
-    expect(PHYS.HH * 2).toBeGreaterThan(1);
-    expect(PHYS.HW * 2).toBeLessThan(1);
+  it('is taller than a block and narrower than one', () => {
+    // In CELLS after the 2x2 split (#44); the claim is about BLOCKS, which is what the world is
+    // generated in and what the player reads as a "block" of rock.
+    expect(PHYS.HH * 2 / SUB, 'taller than a block').toBeGreaterThan(1);
+    expect(PHYS.HW * 2 / SUB, 'narrower than a block').toBeLessThan(1);
   });
 
-  it('spans two tile rows when standing', () => {
-    // The whole basis of the digging cost: a body inside one row would fit a one-tile tunnel.
+  it('spans two block rows when standing', () => {
+    // The whole basis of the digging cost: a body inside one block would fit a one-block tunnel.
+    // Counted in blocks, since after the split it spans four CELL rows.
     const session = chamber();
     stand(session, ROW);
     const [top, bottom] = bodyRows(session);
-    expect(bottom - top).toBe(1);
+    expect(bottom - top, 'spans 4 cell rows').toBe(2 * SUB - 1);
+    expect(Math.floor(bottom / SUB) - Math.floor(top / SUB), 'which is 2 blocks').toBe(1);
   });
 
   it('does not fit a one-tile gap', () => {
@@ -319,12 +331,12 @@ describe('the player body is taller than one tile (#47)', () => {
     expect(unstick(session.world, session.player, 0)).toBe(false);
   });
 
-  it('fits a two-tile gap', () => {
+  it('fits a two-block gap', () => {
     const session = chamber();
     for (let c = COL - 8; c <= COL + 8; c++) {
       for (let r = ROW - 8; r <= ROW + 2; r++) delete session.world.dug[key(c, r)];
-      session.world.dug[key(c, ROW - 1)] = true;
-      session.world.dug[key(c, ROW - 2)] = true;
+      // Two BLOCKS of headroom, which is 2 * SUB cells.
+      for (let i = 1; i <= 2 * SUB; i++) session.world.dug[key(c, ROW - i)] = true;
     }
     session.player.x = COL + 0.5;
     session.player.y = ROW - PHYS.HH;
@@ -420,7 +432,7 @@ describe('walking over terrain (#44)', () => {
     expect(session.player.x - startX).toBeGreaterThan(20);
   });
 
-  it('does not let step-up climb more than one tile', () => {
+  it('does not let step-up climb more than one cell', () => {
     // The assist must not become a ladder. Tested UNDERGROUND, where geometry can actually be built
     // by digging: above ground, solidity comes from the heightmap and a hand-built wall is not
     // possible — the first version of this test "walled off" columns that were never dug, so
@@ -428,10 +440,14 @@ describe('walking over terrain (#44)', () => {
     const ROW = SURFACE_BASE + 30;
     const COL = 0;
     const session = newSession(4242);
-    // A three-tall corridor running right, whose floor rises by two tiles half way along.
-    for (let c = COL; c <= COL + 20; c++) {
+    // A corridor running right, whose floor rises by TWO CELLS half way along — one more than the
+    // assist may climb. After the split a cell is half a block, so this is a half-block wall.
+    //
+    // Carved from COL - 2 because the body is wider than one cell and straddles the column behind
+    // its centre; starting at COL left it overlapping undug rock and it never even fitted.
+    for (let c = COL - 2; c <= COL + 20; c++) {
       const floor = c < COL + 10 ? ROW : ROW - 2;
-      for (let r = floor - 3; r < floor; r++) session.world.dug[key(c, r)] = true;
+      for (let r = floor - (2 * SUB + 1); r < floor; r++) session.world.dug[key(c, r)] = true;
     }
     session.player.x = COL + 0.5;
     session.player.y = ROW - PHYS.HH;

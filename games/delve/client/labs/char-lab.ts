@@ -47,18 +47,18 @@ const CANDIDATES: readonly Candidate[] = [
     skin: MINER_SKIN,
     skinId: 'miner',
     scale: 1,
-    note: '30px sprite, 1.82-tile body. Needs 2 tiles to stand, 3 to jump indoors.',
+    note: '30px sprite, 1.82-BLOCK body (3.64 cells). A half-block step is 27% of its height.',
   },
   {
     id: 'hana1',
     label: '2 · Base character 1x',
     // The sprite is 15 art px tall, so the body follows it: just under one tile.
-    body: { hw: 0.32, hh: 0.47 },
+    body: { hw: 0.32 * engine.SUB, hh: 0.47 * engine.SUB },
     registry: H,
     skin: HANA_SKIN,
     skinId: 'hana',
     scale: 1,
-    note: '15px sprite, 0.94-tile body. One tile of headroom is enough — every tunnel opens up.',
+    note: '15px sprite, 0.94-block body. One block of headroom is enough — every tunnel opens up.',
   },
   {
     // A PROPORTION TEST, not a character. The box is Terraria's player scaled onto our tiles
@@ -71,12 +71,12 @@ const CANDIDATES: readonly Candidate[] = [
     // model.
     id: 'ratio',
     label: '4 · Terraria proportions (box only)',
-    body: { hw: 0.625, hh: 1.31 },
+    body: { hw: 0.625 * engine.SUB, hh: 1.31 * engine.SUB },
     registry: P,
     skin: MINER_SKIN,
     skinId: 'miner',
     scale: 1,
-    note: '1.25 x 2.63-block body — a 1-block step is 38% of it, against 55% today. Sprite is unchanged on purpose; watch the box.',
+    note: '1.25 x 2.63-block body, Terraria proportions. Less interesting now the split made risers half-block.',
   },
   {
     id: 'hana2',
@@ -104,7 +104,7 @@ const candidate = (): Candidate => CANDIDATES[pick];
 const SEED = 4242;
 const ROW = 120; // the ground line
 const LEFT = 40;
-const ROWS = 18;
+const ROWS = 30; // in CELLS — 15 blocks tall
 
 interface Zone {
   readonly cols: number;
@@ -113,20 +113,30 @@ interface Zone {
   readonly label: string;
 }
 
+/** Zones are authored in BLOCKS and converted to cells, so the table reads as the game reads. */
+const B = (blocks: number): number => blocks * engine.SUB;
+
 const ZONES: readonly Zone[] = [
-  { cols: 8, floor: 0, head: 10, label: 'spawn' },
-  { cols: 3, floor: 1, head: 9, label: '1-tile step' },
-  { cols: 3, floor: 0, head: 10, label: '' },
-  { cols: 3, floor: 2, head: 8, label: '2-tile step' },
-  { cols: 3, floor: 0, head: 10, label: '' },
-  { cols: 7, floor: 0, head: 2, label: '2-tile corridor' },
-  { cols: 2, floor: 0, head: 10, label: '' },
-  { cols: 6, floor: 0, head: 3, label: '3-tile corridor' },
-  { cols: 2, floor: 0, head: 10, label: '' },
-  { cols: 5, floor: 0, head: 1, label: '1-tile crawl' },
-  { cols: 2, floor: 0, head: 10, label: '' },
-  { cols: 3, floor: -7, head: 17, label: 'shaft' },
-  { cols: 3, floor: 0, head: 10, label: '' },
+  { cols: B(4), floor: 0, head: B(5), label: 'spawn' },
+  // THE PAYOFF OF THE 2x2 SPLIT (#44): a HALF-block riser. Before the split the smallest step the
+  // world could express was a whole block, 55% of body height. This is 27%.
+  { cols: B(1), floor: 1, head: B(5), label: 'half-block step' },
+  { cols: B(1), floor: 2, head: B(5), label: '' },
+  { cols: B(1), floor: 3, head: B(5), label: 'half-block stair' },
+  { cols: B(2), floor: 4, head: B(5), label: '' },
+  { cols: B(2), floor: 0, head: B(5), label: '' },
+  { cols: B(2), floor: B(1), head: B(4), label: '1-block step' },
+  { cols: B(2), floor: 0, head: B(5), label: '' },
+  { cols: B(2), floor: B(2), head: B(3), label: '2-block step' },
+  { cols: B(2), floor: 0, head: B(5), label: '' },
+  { cols: B(4), floor: 0, head: B(2), label: '2-block corridor' },
+  { cols: B(1), floor: 0, head: B(5), label: '' },
+  { cols: B(4), floor: 0, head: B(3), label: '3-block corridor' },
+  { cols: B(1), floor: 0, head: B(5), label: '' },
+  { cols: B(3), floor: 0, head: B(1), label: '1-block crawl' },
+  { cols: B(1), floor: 0, head: B(5), label: '' },
+  { cols: B(2), floor: -B(4), head: B(9), label: 'shaft' },
+  { cols: B(2), floor: 0, head: B(5), label: '' },
 ];
 
 const COLS = ZONES.reduce((n, z) => n + z.cols, 0);
@@ -234,7 +244,7 @@ function applyZoom(): void {
 applyZoom();
 g.imageSmoothingEnabled = false;
 
-const bandTop = ROW - 12; // 12 tiles of air above the ground line, plus the shaft below
+const bandTop = ROW - 22; // 12 tiles of air above the ground line, plus the shaft below
 
 /**
  * The rock, composited ONCE into an offscreen canvas and blitted after that.
@@ -260,9 +270,14 @@ function bakeWorld(): void {
   bg.font = '8px ui-monospace, monospace';
   bg.textAlign = 'center';
   bg.fillStyle = '#f9c22b';
+  // Staggered over two rows: the zones are narrow in cells and the labels collided into one smear.
   let col = 0;
+  let alternate = 0;
   for (const z of ZONES) {
-    if (z.label) bg.fillText(z.label, (col + z.cols / 2) * T, (ROW - bandTop) * T + 10);
+    if (z.label) {
+      bg.fillText(z.label, (col + z.cols / 2) * T, (ROW - bandTop) * T + 10 + (alternate % 2) * 9);
+      alternate++;
+    }
     col += z.cols;
   }
   baked = cv;

@@ -10,7 +10,7 @@
 // call per pixel, and a cached frame costs it ZERO times after the first. There are only a few
 // hundred distinct (animation, frame, facing, skin) combinations for a character, so the whole set
 // converges within seconds of play and never recomputes.
-import type { MinerState } from '@delve/shared';
+import { SUB, type MinerState } from '@delve/shared';
 import { PLAYER_SPRITES, type PlayerAnim } from './sprites';
 import { drawSprite, type SpriteAnim, type SpriteLight, type SpriteSkin } from './sprite';
 import { MINER_SKIN, PLAYER_LAMP } from './skin';
@@ -51,12 +51,15 @@ export interface PlayerPose {
  * is a 3.2-tile stride on a character 0.9 tiles wide, which is why the feet skated, and it is also
  * why the animation read as slow: 8 frames spread over 1.08s is 7.4fps against 60fps movement.
  *
- * Locking the cycle to distance instead fixes both at once. At a plausible 1.1-tile step the cycle
+ * Locking the cycle to distance instead fixes both at once. At a plausible 1.1-block step the cycle
  * completes in 0.37s at full speed, which is the same 8 frames at about 22fps — and the feet turn
  * over in proportion to the ground, so there is nothing left to skate. No new art; the frames were
  * always there, being shown too slowly.
+ *
+ * Expressed in CELLS after the 2x2 split (#44), so the physical stride is unchanged: a cell is half
+ * a block, so 2.2 blocks is 4.4 cells.
  */
-const STRIDE_TILES = 2.2;
+const STRIDE_TILES = 2.2 * SUB;
 
 /**
  * Pick the animation and frame for a miner state.

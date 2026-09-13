@@ -77,10 +77,12 @@ describe('hydrate', () => {
   });
 
   it('keeps a saved position the body still fits', () => {
-    // Dig a two-tile-tall pocket, which is what the 1.82-tile body now needs (#47), and the save's
-    // own position must survive hydrate untouched.
+    // A pocket big enough for the body, which after the 2x2 split (#44) is 1.8 x 3.64 CELLS — so the
+    // pocket is carved in cells, generously, and the save's own position must survive hydrate
+    // untouched. Carved from the body's span rather than hand-counted, or this test becomes a
+    // restatement of whatever the body size happens to be today.
     const dug: Record<string, boolean> = {};
-    for (let c = 39; c <= 41; c++) for (let r = 8; r <= 10; r++) dug[`${c},${r}`] = true;
+    for (let c = 37; c <= 43; c++) for (let r = 4; r <= 12; r++) dug[`${c},${r}`] = true;
     const s = hydrate({ seed: 5, dug, dmg: {}, x: 40.5, y: 9.2 });
     expect(s.player.x).toBe(40.5);
     expect(s.player.y).toBe(9.2);

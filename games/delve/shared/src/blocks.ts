@@ -11,7 +11,27 @@ import type { Block, OreResource, StrataResource } from './types';
 // The world is UNBOUNDED horizontally (see blockAt/solidAt) — there are no side walls. WIDTH
 // is retained only as a convenient default view span for the dev tools; it does NOT bound the
 // world.
-export const WIDTH = 82;
+/**
+ * Cells per BLOCK edge — the 2x2 split (#44).
+ *
+ * THE WORLD IS GENERATED ON A BLOCK GRID AND COLLIDED ON A CELL GRID, and keeping those two things
+ * separate is what makes this a small change instead of a world-gen rewrite. A block is what the
+ * generator decides — its stratum, its ore, its toughness. A cell is what the player collides with,
+ * mines, and walks up.
+ *
+ * So every generator below takes CELL coordinates and shifts them down to the block that owns them.
+ * Strata tops, ore bands, cluster frequency and the heightmap's octaves are all still expressed in
+ * BLOCKS and none of them changed — a 2x2 group of cells shares one block's material, so an ore vein
+ * is exactly as chunky as it was. What changed is that you can now mine a quarter of a block, which
+ * is what gives natural staircases: a one-cell rise is half a block, and the step-up assist walks it.
+ */
+export const SUB = 2;
+
+/** A cell coordinate down to the block that owns it. */
+export const blockOf = (cell: number): number => Math.floor(cell / SUB);
+
+/** World width in CELLS. The generator still thinks in 82 blocks. */
+export const WIDTH = 82 * SUB;
 
 /**
  * The MEAN surface row. The actual surface undulates around it per column — see `surfaceAt`.
@@ -48,14 +68,23 @@ const SURFACE_SALT = 0x5a17; // decorrelates the heightmap from the ore and dama
  * given the same seed agree without exchanging a heightmap.
  */
 export function surfaceAt(seed: number, column: number): number {
+  // Sampled at CELL resolution, with the frequency divided and the amplitude multiplied by SUB — so
+  // the hill keeps exactly the wavelength and height it had in blocks, but is quantised to cells.
+  //
+  // THIS IS NOT OPTIONAL. Sampling per block and multiplying the result instead gives terrain that is
+  // flat across each block and then steps a WHOLE BLOCK at every block boundary — which the one-cell
+  // step-up assist cannot climb, so hills become walls. Sampling per cell halves the riser: the
+  // per-column slope bound is unchanged in absolute terms, so it is now one CELL per column instead
+  // of one block. Natural hills get the same staircase the split gives mined ones.
   let height = 0;
   for (const [i, octave] of SURFACE_OCTAVES.entries()) {
     // Centred on zero, so the octaves cancel rather than all pushing the terrain one way.
-    const n = vnoise(column * octave.frequency, i * 31.7, (seed ^ SURFACE_SALT) >>> 0) - 0.5;
-    height += n * octave.amplitude;
+    const n = vnoise(column * (octave.frequency / SUB), i * 31.7, (seed ^ SURFACE_SALT) >>> 0) - 0.5;
+    height += n * (octave.amplitude * SUB);
   }
-  return SURFACE_BASE + Math.round(height);
+  return SURFACE_BASE * SUB + Math.round(height);
 }
+
 
 // Entity definitions come from the resource registry (resources/*.ts). This file owns only
 // the world-generation logic; the data lives with the resources, sorted for us by the registry.
@@ -79,8 +108,9 @@ export const RARITY_MAX = 6;
 export const rarityOf = (oreId: number): number => ORE_BY_ID[oreId]?.rarity ?? 0;
 
 export function strataIndexAt(row: number): number {
+  const block = blockOf(row);
   let index = 0;
-  while (index < STRATA.length - 1 && row >= STRATA[index + 1].top) index++;
+  while (index < STRATA.length - 1 && block >= STRATA[index + 1].top) index++;
   return index;
 }
 
@@ -88,7 +118,7 @@ export function strataIndexAt(row: number): number {
 // blobby pockets, and a coarse region grid assigns each pocket a single ore type (weighted by
 // depth band). Pure f(seed, column, row).
 const CLUSTER_FREQUENCY = 0.3; // noise frequency for ore pockets — lower = larger, blobbier clusters
-const REGION_SIZE = 6; // tiles per ore-type region; a whole pocket shares one weighted roll
+const REGION_SIZE = 6; // BLOCKS per ore-type region; a whole pocket shares one weighted roll
 const ORE_NOISE_SALT = 0x5eed; // decorrelates the ore cluster-noise field from other noise
 const ORE_TYPE_SALT = 0xa5a5; // decorrelates the per-region ore-type roll from the cluster field
 const BASE_ORE_COVERAGE = 0.2; // fraction of in-band rock that is ore near the surface
@@ -98,21 +128,21 @@ const COVERAGE_PER_ROW = 0.0003; // how fast the depth coverage bonus grows per 
 export function oreAt(seed: number, column: number, row: number): number {
   if (row <= surfaceAt(seed, column)) return 0;
 
-  const eligible = ORES.filter((ore) => row >= ore.band[0] && row <= ore.band[1]);
+  // Everything from here is on the BLOCK grid, so the four cells of a block share one ore and the
+  // pockets keep their size. Sampling the noise per cell instead would quarter every vein.
+  const bc = blockOf(column);
+  const br = blockOf(row);
+  const eligible = ORES.filter((ore) => br >= ore.band[0] && br <= ore.band[1]);
   if (eligible.length === 0) return 0;
 
-  const noise = vnoise(
-    column * CLUSTER_FREQUENCY,
-    row * CLUSTER_FREQUENCY,
-    (seed ^ ORE_NOISE_SALT) >>> 0,
-  );
-  const coverage = BASE_ORE_COVERAGE + Math.min(DEEP_COVERAGE_BONUS, row * COVERAGE_PER_ROW);
+  const noise = vnoise(bc * CLUSTER_FREQUENCY, br * CLUSTER_FREQUENCY, (seed ^ ORE_NOISE_SALT) >>> 0);
+  const coverage = BASE_ORE_COVERAGE + Math.min(DEEP_COVERAGE_BONUS, br * COVERAGE_PER_ROW);
   if (noise < 1 - coverage) return 0; // outside a pocket → plain rock
 
   // Pick this pocket's ore type: one weighted roll per coarse region, so a whole cluster
   // shares a type.
-  const regionX = Math.floor(column / REGION_SIZE);
-  const regionY = Math.floor(row / REGION_SIZE);
+  const regionX = Math.floor(bc / REGION_SIZE);
+  const regionY = Math.floor(br / REGION_SIZE);
   const totalWeight = eligible.reduce((sum, ore) => sum + ore.weight, 0);
   let roll = tileRand((seed ^ ORE_TYPE_SALT) >>> 0, regionX, regionY) * totalWeight;
   for (const ore of eligible) {
@@ -126,8 +156,17 @@ export function oreAt(seed: number, column: number, row: number): number {
 const BASE_ROCK_HP = 2; // hp of rock at the surface
 const ROCK_HP_PER_ROW = 0.31; // hp added per row of depth
 
+/**
+ * A CELL's toughness.
+ *
+ * Divided by the number of cells in a block, because a block is now four digs rather than one and
+ * excavating a given volume of rock should take the same time it always did. Without this the split
+ * would quadruple every tunnel's cost, which is a mining nerf disguised as a rendering change.
+ */
+export const CELLS_PER_BLOCK = SUB * SUB;
+
 export function rockHp(row: number): number {
-  return BASE_ROCK_HP + Math.floor(row * ROCK_HP_PER_ROW);
+  return (BASE_ROCK_HP + Math.floor(blockOf(row) * ROCK_HP_PER_ROW)) / CELLS_PER_BLOCK;
 }
 
 // Interned descriptor for open sky (no per-call allocation).
@@ -153,7 +192,8 @@ export function blockAt(seed: number, column: number, row: number): Block {
     kind: ore ? 'ore' : 'rock',
     ore,
     strata: strataIndexAt(row),
-    hp: rockHp(row) + (oreDef ? oreDef.hp : 0),
+    // The ore's toughness bonus is per BLOCK too, so it divides like the rock's does.
+    hp: rockHp(row) + (oreDef ? oreDef.hp / CELLS_PER_BLOCK : 0),
     dim: oreDef ? !!oreDef.dim : false,
   };
 }

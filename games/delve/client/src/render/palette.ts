@@ -3,7 +3,16 @@
 // so a material can import it without a cycle.
 import { vnoise, hashXY } from '@delve/shared';
 
-export const T = 16; // tile size in logical (art) pixels
+/**
+ * A CELL's size in logical (art) pixels — 8 after the 2x2 split (#44).
+ *
+ * `UPSCALE` is unchanged at 2, so a cell draws at 16 screen px and four of them occupy the 32px
+ * square a block used to. The art scale — screen pixels per art pixel — therefore did not move, which
+ * is the property the split was chosen for: every material was authored for this density and still
+ * reads exactly as it did. The material shaders all seed their texture from WORLD coordinates, not
+ * cell-local ones, so halving the cell does not halve the texture.
+ */
+export const T = 8;
 export const TEX = 90210; // fixed seed for all texture noise (keeps texture stable per world coord)
 
 /**

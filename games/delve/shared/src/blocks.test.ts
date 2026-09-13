@@ -15,6 +15,8 @@ import {
   SURFACE_BASE,
   surfaceAt,
   solidAt,
+  SUB,
+  blockOf,
 } from '@delve/shared';
 
 const seedArb = fc.integer({ min: 0, max: 2 ** 31 - 1 });
@@ -79,8 +81,10 @@ describe('ore placement', () => {
           if (ore === 0) return;
           const def = ORE_BY_ID[ore];
           expect(def, `oreAt returned unknown id ${ore}`).toBeDefined();
-          expect(r).toBeGreaterThanOrEqual(def.band[0]);
-          expect(r).toBeLessThanOrEqual(def.band[1]);
+          // Bands are declared in BLOCK rows and `r` is a CELL row after the 2x2 split (#44), so the
+          // comparison has to happen in the generator's own units.
+          expect(blockOf(r)).toBeGreaterThanOrEqual(def.band[0]);
+          expect(blockOf(r)).toBeLessThanOrEqual(def.band[1]);
         },
       ),
     );
@@ -90,11 +94,12 @@ describe('ore placement', () => {
   it('every ore tier is discoverable within its band (20 seeds)', () => {
     const SCAN_ROWS = 80;
     for (const ore of ORES) {
+      // Scanned in CELL rows across the band's BLOCK rows — the band is the generator's unit.
       const lastRow = Math.min(ore.band[1], ore.band[0] + SCAN_ROWS);
       let seedsWithOre = 0;
       for (let seed = 1; seed <= 20; seed++) {
         let found = false;
-        for (let r = ore.band[0]; r <= lastRow && !found; r++)
+        for (let r = ore.band[0] * SUB; r <= lastRow * SUB && !found; r++)
           for (let c = 0; c < WIDTH; c++)
             if (oreAt(seed, c, r) === ore.id) {
               found = true;
@@ -162,7 +167,8 @@ describe('the surface heightmap (#44)', () => {
     // Unbounded terrain would put the spawn arbitrarily far from the strata the ore bands assume.
     for (const seed of [1, 7, 42, 1234, 99999]) {
       for (let c = -500; c < 500; c++) {
-        expect(Math.abs(surfaceAt(seed, c) - SURFACE_BASE)).toBeLessThanOrEqual(6);
+        // In CELLS now, so the same physical bound is SUB times the number of rows it was.
+        expect(Math.abs(surfaceAt(seed, c) - SURFACE_BASE * SUB)).toBeLessThanOrEqual(6 * SUB);
       }
     }
   });

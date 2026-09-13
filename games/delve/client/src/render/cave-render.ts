@@ -107,13 +107,16 @@ type SolidTile = (column: number, row: number) => boolean;
 // Edge erosion: how far (px) a tile's boundary with open space is nibbled by world-space noise,
 // so rock edges read organic and connect seamlessly across tiles. thr = EDGE_EROSION_BASE +
 // EDGE_EROSION_RANGE * noise.
-const EDGE_EROSION_BASE = 0.4;
-const EDGE_EROSION_RANGE = 1.4;
+// Halved with the cell (#44). These are ABSOLUTE pixel distances, not fractions of a cell — so on an
+// 8px cell the old values ate twice the proportion they were tuned for, and corner rounding alone
+// took a third of every cell. Rock read as gravel until these came down with it.
+const EDGE_EROSION_BASE = 0.2;
+const EDGE_EROSION_RANGE = 0.7;
 const EDGE_NOISE_FREQ = 0.28;
 // Corner rounding: bite a quarter-disc out of every CONVEX corner (two adjacent open sides) so blocks
 // never read as perfectly square. Radius in px = base + noise * edge noise (organic, world-anchored).
-const CORNER_ROUND_BASE = 2.6;
-const CORNER_ROUND_NOISE = 1.3;
+const CORNER_ROUND_BASE = 1.3;
+const CORNER_ROUND_NOISE = 0.65;
 
 /** Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. */
 function buildMask(

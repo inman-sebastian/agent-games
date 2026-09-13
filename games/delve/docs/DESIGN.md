@@ -580,78 +580,57 @@ content density possible.
 | [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava                                           |
 | [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes          |
 
-### Block granularity — open question, not yet decided
+### Block granularity — the 2×2 split, DONE
 
-**Observed in play:** Terraria's mining and step-up feel better than ours, and its blocks look
-smaller relative to the player. Both halves of that are true, but they have *different causes* and
-only one of them is expensive to fix.
+Blocks are subdivided 2×2. **The world is generated on a BLOCK grid and collided on a CELL grid**,
+and keeping those two concerns separate is what made this a contained change rather than a
+world-generation rewrite.
 
-**Terraria's tiles are 16×16 pixels** — the same as ours — with 2px of sheet padding
-([tModLoader](https://github.com/tModLoader/tModLoader/wiki/Basic-Tile)). The on-screen difference is
-entirely our render upscale:
+- A **block** is what the generator decides: its stratum, its ore, its toughness.
+- A **cell** is what the player collides with, mines, and walks up. Four cells to a block.
 
-| | Art px | Upscale | On screen |
-| --- | --- | --- | --- |
-| Terraria block | 16 | 1× | **16px** |
-| DELVE block | 16 | 2× | **32px** |
+**The rendered scale did not move.** A cell is 8 art px drawn at 2×, so 16 screen px, and four of
+them occupy the 32px square a block used to. Every material was authored for that density and reads
+exactly as before — verified by rendering the same region either side of the change and finding the
+ore veins and rock texture pixel-identical.
 
-So a 2×2 patch of Terraria blocks tiles into exactly one of ours on screen. That is real, and it
-costs **nothing** to change — it is a zoom decision, not a world-model one.
+**Why it was worth doing**, and it is a gameplay change more than a visual one:
 
-And the player, which is the other half:
+| | Before | After |
+| --- | --- | --- |
+| Smallest step the world can express | 1 block | **half a block** |
+| That step as % of body height | 55% | **27%** |
+| Worst natural hill riser | 1 block per column | **1 cell per column** |
 
-| | On screen | In blocks | A 1-block step, as % of body |
-| --- | --- | --- | --- |
-| Terraria | 42px tall | 2.63 | **38%** |
-| DELVE | 60px tall | 1.81 | **55%** |
+Terraria's figure is 38%, so the split lands finer than the thing that prompted it. A mined staircase
+now has half-block risers and the step-up assist walks them, which is the whole point.
 
-**Our character is bigger on screen than Terraria's while being shorter in blocks.** We are zoomed in
-*and* stubbier, and only the second part governs how a step feels — a step is the same fraction of the
-body at any zoom.
+**What actually had to change**, for the next person contemplating a grid change:
 
-So there are three separable moves, cheapest first:
+- `SUB`, `blockOf` and a `WIDTH` in cells; every generator shifts its cell coordinates down to the
+  owning block, so strata tops, ore bands, cluster frequency and region size are all **untouched** and
+  still expressed in blocks.
+- **The heightmap samples per CELL**, with its frequency divided and amplitude multiplied by `SUB`.
+  Sampling per block and scaling the result gives terrain that is flat across a block and then steps a
+  whole block at every boundary — which the one-cell assist cannot climb, so hills become walls.
+- Rock and ore HP divide by cells-per-block, or a block costs four digs instead of one and the split
+  becomes a mining nerf wearing a rendering change's clothes.
+- Physics constants expressed per tile double: gravity, run speed, jump, max fall, reach, the body's
+  half-extents, the walk cycle's stride. `MAX_STEP_DT` halves, since smaller cells and faster speeds
+  both raise the tunnelling risk.
+- Edge erosion and corner rounding halve. They are **absolute pixel** distances, so on an 8px cell the
+  old values ate twice the proportion they were tuned for and rock read as gravel.
 
-1. **Zoom out** (upscale 2× → 1×). Blocks become Terraria-sized on screen and you see 4× more world.
-   Free. Changes nothing about step-up feel. Cycle it with `Z` in the character lab.
-2. **Make the player taller in blocks** (1.81 → ~2.6). Closes the 1.45× ratio gap, which is the thing
-   that governs the yank. Costs a sprite. Candidate 4 in the character lab is this hitbox on the
-   current world, so it can be felt before anything is drawn.
-3. **Split blocks 2×2 at the same rendered scale** — a cell becomes 8 art px, still drawn at 2×, so a
-   cell is 16 screen px and four of them occupy today's 32px block. The only move that buys **finer
-   terrain**: half-height risers, so a staircase forms naturally instead of every rise being a full
-   block.
+**Three latent bugs surfaced**, all of them from the body now spanning more cells than before:
 
-#### What splitting actually costs — prototyped, not estimated
+1. The spawn rested the feet on the **centre column's** ground, burying them when a neighbouring
+   column was a step higher. It now uses the highest ground the body spans.
+2. The fuzz harness mined `floor(y) + 1` — a cell the body itself occupies once the body is taller
+   than two cells — so it asked to mine thin air and broke nothing, silently, for 400 steps.
+3. The playtest's shaft fixture dug only the body's two edge columns, leaving a pillar under the
+   middle one. The player stood on it and never descended.
 
-The first estimate here was wrong in an encouraging direction and wrong in a discouraging one, so it
-was prototyped: cell size halved, erosion constants halved, a crop rendered and compared.
-
-**The material art survives for free, and that is the good news.** No material shader uses
-`localX`/`localY` — all fourteen seed their texture from `worldX`/`worldY`, so the texture is anchored
-to the world rather than to cells. Halving the cell does not halve the texture. The rendered scale is
-unchanged, which is exactly the property this option was chosen for.
-
-**Three constants need halving, and they are the only renderer change.** Edge erosion and corner
-rounding are in *absolute pixels* (`EDGE_EROSION_BASE` 0.4, `EDGE_EROSION_RANGE` 1.4,
-`CORNER_ROUND_BASE` 2.6), so on an 8px cell the corner rounding alone would eat a third of it and the
-rock would read as gravel. Halved, it held up.
-
-**The real work is world generation, and it is bigger than the renderer.** Everything the generator
-produces is sized in cells, so at half the cell size the world's *content* halves too — which the
-prototype showed plainly: ore came out as scattered flecks rather than veins. To keep the world
-looking the same, every one of these has to be rescaled:
-
-- ore cluster frequency (`CLUSTER_FREQUENCY`)
-- the surface heightmap's amplitudes and frequencies, and the slope bound derived from them
-- every stratum's `top` row and every ore's `band` — 18 resource files
-- clearances, step-up, dig reach, chunk dimensions, the lighting grid
-
-None of it is hard. All of it is a coordinated migration with a save-format break, and the dug set
-grows 4× for the same excavated volume.
-
-**Do 1 and 2 first**, because they are nearly free and they answer whether 3 is needed at all.
-
-### Also queued### Also queued### Also queued
+### Also queued### Also queued### Also queued### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything

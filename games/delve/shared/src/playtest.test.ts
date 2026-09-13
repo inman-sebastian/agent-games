@@ -29,6 +29,7 @@ import {
   key,
   type Input,
   type Session,
+  SUB,
 } from '@delve/shared';
 
 const seedArb = fc.integer({ min: 0, max: 2 ** 31 - 1 });
@@ -116,7 +117,7 @@ describe('a played session never becomes unplayable', () => {
         // Dig straight down `depth` tiles, which is the deepest a player can commit themselves.
         for (let i = 0; i < depth; i++) {
           const b = bodyTiles(session);
-          for (const column of [b.left, b.right]) {
+          for (let column = b.left; column <= b.right; column++) {
             session.world.dug[key(column, b.bottom + 1)] = true;
           }
           play(session, { left: false, right: false, jump: false }, 12);
@@ -139,28 +140,49 @@ describe('a played session never becomes unplayable', () => {
     const DEPTH = 12;
     for (let i = 0; i < DEPTH; i++) {
       const b = bodyTiles(session);
-      for (const column of [b.left, b.right]) session.world.dug[key(column, b.bottom + 1)] = true;
+      // EVERY column the body spans, not just its two edges. The body is 1.8 cells wide after the
+      // split, so it straddles three cell columns — digging only the outer two left a pillar under
+      // the middle one and the player stood on it, never descending at all.
+      for (let column = b.left; column <= b.right; column++) {
+        session.world.dug[key(column, b.bottom + 1)] = true;
+      }
       play(session, { left: false, right: false, jump: false }, 12);
     }
     expect(session.player.y).toBeGreaterThan(startY + DEPTH - 2); // actually went down
 
-    // Now cut a staircase upward and walk it: one tile up, one tile across, repeatedly.
+    // Now cut a staircase upward and walk it: ONE CELL up, one cell across, repeatedly.
     //
-    // The head clearance has to be carved in BOTH columns, which is a real property of the game and
-    // not a quirk of this test. Mid-step the body straddles the column it is leaving and the one it
-    // is entering, so it needs the extra row over both — a staircase wants THREE tiles of vertical
-    // clearance even though standing still only wants two. Carving two, which is what this tried
-    // first, climbs exactly one step and then jams against the ceiling of the column behind it.
-    for (let i = 0; i < DEPTH + 4; i++) {
+    // After the 2x2 split (#44) a cell is half a block, so this is the half-block staircase the
+    // split exists to make possible — and it is the improvement, stated as a test. Before the split
+    // every riser was a whole block, 55% of body height, and the assist had to heave the player over
+    // it. A one-cell riser is 27%.
+    //
+    // The head clearance is still carved in BOTH columns, which remains a real property of the game
+    // rather than a quirk of this test: mid-step the body straddles the column it is leaving and the
+    // one it is entering, so it needs the extra row over both.
+    // The HIGHEST point reached, not the final one. Asserting the final position was wrong: the
+    // player climbs out successfully and then keeps walking right, following the natural surface
+    // back downhill — so "where it ended up" measures the terrain past the shaft, not the climb.
+    let highest = session.player.y;
+    for (let i = 0; i < DEPTH * SUB + 8; i++) {
       const b = bodyTiles(session);
-      for (let row = b.top - 1; row <= b.bottom - 1; row++) {
-        session.world.dug[key(b.right + 1, row)] = true;
+      // A step the player can actually STAND on: as wide as the body, not one cell wide. The body
+      // spans three cell columns after the split, so a one-column step leaves two thirds of it
+      // hanging over the shaft it just climbed out of, and the climb stalls after a few risers.
+      const span = b.right - b.left + 1;
+      for (let column = b.right + 1; column <= b.right + span; column++) {
+        for (let row = b.top - 1; row <= b.bottom - 1; row++) {
+          session.world.dug[key(column, row)] = true;
+        }
       }
-      session.world.dug[key(b.left, b.top - 1)] = true; // headroom over the step being left
-      session.world.dug[key(b.right, b.top - 1)] = true;
+      // Headroom over every column being left, or the body clips the ceiling behind it mid-step.
+      for (let column = b.left; column <= b.right; column++) {
+        session.world.dug[key(column, b.top - 1)] = true;
+      }
       play(session, { left: false, right: true, jump: false }, 24);
+      highest = Math.min(highest, session.player.y);
     }
-    expect(session.player.y, 'never climbed back out of its own shaft').toBeLessThan(startY + 2);
+    expect(highest, 'never climbed back out of its own shaft').toBeLessThanOrEqual(startY + 2);
   });
 
   it('walks a long stretch of terrain without getting stuck on it', () => {
