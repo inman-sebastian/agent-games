@@ -302,6 +302,62 @@ full swing, or resolving the anchor against the whole figure's silhouette rather
 Both are decisions rather than tweaks, which is why this is tracked as #48 rather than fixed in
 passing.
 
+## Trialling a second pack — what the pipeline learned
+
+A second character pack (Hana Caraka Base Character, by Otterisk) was imported as a possible
+alternative. It did not survive the look, but getting it far enough to judge exposed four real
+limitations, three of which are now fixed.
+
+### The importer can now take one entity at a time
+
+**It used to demand every source pack at once**, because the template palette was rebuilt from
+whatever was on disk — so importing a second entity renumbered the first one's pixels. Source packs
+are never committed, which made trialling a new pack impossible unless you still had the old one.
+
+The palette is now **seeded from the committed table and only ever appends**, which makes an existing
+entity's indices stable by construction rather than by luck. That is what lets `--only <entity>`
+exist, and the import reports what it did: `24 template colours (21 kept, 3 added)`.
+
+### Layers are identified by PATH, not by name
+
+A multi-direction pack groups its layers per facing — `up/`, `down/`, `side/` — all stacked in one
+canvas, with an export script splitting them into PNG rows. Three layers called `body` are not
+distinguishable by name, so `layerPaths` builds `side/body` from the group chain. For flat art the
+path equals the name, so nothing changed for the existing pack.
+
+Two manifest fields follow from it: **`only`** selects a facing (a side-scroller can use exactly one,
+and listing every other facing in `skip` would say nothing), and **`sheetRow`** points the PNG
+cross-check at the right row. Without `sheetRow` the height guard failed and the check was skipped
+*silently*, which is the worst outcome — that check is the only thing that catches a stale export.
+
+### Still open: a skin keys on COLOUR, and not every pack encodes parts that way
+
+The current pack is a **colour-coded template**: each body part has its own code, which is what lets
+`TEMPLATE_PARTS` map a colour to a part and a shade rank. Hana is a **blank base character** — three
+colours total (outline, light, shadow) shared by every part. Part identity lives only in the
+*layers*.
+
+So `TEMPLATE_PARTS` cannot express a skin for it, and the test that every template colour maps to a
+part fails by design. Per-slot **materials** already key on the slot name and would work; a
+per-slot *flat ramp* has no equivalent. That is the gap if a pack like this is ever adopted.
+
+### And the reason it was rejected
+
+| | Current pack | Hana Caraka |
+| --- | --- | --- |
+| Height | 30 art px, ~1.9 tiles | **15 art px, ~0.9 tiles** |
+| View | side profile | **three-quarter, facing the viewer** |
+| Facings | one | three (`up`, `down`, `side`) |
+| Legs | own layers | none — the body carries them |
+
+The scale is a **gameplay** change, not an art change: the body was resized to 1.81 tiles *for* the
+current art, and the tunnel clearances follow from it (see DESIGN.md). The view is the harder problem
+— its `side` facing still shows both eyes, because in a top-down RPG the sideways walk faces the
+camera. In a side-scroller that reads as a character running sideways while staring at the player.
+
+Its animations are also all 4-8 frames at 10fps, and phase-locking (below) can raise an effective
+rate but not invent frames.
+
 ## Locomotion timing, and the step-up lift
 
 **The walk cycle is locked to DISTANCE, not to the clock.** One full cycle covers `STRIDE_TILES`

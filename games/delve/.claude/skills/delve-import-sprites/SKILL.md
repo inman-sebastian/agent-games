@@ -58,10 +58,17 @@ piece of equipment keys on the slot name, and this pack alone calls one body par
 
 ```sh
 pnpm --filter delve exec tsx tools/import-aseprite.ts <pack-root>
+pnpm --filter delve exec tsx tools/import-aseprite.ts <pack-root> --only <entity>   # just one
 ```
 
-It is a **batch over every entity** because the template palette is shared — that is what lets a
-material authored once apply to any entity whose slots it names.
+The palette is **seeded from the committed table and only appends**, so an import can never renumber
+an entity it did not touch — which is what makes `--only` safe, and what lets you trial a new pack
+without still having the old pack's source files (they are never committed).
+
+**A multi-direction pack** groups its layers per facing (`up/`, `down/`, `side/`) in one canvas and
+exports one PNG row per group. Layers are matched by **path** (`side/body`), so set `only` to the
+facing a side-scroller can use and `sheetRow` to the row that holds it. Without `sheetRow` the PNG
+cross-check is skipped silently.
 
 **It verifies before it writes and refuses on a mismatch.** Each animation is decoded back,
 composited, and diffed pixel for pixel against the file's own layers and its sibling PNG export. When

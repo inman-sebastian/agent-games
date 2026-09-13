@@ -38,7 +38,30 @@ export interface SpriteEntity {
    * Overrides key on the slot name, so a chest piece that fits the idle has to fit the walk too —
    * and this pack calls one body part "Back Arm", "Back Hand" and "Left Arm" in three files.
    */
+  /**
+   * Match against a layer's PATH (`side/body`), not just its name — see `layerPaths`.
+   *
+   * For flat art the path is the name, so a pattern like `/^torso$/` still works.
+   */
   readonly slots: readonly (readonly [RegExp, string])[];
+  /**
+   * Import only layers whose path matches, silently ignoring the rest.
+   *
+   * For a MULTI-DIRECTION pack. A top-down character groups its layers per facing — `up/`, `down/`,
+   * `side/` — and a side-view platformer can only use one of them. Without this, the other facings
+   * are layers that map to no slot, which the importer correctly refuses on; listing every one of
+   * them in `skip` would be a dozen entries per entity that say nothing.
+   */
+  readonly only?: RegExp;
+  /**
+   * Which row of the sibling PNG export holds this entity's facing, when the sheet has several.
+   *
+   * A multi-direction pack exports one ROW PER GROUP, so the PNG is `frames × width` across and
+   * `groups × height` tall. Without this the height guard fails and the PNG cross-check is skipped
+   * silently — which is the worst outcome, since the check is the only thing that catches a stale
+   * export.
+   */
+  readonly sheetRow?: number;
   /** Paint order for this entity's slots, bottom to top. The canonical SET, not a sort key. */
   readonly order: readonly string[];
   readonly sources: readonly SpriteSource[];
@@ -126,6 +149,51 @@ export const ENTITIES: readonly SpriteEntity[] = [
         // signature of an export taken before the layers were last edited.
         trustSource: 'PNG export predates the layer edits',
       },
+    ],
+  },
+  {
+    // A TRIAL ALTERNATIVE to the player above: Hana Caraka Base Character by Otterisk, a top-down
+    // RPG base character. Imported to see how a smaller, chibi figure reads in DELVE.
+    //
+    // TWO THINGS MAKE IT STRUCTURALLY DIFFERENT from the current pack, and both are why the importer
+    // grew `only` and `sheetRow`:
+    //
+    //   It is a THREE-DIRECTION pack. Every file groups its layers per facing — `up/`, `down/`,
+    //   `side/` — all stacked in one canvas, and an export script splits them into PNG rows. A
+    //   side-scroller can use exactly one of them, so `only` takes the side group and `sheetRow`
+    //   points the PNG cross-check at the row that holds it.
+    //
+    //   It has NO LEG LAYERS. The body carries the legs, so BIPED_SLOTS does not apply — the slot
+    //   table here is head, torso and two hands. A skin or a material keyed on `leg.near` simply
+    //   finds nothing, which is the correct behaviour and worth knowing before authoring one.
+    //
+    // Scale: the figure is 13x15 against the current player's 30px, so it is roughly half the
+    // height. That is a gameplay change, not just an art change — the body was resized to 1.81
+    // tiles FOR the current art (#47), and the tunnel clearances follow from it.
+    name: 'hana',
+    root: 'Hana Caraka - Base Character',
+    // Feet sit on canvas row 39 in every side frame, measured; the ground line is the row below.
+    ground: 40,
+    // Names exactly what is taken. Each facing group also carries a `vfx` layer, empty in every
+    // Basic animation, and the importer correctly refuses a layer that maps to no slot.
+    only: /^side\/(body|head|hand 2|hand)$/i,
+    slots: [
+      [/^side\/head$/i, 'head'],
+      [/^side\/body$/i, 'torso'],
+      [/^side\/hand 2$/i, 'arm.far'],
+      [/^side\/hand$/i, 'arm.near'],
+    ],
+    // Source paint order: far hand, body, head, near hand. Not re-sorted — source order wins.
+    order: ['arm.far', 'torso', 'head', 'arm.near'],
+    sheetRow: 0,
+    sources: [
+      { file: 'Basic/idle.aseprite', name: 'HANA_IDLE', grounded: true },
+      { file: 'Basic/walk.aseprite', name: 'HANA_WALK', grounded: true },
+      { file: 'Basic/run.aseprite', name: 'HANA_RUN', grounded: true },
+      { file: 'Basic/jump.aseprite', name: 'HANA_JUMP' },
+      { file: 'Basic/hurt.aseprite', name: 'HANA_HURT', grounded: true },
+      { file: 'Basic/death.aseprite', name: 'HANA_DEATH', grounded: true },
+      { file: 'Basic/pick up.aseprite', name: 'HANA_PICK_UP', grounded: true },
     ],
   },
 ];

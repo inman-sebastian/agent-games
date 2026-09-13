@@ -20,6 +20,22 @@ export interface AseLayer {
   readonly childLevel: number;
 }
 
+/**
+ * Each layer's full path, group chain joined by `/` — `side/body` rather than `body`.
+ *
+ * Needed because a multi-direction pack repeats the same layer names inside a group per facing, so
+ * the bare name is ambiguous: a four-direction character has three or four layers called `body`.
+ * For a flat file every path equals its own name, so nothing changes for art that has no groups.
+ */
+export function layerPaths(file: AseFile): string[] {
+  const stack: string[] = [];
+  return file.layers.map((l) => {
+    stack.length = l.childLevel;
+    stack[l.childLevel] = l.name;
+    return stack.slice(0, l.childLevel + 1).join('/');
+  });
+}
+
 export interface AseCel {
   readonly frame: number;
   readonly layer: number;

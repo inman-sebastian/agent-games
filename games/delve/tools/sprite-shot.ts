@@ -1,6 +1,6 @@
 // sprite-shot.ts — render an imported animation to a PNG, headlessly.
 //
-//   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--scale 3] [--flip]
+//   pnpm --filter delve exec tsx tools/sprite-shot.ts <anim> out.png [--entity player] [--scale 3] [--flip]
 //                                                     [--template|--plate|--steel] [--hide slot]
 //                                                     [--light x,y,reach | --overhead] [--no-outline]
 //                                                     [--pack]
@@ -13,7 +13,8 @@
 // re-skin, without leaving the terminal. `client/labs/sprite-lab.html` is the interactive version.
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
-import { PLAYER_SPRITES, type PlayerAnim } from '../client/src/render/entity/sprites';
+import * as sprites from '../client/src/render/entity/sprites';
+import type { SpriteAnim } from '../client/src/render/entity/sprite';
 import { drawSprite, type SpriteSkin } from '../client/src/render/entity/sprite';
 import {
   ALL_STEEL,
@@ -26,12 +27,30 @@ import { OVERHEAD, type SpriteLight } from '../client/src/render/entity/surface'
 
 const args = process.argv.slice(2);
 const [name, out] = args;
-const anim = PLAYER_SPRITES[name as PlayerAnim];
+
+/**
+ * `--entity <name>` picks a registry other than the player's.
+ *
+ * Looked up by convention (`hana` -> `HANA_SPRITES`) rather than by an import per entity, so a newly
+ * imported entity is shootable without editing this file — which is the whole point of the registry
+ * being generated.
+ */
+const entityAt = args.indexOf('--entity');
+const entity = entityAt > 0 ? args[entityAt + 1] : 'player';
+const registryName = `${entity.toUpperCase()}_SPRITES`;
+const registry = (sprites as unknown as Record<string, Record<string, SpriteAnim>>)[registryName];
+if (!registry) {
+  const have = Object.keys(sprites)
+    .filter((k) => k.endsWith('_SPRITES'))
+    .map((k) => k.replace('_SPRITES', '').toLowerCase());
+  throw new Error(`no entity "${entity}" — imported entities: ${have.join(', ')}`);
+}
+const anim = registry[name];
 if (!anim || !out) {
   console.error(
     `usage: sprite-shot.ts <anim> out.png [--scale n] [--flip] [--skin slot=#hex,...] [--hide slot,...]`,
   );
-  console.error(`anims: ${Object.keys(PLAYER_SPRITES).join(', ')}`);
+  console.error(`anims: ${Object.keys(registry).join(', ')}`);
   process.exit(1);
 }
 

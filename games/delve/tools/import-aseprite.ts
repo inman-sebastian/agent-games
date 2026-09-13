@@ -17,7 +17,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { readAseprite, flatten, type AseFile } from './aseprite';
+import { readAseprite, flatten, layerPaths, type AseFile } from './aseprite';
 import { ENTITIES, type SpriteEntity, type SpriteSource } from './sprite-manifest';
 
 /**
@@ -63,9 +63,36 @@ const outRoot = resolve(
 const hex = (r: number, g: number, b: number): string =>
   `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 
-/** The shared template palette. Index 0 is transparent, so a colour's index is its position + 1. */
-const template: string[] = [];
-const templateIndex = new Map<string, number>();
+/**
+ * `--only <name>` imports one entity instead of every one.
+ *
+ * Safe ONLY because the palette below is additive. Rebuilding the palette from whatever packs happen
+ * to be on disk would renumber every other entity's pixels, which is why this flag could not exist
+ * before — and why the importer used to demand every source pack be present at once. Source packs
+ * are never committed, so that made trialling a second pack impossible without the first.
+ */
+const onlyEntity = (() => {
+  const at = process.argv.indexOf('--only');
+  return at > 0 ? process.argv[at + 1] : null;
+})();
+
+/**
+ * The shared template palette. Index 0 is transparent, so a colour's index is its position + 1.
+ *
+ * SEEDED FROM THE COMMITTED TABLE, in its existing order, so an import can only ever APPEND. That
+ * makes an existing entity's indices stable by construction rather than by luck: a pixel that meant
+ * `#ce5050` yesterday still does, whatever is imported today.
+ */
+const template: string[] = (() => {
+  const existing = join(outRoot, 'palette.ts');
+  if (!existsSync(existing)) return [];
+  const body = readFileSync(existing, 'utf8');
+  const open = body.indexOf('[');
+  const close = body.indexOf(']', open);
+  if (open < 0 || close < 0) return [];
+  return [...body.slice(open, close).matchAll(/'(#[0-9a-f]{6})'/gi)].map((m) => m[1]);
+})();
+const templateIndex = new Map<string, number>(template.map((c, i) => [c, i + 1]));
 const indexOf = (colour: string): number => {
   const hit = templateIndex.get(colour);
   if (hit !== undefined) return hit;
@@ -99,19 +126,23 @@ function importOne(entity: SpriteEntity, source: SpriteSource, path: string): Ou
     entity.slots.find(([re]) => re.test(name.trim()))?.[1] ?? null;
   const file = readAseprite(new Uint8Array(readFileSync(path)));
   const extraSkip = new Set((source.skip ?? []).map((n) => n.toLowerCase()));
-  const parts = file.layers.filter(
-    (l) =>
-      !l.isGroup &&
-      l.visible &&
-      !SKIP_LAYERS.has(l.name.toLowerCase()) &&
-      !extraSkip.has(l.name.toLowerCase()),
-  );
+  // A layer is identified by its PATH, so a multi-direction pack's three `body` layers stay distinct.
+  const paths = layerPaths(file);
+  const pathOf = (l: (typeof file.layers)[number]): string => paths[l.index];
+  const parts = file.layers.filter((l) => {
+    if (l.isGroup || !l.visible) return false;
+    const p = pathOf(l).toLowerCase();
+    if (SKIP_LAYERS.has(l.name.toLowerCase()) || extraSkip.has(l.name.toLowerCase())) return false;
+    if (extraSkip.has(p)) return false;
+    // `only` drops other facings quietly; everything left must map to a slot or the import refuses.
+    return entity.only ? entity.only.test(pathOf(l)) : true;
+  });
   if (parts.length === 0) throw new Error(`${source.file}: no character layers found`);
 
-  const unnamed = parts.filter((l) => slotFor(l.name) === null);
+  const unnamed = parts.filter((l) => slotFor(pathOf(l)) === null);
   if (unnamed.length > 0) {
     throw new Error(
-      `${source.file}: layer(s) map to no slot: ${unnamed.map((l) => `"${l.name}"`).join(', ')}. ` +
+      `${source.file}: layer(s) map to no slot: ${unnamed.map((l) => `"${pathOf(l)}"`).join(', ')}. ` +
         `Add a slot pattern to the ${entity.name} entity, or list them in its \`skip\`.`,
     );
   }
@@ -161,7 +192,7 @@ function importOne(entity: SpriteEntity, source: SpriteSource, path: string): Ou
         data: Buffer.from(indices).toString('base64'),
       });
     }
-    return { name: slotFor(layer.name)!, cels };
+    return { name: slotFor(pathOf(layer))!, cels };
   });
 
   // A layer present in the file but empty in EVERY frame — an arm tucked behind the body for a whole
@@ -214,7 +245,10 @@ function importOne(entity: SpriteEntity, source: SpriteSource, path: string): Ou
   const png = path.replace(/\.aseprite$/i, '.png');
   if (existsSync(png) && hasPillow()) {
     const [pw, ph, flat] = readPng(png);
-    if (ph === file.height && pw >= file.width * file.frames) {
+    // One row per exported group for a multi-direction pack; row 0 and a single-row sheet are the
+    // same arithmetic, so flat art needs no `sheetRow`.
+    const rowY = (entity.sheetRow ?? 0) * file.height;
+    if (ph >= rowY + file.height && pw >= file.width * file.frames) {
       let extra = 0;
       let missing = 0;
       let recolour = 0;
@@ -223,7 +257,7 @@ function importOne(entity: SpriteEntity, source: SpriteSource, path: string): Ou
         for (let y = 0; y < file.height; y++) {
           for (let x = 0; x < file.width; x++) {
             const m = (y * file.width + x) * 4;
-            const s = (y * pw + f * file.width + x) * 4;
+            const s = ((rowY + y) * pw + f * file.width + x) * 4;
             const a = mine[m + 3] !== 0;
             const b = flat[s + 3] !== 0;
             if (a && !b) extra++;
@@ -292,7 +326,16 @@ function importOne(entity: SpriteEntity, source: SpriteSource, path: string): Ou
 // One pass over all entities before anything is written, because the template palette is SHARED.
 // That is what lets a material or an equipment ramp authored once apply to any entity whose slots it
 // names, and it is why the import has to be a batch rather than a per-file command.
-const byEntity = ENTITIES.map((entity) => {
+const selected = onlyEntity ? ENTITIES.filter((e) => e.name === onlyEntity) : ENTITIES;
+if (selected.length === 0) {
+  throw new Error(
+    `no entity named "${onlyEntity}" in tools/sprite-manifest.ts — have: ` +
+      ENTITIES.map((e) => e.name).join(', '),
+  );
+}
+const seeded = template.length;
+
+const byEntity = selected.map((entity) => {
   console.log(`\n${entity.name}:`);
   const anims = entity.sources.map((source) => {
     const path = join(packRoot, entity.root, source.file);
@@ -302,8 +345,12 @@ const byEntity = ENTITIES.map((entity) => {
   return { entity, anims };
 });
 
-rmSync(outRoot, { recursive: true, force: true });
+// Only the entities being imported are cleared. Wiping the whole directory would delete the output
+// of every entity whose source pack is not on disk right now, which with `--only` is the normal case.
 mkdirSync(outRoot, { recursive: true });
+for (const { entity } of byEntity) {
+  rmSync(join(outRoot, entity.name), { recursive: true, force: true });
+}
 
 writeFileSync(
   join(outRoot, 'palette.ts'),
@@ -403,14 +450,17 @@ writeFileSync(
 // Re-exports every imported entity. Adding an entity is an entry in tools/sprite-manifest.ts and a
 // re-run of the importer; nothing here is written by hand.
 export { TEMPLATE_PALETTE } from './palette';
-${byEntity.map(({ entity }) => `export * from './${entity.name}';`).join('\n')}
+${ENTITIES.filter((e) => existsSync(join(outRoot, e.name)) || byEntity.some((b) => b.entity === e))
+  .map((e) => `export * from './${e.name}';`)
+  .join('\n')}
 `,
 );
 
 const total = byEntity.reduce((n, e) => n + e.anims.length, 0);
 console.log(
   `\n${byEntity.length} entit${byEntity.length === 1 ? 'y' : 'ies'}, ${total} animations, ` +
-    `${template.length} template colours -> ${outRoot}`,
+    `${template.length} template colours (${seeded} kept, ${template.length - seeded} added) ` +
+    `-> ${outRoot}`,
 );
 
 function titleCase(name: string): string {
