@@ -1228,6 +1228,10 @@ el('startBtn').onclick = () => {
   audio(); // first user gesture unlocks the AudioContext
   app.send('start');
 };
+// `?play` skips the title screen, so `shot.sh index.html` can capture the actual game instead of
+// the title panel — the reason a real-game screenshot used to need Playwright. It deliberately does
+// NOT unlock audio: that needs a genuine user gesture, and a headless capture has none.
+if (/(\?|&)play\b/.test(location.search)) app.send('start');
 el('resumeBtn').onclick = resume;
 el('pauseNewBtn').onclick = newGame;
 // Escape toggles the pause menu while playing, and backs out of any open menu while paused.

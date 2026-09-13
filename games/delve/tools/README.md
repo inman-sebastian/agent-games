@@ -116,6 +116,20 @@ SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
 ```
 
+### Shooting the real game
+
+`index.html` boots to the title screen, so a capture of it used to show the title panel and nothing
+else — which is why a screenshot of the actual game meant reaching for Playwright. Pass **`play=1`**
+to skip straight into the mine:
+
+```
+SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&w=34&h=20&scale=1' /tmp/game.png index.html
+```
+
+Headless Chrome starts on a fresh profile, so this is always a new world at the surface — good for
+checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
+audio; that needs a real user gesture.
+
 ## `client/labs/material-lab.html` — per-material inspector
 
 Every material (rock + all ores) rendered through the **same** compositor the game uses. A sidebar
