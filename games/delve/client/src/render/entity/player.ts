@@ -18,6 +18,9 @@ import { MINER_SKIN, PLAYER_LAMP } from './skin';
 /**
  * Which animation plays for a miner state.
  *
+ * The names are looked up in a REGISTRY rather than imported, so the same mapping serves any entity
+ * whose animations use these names — the player, a trial character, and eventually an enemy.
+ *
  * The pack has far more animations than the sim has states — crouch, roll, push, pull, ledge climb,
  * air spin — and they stay unused until a mechanic asks for them. Mapping them speculatively would
  * be guessing at gameplay that does not exist yet. Which animation waits on which mechanic: #50.
@@ -66,8 +69,15 @@ const STRIDE_TILES = 2.2;
  * a long airborne stride, and DELVE's run speed is a brisk walk. Swapping to the run cycle belongs
  * with a sprint mechanic, not with the current single movement speed.
  */
-export function poseFor(state: MinerState, ms: number, walked = 0): PlayerPose {
-  const anim = PLAYER_SPRITES[FOR_STATE[state]];
+export function poseFor(
+  state: MinerState,
+  ms: number,
+  walked = 0,
+  registry: Readonly<Record<string, SpriteAnim>> = PLAYER_SPRITES,
+): PlayerPose {
+  // Falls back to `idle`, which every entity has, so a registry missing an animation degrades to a
+  // held pose rather than throwing. A pack with no `walk` is a real case — see docs/SPRITES.md.
+  const anim = registry[FOR_STATE[state]] ?? registry.idle;
   // An airborne pose holds rather than looping — a jump is an arc, not a cycle, so cycling through
   // its frames while hanging in the air reads as flailing.
   if (state === 'jump' || state === 'fall') {

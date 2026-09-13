@@ -32,6 +32,7 @@ export default defineConfig({
         fontMetrics: resolve(__dirname, 'labs/font-metrics.html'),
         uiConcepts: resolve(__dirname, 'labs/ui-concepts.html'),
         uiIron: resolve(__dirname, 'labs/ui-iron.html'),
+        charLab: resolve(__dirname, 'labs/char-lab.html'),
       },
     },
   },

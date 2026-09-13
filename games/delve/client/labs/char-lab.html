@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — character lab</title>
+    <link rel="stylesheet" href="../src/ui/ui.css" />
+    <style>
+      body {
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--s3);
+        padding: var(--s4);
+      }
+      #c {
+        image-rendering: pixelated;
+        display: block;
+        border: var(--px) solid var(--c-edge);
+      }
+      #readout {
+        font-family: var(--font-mono);
+        font-size: var(--t-mono);
+        color: var(--c-mute);
+        white-space: pre-line;
+        text-align: center;
+        min-height: 3em;
+      }
+      #keys {
+        font-family: var(--font-mono);
+        font-size: var(--t-mono);
+        color: var(--c-dim);
+      }
+      kbd {
+        color: var(--c-ink);
+        background: var(--c-edge);
+        padding: 0 var(--px);
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="readout"></div>
+    <div id="keys">
+      <kbd>← →</kbd> / <kbd>A D</kbd> move &nbsp; <kbd>space</kbd> jump &nbsp; <kbd>1</kbd
+      ><kbd>2</kbd><kbd>3</kbd> character &nbsp; <kbd>H</kbd> hitbox &nbsp; <kbd>G</kbd> grid &nbsp;
+      <kbd>R</kbd> reset
+    </div>
+    <script type="module" src="./char-lab.ts"></script>
+  </body>
+</html>

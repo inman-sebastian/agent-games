@@ -355,6 +355,30 @@ So `TEMPLATE_PARTS` cannot express a skin for it, and the test that every templa
 part fails by design. Per-slot **materials** already key on the slot name and would work; a
 per-slot *flat ramp* has no equivalent. That is the gap if a pack like this is ever adopted.
 
+### Driving them: `client/labs/char-lab.html`
+
+The scale question cannot be answered by looking at a sprite, because a 15px figure and a 30px figure
+are not two pictures — they are two **bodies**. So the lab runs the **real** `physicsStep` against a
+hand-cut fixture and lets you walk each candidate through it.
+
+Arrows or `A`/`D` to move, space to jump, `1`–`3` to swap character, `H` for the hitbox, `G` for the
+grid, `R` to reset.
+
+The fixture is a per-column table, and every zone is one question:
+
+| Zone | Asks |
+| --- | --- |
+| 1-tile step | does step-up assist feel like help or a yank |
+| 2-tile step | is the jump readable as the way past it |
+| 2-tile corridor | stand but not jump — cost or tedium |
+| 3-tile corridor | the clearance a jump actually needs |
+| 1-tile crawl | only a sub-tile body fits; the small character's whole argument |
+| shaft | falling, and getting back out |
+
+**The hitbox is drawn from the same half-extents the sim collides with**, so a mismatch between box
+and sprite is visible rather than inferred. That is the point of the lab: the 2× candidate matches the
+miner's box exactly, and the 1× candidate's box is a third of the area.
+
 ### What it actually costs
 
 | | Current pack | Hana Caraka |
