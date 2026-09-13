@@ -213,26 +213,55 @@ for (const edge of SLOT_EDGES) {
 // em is twice its glyph height, so at 10px one glyph pixel is one CSS pixel; Silkscreen at 16px puts
 // one glyph pixel on two, which is an art pixel.
 
+/**
+ * Count faces that render CLEANLY at seven pixels tall.
+ *
+ * "Cleanly" is measured, not judged: every vertical stroke in a row of zeros comes out the same
+ * width. A face scaled to a non-native size produces a mix — some strokes on one pixel, some on two
+ * — which reads as inconsistent weight inside a single number and cannot be seen by eye at this
+ * size. client/labs/font-metrics.html is the harness; it found that Jersey 10, which was live, has
+ * NO clean render anywhere in the six-to-eight band.
+ */
 const COUNTS: readonly { name: string; note: string; css: string }[] = [
   {
-    name: 'A · Silkscreen 8px (current)',
-    note: 'Digits five CSS pixels tall, one glyph pixel per CSS pixel.',
-    css: "--count-face: 'Silkscreen'; --count-size: 8px; --count-outline: 1px;",
+    name: 'A · Silkscreen 11px',
+    note: 'Stroke 2. The face the rest of the interface already uses, so nothing new is introduced — and it is the only clean candidate with a heavier stroke.',
+    css: "--count-face: 'Silkscreen'; --count-size: 11px; --count-outline: 1px;",
   },
   {
-    name: 'B · Jersey 10 at 10px',
-    note: 'A different design grid, so it lands between: taller than Silkscreen 8, well short of 16, and condensed so wide numbers stay narrow.',
+    name: 'B · Tiny5 11px',
+    note: 'Stroke 1. Purpose-built tiny pixel face; light and even.',
+    css: "--count-face: 'Tiny5'; --count-size: 11px; --count-outline: 1px;",
+  },
+  {
+    name: 'C · Pixelify Sans 11px',
+    note: 'Stroke 1. Rounder, friendlier numerals; the most conventional of the set.',
+    css: "--count-face: 'Pixelify Sans'; --count-size: 11px; --count-outline: 1px;",
+  },
+  {
+    name: 'D · VT323 12px',
+    note: 'Stroke 1. A CRT terminal — reads as a machine readout rather than as a label.',
+    css: "--count-face: 'VT323'; --count-size: 12px; --count-outline: 1px;",
+  },
+  {
+    name: 'E · DotGothic16 9px',
+    note: 'Stroke 1. Squarer and slightly wider; a bitmap-screen feel.',
+    css: "--count-face: 'DotGothic16'; --count-size: 9px; --count-outline: 1px;",
+  },
+  {
+    name: 'F · Rubik Pixels 10px',
+    note: 'Stroke 2. Heavier and rounder, closest in weight to Silkscreen.',
+    css: "--count-face: 'Rubik Pixels'; --count-size: 10px; --count-outline: 1px;",
+  },
+  {
+    name: 'G · Doto 10px',
+    note: 'Stroke 1. Actual dot matrix — each pixel is a separate dot, so it reads as a display panel.',
+    css: "--count-face: 'Doto'; --count-size: 10px; --count-outline: 1px;",
+  },
+  {
+    name: 'H · Jersey 10 10px (current)',
+    note: 'For reference. No clean render exists anywhere in this size band — its strokes land on a mix of one, two and three pixels.',
     css: "--count-face: 'Jersey 10'; --count-size: 10px; --count-outline: 1px;",
-  },
-  {
-    name: 'C · Jersey 10 at 12px',
-    note: 'The same face a step up again.',
-    css: "--count-face: 'Jersey 10'; --count-size: 12px; --count-outline: 1px;",
-  },
-  {
-    name: 'D · Silkscreen 16px',
-    note: 'Exactly 2x Silkscreen, the only clean bump it has. Glyph pixels are art pixels; the number is twice the height of A.',
-    css: "--count-face: 'Silkscreen'; --count-size: 16px; --count-outline: 1px;",
   },
 ];
 

@@ -9,12 +9,9 @@ which permits bundling in a game. The full licence text follows the notices.
   Jersey 10     https://github.com/scfried/soft-type-jersey
                 jersey15-400.woff2, jersey10-400.woff2 (latin subset)
 
-  Micro 5     — Copyright 2024 The Micro 5 Project Authors
-                https://github.com/pixelsagas/micro5
-                micro5-400.woff2 (latin subset) — the badge face, for counts on items
 
 The .woff2 files are Google Fonts' latin subsets, self-hosted deliberately: the game must not
-depend on a third party at boot and must keep working offline. All five together are 20 KB.
+depend on a third party at boot and must keep working offline. All four together are 16 KB.
 
 Jersey 10 is kept alongside Jersey 15 as the live alternative for the prose face — see
 docs/UI.md → Typography. Delete it once the pairing is settled.

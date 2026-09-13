@@ -347,16 +347,35 @@ Three sizing rules, all learned by looking:
   between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
   to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
   one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
-- **The count face is Jersey 10 at its native 10px**, and the reason is *size granularity* rather
-  than style. A pixel face only renders cleanly at whole multiples of its own design grid, which has
-  to be **measured** rather than assumed: Silkscreen is an 8px design, so its clean glyph heights are
-  5 and 10 CSS pixels and nothing in between — at 10px and 12px some glyph pixels come out one CSS
-  pixel wide and others two, which shows as inconsistent stroke weight. Jersey 10 sits on a different
-  grid and lands at **7**, genuinely between the two, still one glyph pixel per CSS pixel so the
-  one-pixel outline still works, and condensed, so a four-character count stays narrow.
-  This is the one place in the interface deliberately off the art grid. The on-grid alternative is
-  Silkscreen at 16px, twice the height of the original and too big for a number tucked into the
-  corner of a 20-pixel slot. Everything tried is benched in `client/labs/panel-lab.html`.
+- **The count face is Silkscreen at 11px** — the face the rest of the interface already uses, so no
+  third family exists for one job. Digits seven CSS pixels tall.
+  **11 is not a multiple of Silkscreen's 8px design grid, and that is the point.** "Whole multiple of
+  the grid" is a *proxy* for clean rendering, and it is wrong in both directions: it rejects 11px,
+  which renders with every stroke the same width, and would accept 10px, which does not. The property
+  that actually matters is whether every vertical stroke in a row of zeros comes out the same width —
+  a face scaled to a bad size lands some strokes on one pixel and others on two, which reads as
+  inconsistent weight inside a single number and is invisible to the eye at seven pixels tall.
+  `--t-count` is therefore exempt from the stylesheet gate's grid rule, with the measurement standing
+  in for it.
+
+### Measuring a pixel face: `client/labs/font-metrics.html`
+
+Renders a row of zeros in every candidate family across a range of sizes, white on black, at a fixed
+stride, so a script can read each row out of the PNG and report glyph height and stroke consistency.
+Zeros because every zero has two vertical strokes of identical design width, so a clean render
+produces runs that are all the same length.
+
+Twelve families were measured for a count at seven pixels tall. **Jersey 10, which had been live, has
+no clean render anywhere in the six-to-eight pixel band** — its strokes land on a mix of one, two and
+three pixels at every size in range. Seven faces do render cleanly there: Silkscreen 11px, Tiny5 11px,
+Pixelify Sans 11px, VT323 12px, DotGothic16 9px, Rubik Pixels 10px and Doto 10px. All eight are
+benched side by side in `panel-lab.html`.
+
+The harness exists because this is not an eye question. At seven pixels tall the defect is one pixel
+of extra stroke on some glyphs and not others, which reads as *vaguely wrong* rather than as anything
+nameable — the same category of problem as the frame lips at different depths, and found the same
+way, by printing the pixels instead of looking harder.
+
 - **Large counts are compacted** (`1280` → `1.2k`). Four digits do not fit, and the failure mode was
   the dangerous kind: `overflow: hidden` clipped the *leading* digit, so a stack of 1280 rendered as
   "280". A wrong number is worse than a truncated one, because nothing about it looks wrong. A screen

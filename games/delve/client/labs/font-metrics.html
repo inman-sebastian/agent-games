@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>DELVE — count font metrics</title>
+    <style>
+      /* A MEASUREMENT harness, not a design surface. Pure white digits on pure black at a known
+         stride, so a script can read each row out of the PNG and report the two numbers that decide
+         whether a pixel face is usable at a given size:
+           • glyph HEIGHT in CSS pixels
+           • whether every white run is a multiple of one unit — i.e. whether all glyph pixels come
+             out the same width, or some land on 1px and others on 2px
+         The second is the one that cannot be judged by eye at this scale and is the whole reason
+         this page exists. Uneven runs read as inconsistent stroke weight inside a single word. */
+      body {
+        margin: 0;
+        background: #000;
+        -webkit-font-smoothing: none;
+      }
+      .row {
+        height: 28px;
+        color: #fff;
+        white-space: pre;
+        line-height: 28px;
+        padding-left: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="board"></div>
+    <script type="module">
+      const FAMILIES = [
+        'Silkscreen',
+        'Jersey 10',
+        'Jersey 15',
+        'Tiny5',
+        'Micro 5',
+        'Pixelify Sans',
+        'Handjet',
+        'VT323',
+        'DotGothic16',
+        'Doto',
+        'Rubik Pixels',
+        'Workbench',
+      ];
+      const SIZES = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+      // EIGHT ZEROS, deliberately. Every zero has two vertical strokes of identical design width, so
+      // a clean render produces sixteen runs that are all the same length. A font scaled to a
+      // non-native size produces a MIX — some strokes land on one pixel, some on two — and that is
+      // the defect that shows as inconsistent weight inside a single number. It cannot be seen by eye
+      // at seven pixels tall, which is why this page measures it instead.
+      const SAMPLE = '00000000';
+
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href =
+        'https://fonts.googleapis.com/css2?' +
+        FAMILIES.filter((f) => f !== 'Jersey 10' && f !== 'Jersey 15')
+          .map((f) => 'family=' + f.replace(/ /g, '+'))
+          .join('&') +
+        '&family=Jersey+10&family=Jersey+15&display=block';
+      document.head.append(link);
+
+      const board = document.getElementById('board');
+      const order = [];
+      for (const family of FAMILIES) {
+        for (const size of SIZES) {
+          const row = document.createElement('div');
+          row.className = 'row';
+          row.style.fontFamily = `'${family}', monospace`;
+          row.style.fontSize = size + 'px';
+          row.textContent = SAMPLE;
+          board.append(row);
+          order.push(`${family}@${size}`);
+        }
+      }
+      // The reader needs to know which band is which; stride is fixed, so index is enough.
+      console.log(JSON.stringify(order));
+      window.__order = order;
+
+      await document.fonts.ready;
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      document.title = 'ready';
+    </script>
+  </body>
+</html>
