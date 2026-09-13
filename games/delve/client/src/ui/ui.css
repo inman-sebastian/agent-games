@@ -42,6 +42,17 @@
   src: url('./fonts/jersey10-400.woff2') format('woff2');
 }
 @font-face {
+  /* m5x7 by Daniel Linssen (CC0). A pixel face designed AT this job's size: its own documentation
+     recommends 16, 32, 48, meaning it is drawn to render at 16px with a seven-pixel ascender. Five
+     pixels wide, so a four-character count stays narrow. Shipped as TTF rather than woff2 because
+     that is what upstream distributes; 34KB, and only the count uses it. */
+  font-family: 'm5x7';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('./fonts/m5x7.ttf') format('truetype');
+}
+@font-face {
   font-family: 'Jersey 15';
   font-style: normal;
   font-weight: 400;
@@ -99,22 +110,19 @@
   /* The debug overlay is a TOOL, not chrome. It stays a real monospace: it prints aligned columns
      of live numbers, which is the one job a proportional pixel face would make worse. */
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  /* Numerals on items: SILKSCREEN, the face the rest of the interface already uses. No third family
-     for one job. */
-  --font-count: var(--font-display);
+  /* Numerals on items: m5x7, a face designed at exactly this job's size. */
+  --font-count: 'm5x7', var(--font-display);
   /* Silkscreen's 8px grid, doubled. Every display size must stay a multiple of 8. */
   --t-label: 16px;
   --t-display: 40px;
   --t-touch: 24px;
   /* Silkscreen's native 8px, for counts and badges drawn inside a slot */
   --t-small: 8px;
-  /* 11px, which MEASURES clean: every vertical stroke in a row of zeros comes out the same width,
-     and the digits are seven CSS pixels tall.
-     Not a multiple of Silkscreen's 8px design grid, and that is the point — the grid rule is a
-     PROXY for clean rendering and it is wrong in both directions. It rejects 11px, which renders
-     uniformly, and would accept 10px, which does not (strokes land on a mix of one and two pixels).
-     client/labs/font-metrics.html measures the real property; see docs/UI.md. */
-  --t-count: 11px;
+  /* 16px, which is m5x7's own recommended size (16, 32, 48) and MEASURES clean: seven CSS pixels
+     tall with every vertical stroke one pixel wide.
+     Exempt from the stylesheet gate's grid rule, like every count size, because that rule is a proxy
+     for clean rendering and a poor one. client/labs/font-metrics.html measures the real property. */
+  --t-count: 16px;
   /* The count outline's unit: one GLYPH pixel, which at --t-count is one CSS pixel rather than one
      art pixel. Deliberately NOT in the --t-* namespace, which is for type sizes only — the style
      gate checks every --t-* token against its face's grid, and an offset has no grid. */

@@ -10,8 +10,14 @@ which permits bundling in a game. The full licence text follows the notices.
                 jersey15-400.woff2, jersey10-400.woff2 (latin subset)
 
 
+  m5x7        — Daniel Linssen (managore), CC0 1.0 Universal (public domain)
+                https://managore.itch.io/m5x7
+                m5x7.ttf — the count face. Designed to render at 16/32/48px; at 16 its digits are
+                seven pixels tall with a one-pixel stroke, which is exactly what a slot count wants.
+                Shipped as TTF because that is what upstream distributes.
+
 The .woff2 files are Google Fonts' latin subsets, self-hosted deliberately: the game must not
-depend on a third party at boot and must keep working offline. All four together are 16 KB.
+depend on a third party at boot and must keep working offline. The four woff2 files are 16 KB; m5x7.ttf is 34 KB.
 
 Jersey 10 is kept alongside Jersey 15 as the live alternative for the prose face — see
 docs/UI.md → Typography. Delete it once the pairing is settled.

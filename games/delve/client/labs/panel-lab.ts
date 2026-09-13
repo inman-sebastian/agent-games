@@ -224,44 +224,24 @@ for (const edge of SLOT_EDGES) {
  */
 const COUNTS: readonly { name: string; note: string; css: string }[] = [
   {
-    name: 'A · Silkscreen 11px',
-    note: 'Stroke 2. The face the rest of the interface already uses, so nothing new is introduced — and it is the only clean candidate with a heavier stroke.',
+    name: 'A · m5x7 16px',
+    note: "Daniel Linssen's m5x7, CC0. Designed AT this size — its documentation recommends 16, 32, 48 — so seven pixels tall with a one-pixel stroke, and five pixels wide so a four-character count stays narrow.",
+    css: "--count-face: 'm5x7'; --count-size: 16px; --count-outline: 1px;",
+  },
+  {
+    name: 'B · Silkscreen 11px (current)',
+    note: 'Stroke 2, seven pixels tall. Introduces no new family; heavier, which a number on a lit ore face can use.',
     css: "--count-face: 'Silkscreen'; --count-size: 11px; --count-outline: 1px;",
   },
   {
-    name: 'B · Tiny5 11px',
-    note: 'Stroke 1. Purpose-built tiny pixel face; light and even.',
+    name: 'C · m5x7 24px',
+    note: 'The same face a full step up: eleven pixels tall, stroke 2. Included because m5x7 only renders cleanly at its recommended multiples.',
+    css: "--count-face: 'm5x7'; --count-size: 24px; --count-outline: var(--px);",
+  },
+  {
+    name: 'D · Tiny5 11px',
+    note: 'The other purpose-built tiny face on the bench. Stroke 1, seven tall.',
     css: "--count-face: 'Tiny5'; --count-size: 11px; --count-outline: 1px;",
-  },
-  {
-    name: 'C · Pixelify Sans 11px',
-    note: 'Stroke 1. Rounder, friendlier numerals; the most conventional of the set.',
-    css: "--count-face: 'Pixelify Sans'; --count-size: 11px; --count-outline: 1px;",
-  },
-  {
-    name: 'D · VT323 12px',
-    note: 'Stroke 1. A CRT terminal — reads as a machine readout rather than as a label.',
-    css: "--count-face: 'VT323'; --count-size: 12px; --count-outline: 1px;",
-  },
-  {
-    name: 'E · DotGothic16 9px',
-    note: 'Stroke 1. Squarer and slightly wider; a bitmap-screen feel.',
-    css: "--count-face: 'DotGothic16'; --count-size: 9px; --count-outline: 1px;",
-  },
-  {
-    name: 'F · Rubik Pixels 10px',
-    note: 'Stroke 2. Heavier and rounder, closest in weight to Silkscreen.',
-    css: "--count-face: 'Rubik Pixels'; --count-size: 10px; --count-outline: 1px;",
-  },
-  {
-    name: 'G · Doto 10px',
-    note: 'Stroke 1. Actual dot matrix — each pixel is a separate dot, so it reads as a display panel.',
-    css: "--count-face: 'Doto'; --count-size: 10px; --count-outline: 1px;",
-  },
-  {
-    name: 'H · Jersey 10 10px (current)',
-    note: 'For reference. No clean render exists anywhere in this size band — its strokes land on a mix of one, two and three pixels.',
-    css: "--count-face: 'Jersey 10'; --count-size: 10px; --count-outline: 1px;",
   },
 ];
 

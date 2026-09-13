@@ -347,16 +347,17 @@ Three sizing rules, all learned by looking:
   between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
   to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
   one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
-- **The count face is Silkscreen at 11px** — the face the rest of the interface already uses, so no
-  third family exists for one job. Digits seven CSS pixels tall.
-  **11 is not a multiple of Silkscreen's 8px design grid, and that is the point.** "Whole multiple of
-  the grid" is a *proxy* for clean rendering, and it is wrong in both directions: it rejects 11px,
-  which renders with every stroke the same width, and would accept 10px, which does not. The property
-  that actually matters is whether every vertical stroke in a row of zeros comes out the same width —
-  a face scaled to a bad size lands some strokes on one pixel and others on two, which reads as
-  inconsistent weight inside a single number and is invisible to the eye at seven pixels tall.
-  `--t-count` is therefore exempt from the stylesheet gate's grid rule, with the measurement standing
-  in for it.
+- **The count face is m5x7 at 16px** — Daniel Linssen's pixel face, CC0, *designed at this job's
+  size*: its documentation recommends 16, 32, 48, and at 16 its digits are seven CSS pixels tall with
+  a one-pixel stroke. Five pixels wide, so a four-character count stays narrow.
+  **16 is not a multiple of anything meaningful, and that is the point.** "Whole multiple of the
+  face's design grid" is a *proxy* for clean rendering and it is wrong in both directions — it
+  rejects Silkscreen at 11px, which renders with every stroke the same width, and would accept 10px,
+  which does not. The property that actually matters is whether every vertical stroke in a row of
+  zeros comes out the same width; a face at a bad size lands some strokes on one pixel and others on
+  two, which reads as inconsistent weight inside a single number and is invisible at seven pixels
+  tall. `--t-count` is therefore exempt from the stylesheet gate's grid rule, with the measurement
+  standing in for it.
 
 ### Measuring a pixel face: `client/labs/font-metrics.html`
 
@@ -365,11 +366,19 @@ stride, so a script can read each row out of the PNG and report glyph height and
 Zeros because every zero has two vertical strokes of identical design width, so a clean render
 produces runs that are all the same length.
 
-Twelve families were measured for a count at seven pixels tall. **Jersey 10, which had been live, has
-no clean render anywhere in the six-to-eight pixel band** — its strokes land on a mix of one, two and
-three pixels at every size in range. Seven faces do render cleanly there: Silkscreen 11px, Tiny5 11px,
-Pixelify Sans 11px, VT323 12px, DotGothic16 9px, Rubik Pixels 10px and Doto 10px. All eight are
-benched side by side in `panel-lab.html`.
+Thirteen families were measured for a count at seven pixels tall. **Jersey 10, which had been live,
+has no clean render anywhere in the six-to-eight pixel band** — its strokes land on a mix of one, two
+and three pixels at every size in range. Eight faces do render cleanly there: **m5x7 16px**,
+Silkscreen 11px, Tiny5 11px, Pixelify Sans 11px, VT323 12px, DotGothic16 9px, Rubik Pixels 10px and
+Doto 10px.
+
+m5x7 is the one that was *designed* for it rather than merely surviving it, which is why it won: the
+sizes its author recommends are exactly the sizes the harness independently found clean.
+
+**m3x6, its smaller sibling, is not here.** itch.io gates its download behind an interactive click,
+so it cannot be fetched from a script. At three pixels wide its digits would also be very narrow for
+a count. Worth a look if the count ever needs to shrink again — drop the TTF in `client/src/ui/fonts/`
+and add it to the harness's family list.
 
 The harness exists because this is not an eye question. At seven pixels tall the defect is one pixel
 of extra stroke on some glyphs and not others, which reads as *vaguely wrong* rather than as anything

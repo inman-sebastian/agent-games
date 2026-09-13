@@ -12,6 +12,14 @@
              out the same width, or some land on 1px and others on 2px
          The second is the one that cannot be judged by eye at this scale and is the whole reason
          this page exists. Uneven runs read as inconsistent stroke weight inside a single word. */
+      /* m5x7 by Daniel Linssen (CC0), on the bench. Its own page recommends 16, 32, 48 — i.e. it is
+         designed to render at 16px with a seven-pixel ascender, which is exactly the height a slot
+         count wants. */
+      @font-face {
+        font-family: 'm5x7';
+        src: url('../src/ui/fonts/m5x7.ttf') format('truetype');
+        font-display: block;
+      }
       body {
         margin: 0;
         background: #000;
@@ -42,8 +50,9 @@
         'Doto',
         'Rubik Pixels',
         'Workbench',
+        'm5x7',
       ];
-      const SIZES = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+      const SIZES = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 24, 32];
       // EIGHT ZEROS, deliberately. Every zero has two vertical strokes of identical design width, so
       // a clean render produces sixteen runs that are all the same length. A font scaled to a
       // non-native size produces a MIX — some strokes land on one pixel, some on two — and that is
@@ -55,7 +64,7 @@
       link.rel = 'stylesheet';
       link.href =
         'https://fonts.googleapis.com/css2?' +
-        FAMILIES.filter((f) => f !== 'Jersey 10' && f !== 'Jersey 15')
+        FAMILIES.filter((f) => !['Jersey 10', 'Jersey 15', 'm5x7'].includes(f))
           .map((f) => 'family=' + f.replace(/ /g, '+'))
           .join('&') +
         '&family=Jersey+10&family=Jersey+15&display=block';
