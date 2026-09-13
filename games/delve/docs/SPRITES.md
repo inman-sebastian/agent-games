@@ -362,7 +362,14 @@ are not two pictures — they are two **bodies**. So the lab runs the **real** `
 hand-cut fixture and lets you walk each candidate through it.
 
 Arrows or `A`/`D` to move, space to jump, `1`–`3` to swap character, `H` for the hitbox, `G` for the
-grid, `R` to reset.
+grid, `R` to reset. The readout carries **fps and ms/frame**, and the second number is the one that
+means anything: fps is capped by the display, so it cannot tell a slow lab from a slow monitor.
+
+**The rock is composited once and cached**, exactly as the game caches chunks
+(`client/src/render/chunk-worker.ts`). The first version recomposited the whole band every frame,
+which measured **149 ms** — about 6.7 frames per second of actual work, against 0.1 ms once cached.
+It was reported as "the framerate seems much slower than the real game", which it was, by a factor of
+several hundred. Anything static in a lab belongs in a cache; the compositor is not a per-frame tool.
 
 The fixture is a per-column table, and every zone is one question:
 

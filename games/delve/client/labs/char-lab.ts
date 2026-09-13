@@ -168,6 +168,7 @@ addEventListener('keydown', (e: KeyboardEvent) => {
   else if (e.key === 'r' || e.key === 'R') {
     session = buildWorld();
     spawn();
+    baked = null; // the fixture is the only thing that can change the rock
   } else if (e.key === 'h' || e.key === 'H') showHitbox = !showHitbox;
   else if (e.key === 'g' || e.key === 'G') showGrid = !showGrid;
   else if (e.key >= '1' && e.key <= String(CANDIDATES.length)) {
@@ -197,6 +198,41 @@ canvas.style.height = `${LH * UPSCALE}px`;
 g.imageSmoothingEnabled = false;
 
 const bandTop = ROW - 12; // 12 tiles of air above the ground line, plus the shaft below
+
+/**
+ * The rock, composited ONCE into an offscreen canvas and blitted after that.
+ *
+ * It was being recomposited every frame, which is 212,000 pixels through the rock shader sixty times
+ * a second — and that is why the lab ran visibly slower than the game. The game never does this: a
+ * chunk worker bakes the rock into ImageBitmaps and the frame loop only blits them
+ * (`client/src/render/chunk-worker.ts`). The terrain here is static apart from a reset, so caching it
+ * is both correct and the same trick.
+ *
+ * The zone labels are baked in too. They never move either.
+ */
+let baked: HTMLCanvasElement | null = null;
+
+function bakeWorld(): void {
+  const t0 = performance.now();
+  const cv = document.createElement('canvas');
+  cv.width = LW;
+  cv.height = LH;
+  const bg = cv.getContext('2d')!;
+  bg.imageSmoothingEnabled = false;
+  composeBand(bg, solidTile, LEFT, bandTop, COLS, ROWS, engine.WIDTH, () => -1);
+  bg.font = '8px ui-monospace, monospace';
+  bg.textAlign = 'center';
+  bg.fillStyle = '#f9c22b';
+  let col = 0;
+  for (const z of ZONES) {
+    if (z.label) bg.fillText(z.label, (col + z.cols / 2) * T, (ROW - bandTop) * T + 10);
+    col += z.cols;
+  }
+  baked = cv;
+  // Logged once, because this number is the reason the cache exists: it is what a frame used to
+  // cost, and it is the difference between a lab that matches the game and one that does not.
+  console.log(`rock composited in ${(performance.now() - t0).toFixed(1)}ms — cached from here`);
+}
 const solidTile = (c: number, r: number): boolean =>
   r > engine.surfaceAt(SEED, c) && !session.world.dug[engine.key(c, r)];
 
@@ -208,6 +244,12 @@ let minerState: MinerState = 'idle';
 
 let last = 0;
 let accumulator = 0;
+// Smoothed, and both shown in the readout. `fps` is capped by the display, so it cannot by itself
+// tell a slow lab from a slow monitor — headless Chrome reports 30 for the real game too. `drawMs`
+// is the number that actually answers it: the work one frame costs, independent of refresh rate.
+// This lab ran visibly slow and it went unnoticed until it was FELT, which is what a number prevents.
+let fps = 0;
+let drawMs = 0;
 
 function tick(): void {
   const input: Input = { left: held.left, right: held.right, jump: held.jump };
@@ -224,7 +266,8 @@ function tick(): void {
 }
 
 function render(): void {
-  composeBand(g, solidTile, LEFT, bandTop, COLS, ROWS, engine.WIDTH, () => -1);
+  if (!baked) bakeWorld();
+  g.drawImage(baked!, 0, 0);
 
   if (showGrid) {
     g.strokeStyle = '#ffffff18';
@@ -279,23 +322,11 @@ function render(): void {
     { scale: c.scale, facing: p.facing, skin: c.skin, skinId: c.skinId + c.scale },
   );
 
-  // Zone labels, drawn in the world so you know what you are standing in.
-  g.font = '8px ui-monospace, monospace';
-  g.textAlign = 'center';
-  g.fillStyle = '#f9c22b';
-  let col = 0;
-  for (const z of ZONES) {
-    if (z.label) {
-      const mid = (col + z.cols / 2) * T;
-      g.fillText(z.label, mid, (ROW - bandTop) * T + 10);
-    }
-    col += z.cols;
-  }
-
   const readout = document.getElementById('readout')!;
   readout.textContent =
     `${c.label}   body ${(hw * 2).toFixed(2)} x ${(hh * 2).toFixed(2)} tiles   ` +
-    `sprite ${c.scale}x   state ${minerState}\n${c.note}`;
+    `sprite ${c.scale}x   state ${minerState}   ${fps.toFixed(0)} fps   ` +
+    `${drawMs.toFixed(2)} ms/frame\n${c.note}`;
 }
 
 function frame(now: number): void {
@@ -303,6 +334,7 @@ function frame(now: number): void {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1;
+  if (dt > 0) fps += (1 / dt - fps) * 0.1;
   accumulator += dt;
   let steps = 0;
   while (accumulator >= engine.TICK_DT && steps < 8) {
@@ -314,7 +346,9 @@ function frame(now: number): void {
     stepAge += dt;
     if (stepAge >= STEP_LIFT_TIME) stepTiles = 0;
   }
+  const t0 = performance.now();
   render();
+  drawMs += (performance.now() - t0 - drawMs) * 0.1;
   requestAnimationFrame(frame);
 }
 
