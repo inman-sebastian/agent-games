@@ -40,10 +40,10 @@ const STATES: readonly SlotState[] = ['empty', 'filled', 'selected', 'locked', '
  */
 const SHEET = `
   :host {
-    /* How big a slot is, in art pixels. 20 with a one-pixel edge leaves an 18px interior, which is
-       a 16px tile plus a pixel of air on each side. The edge width is a theme decision, so this is
-       sized for the default; a heavier edge wants a bigger slot. */
-    --slot-size: calc(var(--px, 2px) * 20);
+    /* How big a slot is, in art pixels. 24 with a one-pixel edge leaves a 22px interior: a 16px
+       tile with air around it, AND room for the count chip along the bottom without it running out
+       of the slot. At 20 a three-digit count overflowed the square. */
+    --slot-size: calc(var(--px, 2px) * 24);
     display: inline-block;
     width: var(--slot-size);
     height: var(--slot-size);
@@ -59,6 +59,9 @@ const SHEET = `
     border-image: var(--slot-edge, none) 3 fill / var(--slot-edge-w, var(--px, 2px)) / 0 repeat;
     image-rendering: pixelated;
     cursor: default;
+    /* A guard, not a layout tool: a count is bounded in practice, but nothing in the slot should
+       ever be able to draw outside the square. */
+    overflow: hidden;
   }
   :host([state='filled']),
   :host([state='selected']),
@@ -101,20 +104,22 @@ const SHEET = `
   }
   .count {
     position: absolute;
-    right: var(--px, 2px);
-    bottom: var(--px, 2px);
+    right: 0;
+    bottom: 0;
     line-height: 1;
     font-family: var(--font-display, monospace);
-    /* Silkscreen's NATIVE 8px, not the 16px label size. A count sits inside a 24px slot on top of
-       an icon; at label size it covered the material it was counting. */
-    font-size: var(--t-small, 8px);
+    /* ON THE ART GRID. This was Silkscreen's native 8px, which sounds right and is not: at 8px one
+       glyph pixel is one CSS pixel, and everything else on screen draws one art pixel as TWO. The
+       count was the only thing in the interface rendering at half scale. 16px is 2x native, so a
+       glyph pixel is an art pixel like everything else. */
+    font-size: var(--t-label, 16px);
     color: var(--c-ink, #c7dcd0);
-    /* a hard one-pixel drop, so a count stays readable over any icon under it */
-    text-shadow:
-      var(--px, 2px) 0 0 var(--c-void, #2e222f),
-      calc(var(--px, 2px) * -1) 0 0 var(--c-void, #2e222f),
-      0 var(--px, 2px) 0 var(--c-void, #2e222f),
-      0 calc(var(--px, 2px) * -1) 0 var(--c-void, #2e222f);
+    /* A SOLID CHIP, not an outline. The outline was four offset copies of the glyph, which leaves
+       the diagonals unfilled — so it never closed around a letter and read as a detached blocky
+       halo rather than as a shadow. A chip is one hard rectangle: nothing to disconnect, and it is
+       how a count has been drawn over an item since inventories had items. */
+    background: var(--c-void, #2e222f);
+    padding: 0 var(--px, 2px);
     pointer-events: none;
   }
   :host([state='unaffordable']) .count { color: var(--c-gold, #f9c22b); }

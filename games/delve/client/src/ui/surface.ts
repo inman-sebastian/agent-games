@@ -65,6 +65,13 @@ export interface FrameRoles {
   readonly shade: string;
   /** The face the frame encloses. Flat, deliberately. */
   readonly fill: string;
+  /**
+   * Add the inverted inner lip, turning the content area into a shallow well.
+   *
+   * For a PANEL, which is large enough that two lips a pixel apart read as a rim. Never for
+   * something small — see the note on `framePixels`.
+   */
+  readonly well?: boolean;
 }
 
 /**
@@ -72,39 +79,41 @@ export interface FrameRoles {
  *
  *   ring 0  the hard outline — what separates a panel from the rock behind it
  *   ring 1  the bevel lip, lit on the top and left and shaded on the bottom and right
- *   ring 2  the same lip INVERTED, which turns the content area into a shallow well
+ *   ring 2  OPTIONALLY (`well`) the same lip inverted, turning the content area into a shallow well
  *   middle  the face, flat, tiling across the panel
  *
- * Ring 2 is where the panel gets its substance. A single bevel reads as a raised rectangle; a bevel
- * with an opposed inner lip reads as a frame AROUND something, which is what a panel is. It costs
- * one pixel and no texture.
+ * A single bevel reads as a raised rectangle; a bevel with an opposed inner lip reads as a frame
+ * AROUND something, which is what a panel is. It costs one pixel and no texture.
+ *
+ * THE WELL IS OPT-IN, AND THAT IS THE FIX FOR A REAL BUG. Applying it to every frame put the lit lip
+ * at DIFFERENT DEPTHS on opposite sides — depth 1 on the sides the outer bevel shades, depth 2 on
+ * the sides it lights — so the frame drew two L shapes one pixel apart that could never meet. On a
+ * big panel that reads as a rim. On a 20-pixel slot it reads as exactly what it is: disconnected,
+ * unevenly offset lines. A recess is a single lip, always.
  */
 export function framePixels(kind: FrameKind, roles: FrameRoles): Pattern {
   const last = FRAME_SIZE - 1;
-  const lit = kind === 'raised' ? roles.light : roles.shade;
-  const unlit = kind === 'raised' ? roles.shade : roles.light;
   const rows: string[][] = [];
   for (let y = 0; y < FRAME_SIZE; y++) {
     const row: string[] = [];
     for (let x = 0; x < FRAME_SIZE; x++) {
       const ring = Math.min(x, y, last - x, last - y);
       // Top and left are lit, bottom and right are shaded, and where they meet the SHADE wins.
-      //
-      // That precedence is the whole corner rule, and getting it wrong is visible immediately. An
-      // earlier version painted every bevel corner dark, reasoning that a corner cannot pick a side.
-      // What that actually produced was a lit top run starting one pixel in from the left and a lit
-      // left run starting one pixel down, so the two never met — the bevel read as two detached
-      // lines floating off the panel rather than as one edge turning a corner.
-      //
-      // Letting shade win instead gives a continuous lit L across the top-left and a continuous dark
-      // L across the bottom-right, which is how a bevel has been drawn since window chrome existed.
+      // That precedence leaves one continuous lit L and one continuous dark L, which is how a bevel
+      // has been drawn since window chrome existed.
       const shaded = x === last - ring || y === last - ring;
       if (ring === 0) {
         row.push(roles.outline);
       } else if (ring === 1) {
-        row.push(shaded ? unlit : lit);
-      } else if (ring === 2) {
-        row.push(shaded ? lit : unlit); // the well's lip: opposed to the outer bevel
+        // The one lip. RAISED is lit on the top and left; INSET is the same thing inverted, which is
+        // what a recess is.
+        const litHere = kind === 'raised' ? !shaded : shaded;
+        row.push(litHere ? roles.light : roles.shade);
+      } else if (ring === 2 && kind === 'raised' && roles.well) {
+        // The optional inner well, for a panel: the lip inverted one pixel further in, so the frame
+        // reads as going AROUND something rather than as a raised rectangle. Only on raised, and
+        // only where it has room — see the note below on why an inset frame must not have one.
+        row.push(shaded ? roles.light : roles.shade);
       } else {
         row.push(roles.fill);
       }
@@ -157,10 +166,12 @@ export function installSurfaces(root: HTMLElement = document.documentElement): v
   // is three steps up from the panel face and read as a hard white line drawn on the panel rather
   // than as an edge catching light. A bevel is a lighting cue, and a lighting cue that outshines
   // everything else on screen stops being one.
-  const raised: FrameRoles = { outline: void_, light: dim, shade: void_, fill: panel };
+  const raised: FrameRoles = { outline: void_, light: dim, shade: void_, fill: panel, well: true };
 
   // A recess is filled with the darkest step, so its shading comes from the LIP rather than the
   // interior: a dark upper lip merging with the outline, and a lit lower one.
+  // NO WELL. A recess is a single lip — dark along the top and left, lit along the bottom and right
+  // — and adding a second one put the two at different depths and broke the corners.
   const inset: FrameRoles = { outline: void_, light: edge, shade: void_, fill: void_ };
 
   // A control sits ON a panel, so its face is one ramp step lighter. With both on the same face the

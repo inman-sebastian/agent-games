@@ -50,16 +50,39 @@ describe('the panel frame', () => {
     expect(framePixels('inset', ROLES)[last - 1][mid], 'inset: bottom lit').toBe(ROLES.light);
   });
 
-  it('opposes the inner lip to the outer bevel', () => {
-    // What makes a panel read as a frame AROUND something rather than as a raised rectangle. The
-    // second ring has to invert the first; if they agree, the panel just looks thicker.
-    const px = framePixels('raised', ROLES);
+  it('adds the inner well only when asked, and only on a raised frame', () => {
+    // THE regression, and it took a 20-pixel slot to make it obvious. Applying the well to every
+    // frame put the lit lip at DIFFERENT DEPTHS on opposite sides — depth 1 where the outer bevel
+    // shades, depth 2 where it lights — so a frame drew two L shapes one pixel apart that could
+    // never meet. On a big panel that reads as a rim. On a small square it reads as exactly what it
+    // is: disconnected, unevenly offset lines.
     const mid = FRAME_SIZE >> 1;
     const last = FRAME_SIZE - 1;
-    expect(px[1][mid], 'outer top is lit').toBe(ROLES.light);
-    expect(px[2][mid], 'inner top is shaded').toBe(ROLES.shade);
-    expect(px[last - 1][mid], 'outer bottom is shaded').toBe(ROLES.shade);
-    expect(px[last - 2][mid], 'inner bottom is lit').toBe(ROLES.light);
+
+    const welled = framePixels('raised', { ...ROLES, well: true });
+    expect(welled[1][mid], 'outer top is lit').toBe(ROLES.light);
+    expect(welled[2][mid], 'the well inverts it one pixel in').toBe(ROLES.shade);
+    expect(welled[last - 2][mid], 'and lights the bottom of the well').toBe(ROLES.light);
+
+    // Without it, ring 2 is simply face — one lip, at one depth, all the way round.
+    const plain = framePixels('raised', ROLES);
+    expect(plain[2][mid], 'no well means no second lip').toBe(ROLES.fill);
+
+    // A recess NEVER gets one, whatever is asked for, because a recess is small more often than not.
+    const inset = framePixels('inset', { ...ROLES, well: true });
+    expect(inset[2][mid], 'an inset frame has a single lip').toBe(ROLES.fill);
+  });
+
+  it('puts a recess lip on the bottom and right, connected at the corner', () => {
+    // A recess is the raised bevel inverted: dark where the light would be. The corner has to join,
+    // which is what the equal depth buys.
+    const px = framePixels('inset', ROLES);
+    const mid = FRAME_SIZE >> 1;
+    const last = FRAME_SIZE - 1;
+    expect(px[1][mid], 'inset: top is shaded').toBe(ROLES.shade);
+    expect(px[last - 1][mid], 'inset: bottom is lit').toBe(ROLES.light);
+    expect(px[mid][last - 1], 'inset: right is lit').toBe(ROLES.light);
+    expect(px[last - 1][last - 1], 'inset: the lit corner joins them').toBe(ROLES.light);
   });
 
   it('turns its corners without breaking the bevel', () => {
