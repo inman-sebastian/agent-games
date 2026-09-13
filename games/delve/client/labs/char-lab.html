@@ -6,13 +6,24 @@
     <title>DELVE — character lab</title>
     <link rel="stylesheet" href="../src/ui/ui.css" />
     <style>
+      /* The canvas grows with the zoom control, so the page SCROLLS and the controls sit above the
+         canvas rather than below it. They were below, and at 2x the canvas pushed them off screen —
+         a control legend you cannot see is worse than none, since it implies there are none. */
       body {
-        overflow: hidden;
+        overflow: auto;
         display: flex;
         flex-direction: column;
-        align-items: center;
+        align-items: flex-start;
         gap: var(--s3);
         padding: var(--s4);
+      }
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: var(--c-void);
+        padding-bottom: var(--s2);
+        width: 100%;
       }
       #c {
         image-rendering: pixelated;
@@ -40,13 +51,17 @@
     </style>
   </head>
   <body>
+    <header>
+      <div id="readout"></div>
+      <div id="keys">
+        <kbd>← →</kbd> / <kbd>A D</kbd> move &nbsp; <kbd>space</kbd> jump &nbsp; <kbd>1</kbd>–<kbd
+          >4</kbd
+        >
+        character &nbsp; <kbd>H</kbd> hitbox &nbsp; <kbd>G</kbd> grid &nbsp; <kbd>Z</kbd> zoom
+        &nbsp; <kbd>R</kbd> reset
+      </div>
+    </header>
     <canvas id="c"></canvas>
-    <div id="readout"></div>
-    <div id="keys">
-      <kbd>← →</kbd> / <kbd>A D</kbd> move &nbsp; <kbd>space</kbd> jump &nbsp; <kbd>1</kbd
-      ><kbd>2</kbd><kbd>3</kbd> character &nbsp; <kbd>H</kbd> hitbox &nbsp; <kbd>G</kbd> grid &nbsp;
-      <kbd>Z</kbd> zoom &nbsp; <kbd>R</kbd> reset
-    </div>
     <script type="module" src="./char-lab.ts"></script>
   </body>
 </html>
