@@ -111,11 +111,13 @@ const SHEET = `
     right: var(--px, 2px);
     bottom: 0;
     line-height: 1;
-    font-family: var(--font-display, monospace);
-    /* ON THE ART GRID: 2x Silkscreen's native 8px, so one glyph pixel is one art pixel like
-       everything else on screen. At native 8px the count was the only thing in the interface
-       rendering at half scale. */
-    font-size: var(--t-label, 16px);
+    /* The BADGE face, not the display face. Micro 5 is drawn on a 5px grid, so at 10px it is 2x
+       native and 5 art pixels tall. Silkscreen's smallest on-grid size is 8 art pixels, and at that
+       height a three-digit count read as a label stretched across the item rather than as a number
+       tucked in its corner. Still on the art grid — that constraint is not negotiable, it is why the
+       answer was a different face rather than a smaller size. */
+    font-family: var(--font-count, monospace);
+    font-size: var(--t-count, 10px);
     /* White, because this sits directly on an item's texture and the ramp's lightest step is not
        enough separation from a lit ore face. */
     color: var(--c-white, #ffffff);

@@ -4,16 +4,15 @@
 // of it. The existing icon path draws the ore's art shape — a crystal, a nugget, a shard — in its
 // three-colour triad, which is a nice glyph and is emphatically not what the player just mined.
 //
-// So this composes a real tile: a 3x3 band of world, solid except for one open tile directly above
-// the centre, through `composeBand` with the ore's own material — then crops the middle tile. That
-// is the shape an exposed vein face actually has underground, so the top edge catches light and the
-// rest of the tile stays whole. Every shader, every dither, every bit of world-anchored texture
-// comes along for free, because none of it is reimplemented here.
+// So this composes a real band of world through `composeBand` with the ore's own material and crops
+// one tile out of it. Every shader, every dither, every bit of world-anchored texture comes along for
+// free, because none of it is reimplemented here.
 //
 // COHESION BY CONSTRUCTION, which is the same argument the material system won on: when a material's
 // shader changes, its icon changes with it, and there is no second definition to forget.
 import { T, UPSCALE, setStrata, composeBand } from '../render/cave-render';
 import { oreMaterial } from '../render/materials';
+import type { Material } from '../render/materials';
 import { STRATA, ORE_BY_ID } from '@delve/shared';
 
 /**
@@ -27,8 +26,47 @@ import { STRATA, ORE_BY_ID } from '@delve/shared';
 const iconColumn = (oreId: number): number => oreId * 7;
 /** Deep enough to sit in stone rather than topsoil, so the surround never tints the crop. */
 const ICON_ROW = 120;
-/** The 3x3 band the centre tile is cropped out of. */
-const BAND = 3;
+/**
+ * The band composed around the icon's tile: three wide, four tall, with the tile at row 2.
+ *
+ * WHY FOUR TALL. An icon has to be a PERFECT SQUARE — an item in a slot is an object, not a piece of
+ * the world, and a bitten corner reads as damage. The compositor erodes a tile's boundary wherever it
+ * meets open space, so the tile's four neighbours all have to be solid. But a tile with no open space
+ * anywhere near it is unlit, because brightness falls off with distance from the nearest opening.
+ *
+ * So the opening is moved TWO rows up instead of one: the tile above the icon stays solid, which
+ * leaves the icon's own edges intact, while the gap two rows up still lights it. The tile keeps the
+ * material's real texture and its real top-lighting, and loses only the erosion.
+ */
+const BAND_W = 3;
+const BAND_H = 4;
+/** Rows between the icon's tile and the open tile above. Two: one is close enough to erode. */
+const LIGHT_GAP = 2;
+
+/**
+ * How an icon is lit, given its tile is deliberately buried and would otherwise be nearly black.
+ *
+ * Brightness is remapped rather than added to: `floor` is what an unlit pixel gets and `range` is
+ * how much of the geometric variation survives on top. The material's own shader still chooses
+ * every colour from its own ramp, so this can only ever pick a LIGHTER BAND — it cannot invent a
+ * colour off the palette, which a canvas filter or a blend mode would.
+ *
+ * An item in a slot is being held up to the light, not viewed in situ. This is the one place an
+ * icon knowingly departs from how the tile looks in the world, and it departs in the only dimension
+ * that does not touch the art direction.
+ */
+const ICON_LIGHT_FLOOR = 0.62;
+const ICON_LIGHT_RANGE = 0.38;
+
+/** Wrap a material so its shader sees an icon-lit brightness. Everything else is untouched. */
+const litForIcon = (material: Material): Material => ({
+  ...material,
+  shade: (ctx) =>
+    material.shade({
+      ...ctx,
+      brightness: ICON_LIGHT_FLOOR + ctx.brightness * ICON_LIGHT_RANGE,
+    }),
+});
 
 let strataReady = false;
 
@@ -50,29 +88,27 @@ function materialTile(oreId: number): HTMLCanvasElement {
   }
 
   const band = document.createElement('canvas');
-  band.width = BAND * T;
-  band.height = BAND * T;
+  band.width = BAND_W * T;
+  band.height = BAND_H * T;
   const bg = band.getContext('2d')!;
   bg.imageSmoothingEnabled = false;
 
   const left = iconColumn(oreId);
   const centreColumn = left + 1;
-  const centreRow = ICON_ROW + 1;
-  const material = oreMaterial(oreId);
+  const centreRow = ICON_ROW + LIGHT_GAP;
+  const ore = oreMaterial(oreId);
+  // An ore with no registered material shader falls through to the rock's own look, which is what
+  // the compositor does with a null material anyway.
+  const material = ore ? litForIcon(ore) : null;
   composeBand(
     bg,
-    // Solid everywhere EXCEPT directly above the centre, which is the shape an exposed vein face
-    // actually has underground: rock all around, one open tile overhead, so the top edge catches
-    // the light and the rest of the tile stays whole.
-    //
-    // Leaving the centre tile isolated was the first attempt and it came out as a small blob — the
-    // compositor erodes a tile's boundary against open space, so a tile with open space on all four
-    // sides is eaten from every direction at once. Correct behaviour, wrong request.
-    (column, row) => !(column === centreColumn && row === centreRow - 1),
+    // Solid everywhere except one tile LIGHT_GAP rows above the icon's tile. Far enough that the
+    // icon's own boundary never meets open space, close enough that the light still reaches it.
+    (column, row) => !(column === centreColumn && row === ICON_ROW),
     left,
     ICON_ROW,
-    BAND,
-    BAND,
+    BAND_W,
+    BAND_H,
     0,
     () => -1, // no sky in the crop; this tile is deep underground
     (column, row) => (column === centreColumn && row === centreRow ? material : null),
@@ -83,7 +119,7 @@ function materialTile(oreId: number): HTMLCanvasElement {
   tile.height = T;
   const tg = tile.getContext('2d')!;
   tg.imageSmoothingEnabled = false;
-  tg.drawImage(band, T, T, T, T, 0, 0, T, T);
+  tg.drawImage(band, T, LIGHT_GAP * T, T, T, 0, 0, T, T);
   tiles.set(oreId, tile);
   return tile;
 }

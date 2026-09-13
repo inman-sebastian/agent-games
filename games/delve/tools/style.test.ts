@@ -70,22 +70,40 @@ describe('the UI stylesheet is measured in art pixels', () => {
 });
 
 describe('the UI type is drawn at its own grid', () => {
-  it('every display size is a whole multiple of Silkscreen\'s 8px grid', () => {
+  it("every pixel-type size is a whole multiple of ITS OWN face's grid", () => {
     // A pixel face drawn at 17px is just a blurry face, which defeats the entire reason for using
-    // one. Silkscreen is an 8px design, so every size that reaches it must be a multiple of 8.
+    // one. But "the grid" is per FACE, not global: Silkscreen is an 8px design and Micro 5 is a 5px
+    // one, so 10px is exactly right for the second and wrong for the first. Asserting one global
+    // grid was the first version of this and it rejected a correct size.
     //
-    // Two tokens are exempt, and not as a convenience: they do not feed Silkscreen. `--t-body` is
-    // the prose face, which should be sized for READING rather than for pixel purity, and
-    // `--t-mono` is the debug overlay's real monospace, which is a tool rather than chrome.
-    const GRID = 8;
-    const NOT_SILKSCREEN = ['--t-body', '--t-mono'];
-    const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)].filter(
-      (m) => !NOT_SILKSCREEN.includes(m[1]),
-    );
-    expect(tokens.length, ':root declares display type tokens').toBeGreaterThan(1);
+    // Two tokens have no grid at all, and not as a convenience. `--t-body` is the prose face, which
+    // should be sized for READING rather than for pixel purity, and `--t-mono` is the debug
+    // overlay's real monospace, which is a tool rather than chrome.
+    const GRIDS: Record<string, number> = {
+      '--t-label': 8, // Silkscreen
+      '--t-display': 8,
+      '--t-touch': 8,
+      '--t-small': 8,
+      '--t-count': 5, // Micro 5
+    };
+    const tokens = [...rootBlock.matchAll(/(--t-[a-z]+):\s*(\d+)px/g)];
+    expect(tokens.length, ':root declares type tokens').toBeGreaterThan(1);
+    const checked: string[] = [];
     for (const [, token, size] of tokens) {
-      expect(Number(size) % GRID, `${token} is off Silkscreen's ${GRID}px grid`).toBe(0);
+      const grid = GRIDS[token];
+      if (grid === undefined) continue; // --t-body, --t-mono: not pixel faces
+      checked.push(token);
+      expect(Number(size) % grid, `${token} is off its face's ${grid}px grid`).toBe(0);
     }
+    // Guards the guard: a new token silently added to neither list would otherwise be unchecked.
+    const ungridded = ['--t-body', '--t-mono'];
+    const known = [...Object.keys(GRIDS), ...ungridded];
+    for (const [, token] of tokens) {
+      expect(known, `${token} is declared in neither the grid map nor the exempt list`).toContain(
+        token,
+      );
+    }
+    expect(checked.length, 'at least the display and badge faces are checked').toBeGreaterThan(1);
   });
 
   it('sizes type through the tokens, never with a bare px', () => {

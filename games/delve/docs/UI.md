@@ -343,6 +343,19 @@ Three sizing rules, all learned by looking:
   a poor one, because four axis-aligned copies leave the diagonals unfilled, so it never closed
   around a letter and read as a detached blocky halo. One hard copy, one art pixel down and right,
   in white over the item's own texture.
+- **A count uses the badge face, not the display face.** Micro 5 is drawn on a 5px grid, so at 10px
+  it is 2× native and **5 art pixels tall**. Silkscreen's smallest on-grid size is 8, and at that
+  height a three-digit count read as a label stretched across the item rather than a number tucked in
+  its corner. Staying on the grid is not negotiable, which is *why* the answer was a different face
+  rather than a smaller size.
+- **An icon is a perfect square.** An item in a slot is an object, not a piece of the world, and a
+  bitten corner reads as damage. The compositor erodes a tile wherever it meets open space, so the
+  icon's tile is buried with its opening **two rows up** — far enough that nothing erodes it, and the
+  lighting is then remapped through the material's own shader (a brightness floor plus some of the
+  geometric variation). Remapping rather than filtering matters: the shader still picks every colour
+  from its own ramp, so this can only choose a *lighter band* and can never invent an off-palette
+  colour the way a canvas filter would. It is the one place an icon knowingly departs from the
+  in-world look, and it departs in the only dimension that does not touch the art direction.
 - **Every icon samples a different world position.** The compositor's erosion and texture are
   world-anchored, so icons sampled at the same coordinates all get the identical eroded corner.
   Twelve of those in a grid stops reading as texture and starts reading as a defect. Spacing them
