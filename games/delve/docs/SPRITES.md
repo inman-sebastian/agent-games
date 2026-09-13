@@ -302,6 +302,20 @@ full swing, or resolving the anchor against the whole figure's silhouette rather
 Both are decisions rather than tweaks, which is why this is tracked as #48 rather than fixed in
 passing.
 
+## What is committed, and the licence position
+
+**Source `.aseprite` files are never committed.** The generated index-mapped frames are, and that is
+a deliberate call by the project owner rather than an oversight: both packs are purchased, both
+licences permit use and modification in a game, and both also forbid redistributing the asset "even
+if modified" while this repository is public. The frames are the art re-encoded, so the two sit in
+tension.
+
+Decided: **commit the generated frames.** The alternative — gitignoring them — would mean a fresh
+clone cannot build the game without the purchased packs, which costs more than it protects.
+
+Recorded so it is not re-argued with every new pack. If the position ever changes, the frames are
+regenerable from the packs with one command, so it is reversible.
+
 ## Trialling a second pack — what the pipeline learned
 
 A second character pack (Hana Caraka Base Character, by Otterisk) was imported as a possible
