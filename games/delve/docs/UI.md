@@ -224,11 +224,26 @@ with an opposed inner lip reads as a frame *around* something, which is what a p
 no texture. Variants are on the bench in `client/labs/panel-lab.html` — flat-and-outline, single
 bevel, this one, corner rivets, and the rejected textured version as a counter-example.
 
-Three things learned by looking, each now held by a test: the bevel's shade must be **darker than the
-face** (the first version used the mid grey, which is lighter, so the plate looked swollen); the
-inner lip must **oppose** the outer bevel or the frame just looks thicker; and a control's face is
-one ramp step **lighter** than a panel's, or three pixels of bevel has to do all the work of saying
-"this is a button".
+Learned by looking, each now held by a test:
+
+- **The shade must be darker than the face.** The first version used the mid grey, which is *lighter*
+  than the panel, so the bottom and right read as lit too and the plate looked swollen.
+- **The inner lip must oppose the outer bevel**, or the frame just looks thicker.
+- **A control's face is one ramp step lighter** than a panel's, or three pixels of bevel has to do
+  all the work of saying "this is a button".
+- **The lit step is two ramp steps above the face, not three.** At three it is the same value as the
+  body text, so the frame competes with what the panel is *for*. A bevel is a lighting cue, and a
+  lighting cue that outshines everything else stops being one.
+- **Shade wins where lit and shade meet.** Painting every bevel corner dark looks principled — a
+  corner cannot pick a side — and produces a lit top run starting one pixel in from the left and a
+  lit left run starting one pixel down, which never meet. It reads as two detached lines hanging off
+  the panel. The convention leaves one continuous lit L and one continuous dark L, and it exists
+  precisely because the alternative is visible immediately.
+- **The hard drop shadow is two art pixels, not four.** Deeper reads as a slab behind the panel
+  rather than the panel lifting off the rock.
+
+`client/labs/panel-lab.html` varies one decision at a time against real rock with real text on it —
+the lit step at one, two and three, and the drop shadow at four, two and none.
 
 #### Why there is no texture in the interface
 

@@ -279,7 +279,9 @@ button:disabled {
   max-height: 88vh;
   overflow: auto;
   padding: var(--s4);
-  box-shadow: var(--s2) var(--s2) 0 #2e222fcc;
+  /* Two art pixels, not four. A deeper hard shadow reads as a slab sitting behind the panel rather
+     than as the panel lifting off the rock — it was the other thing extending past the frame. */
+  box-shadow: var(--s1) var(--s1) 0 #2e222fcc;
   /* The background and border colour are the FALLBACK, live until ui/frame.ts has run — a panel
      must never be invisible, and the markup does not wait for script. `fill` on the border-image
      paints over them once the frame exists. */

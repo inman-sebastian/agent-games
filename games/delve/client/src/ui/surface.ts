@@ -71,16 +71,13 @@ export interface FrameRoles {
  * The frame's pixels, row-major. Three rings and a face:
  *
  *   ring 0  the hard outline — what separates a panel from the rock behind it
- *   ring 1  the bevel lip, lit on one pair of sides and shaded on the other
+ *   ring 1  the bevel lip, lit on the top and left and shaded on the bottom and right
  *   ring 2  the same lip INVERTED, which turns the content area into a shallow well
  *   middle  the face, flat, tiling across the panel
  *
  * Ring 2 is where the panel gets its substance. A single bevel reads as a raised rectangle; a bevel
  * with an opposed inner lip reads as a frame AROUND something, which is what a panel is. It costs
  * one pixel and no texture.
- *
- * The bevel corners stay dark rather than taking a side, because a bevel that turns a corner has to
- * pick which side wins and picking either reads as a mistake. Dark reads as a mitre.
  */
 export function framePixels(kind: FrameKind, roles: FrameRoles): Pattern {
   const last = FRAME_SIZE - 1;
@@ -91,14 +88,23 @@ export function framePixels(kind: FrameKind, roles: FrameRoles): Pattern {
     const row: string[] = [];
     for (let x = 0; x < FRAME_SIZE; x++) {
       const ring = Math.min(x, y, last - x, last - y);
-      const onLitSide = x <= y ? x <= last - y : y <= last - x; // which half of the mitre
+      // Top and left are lit, bottom and right are shaded, and where they meet the SHADE wins.
+      //
+      // That precedence is the whole corner rule, and getting it wrong is visible immediately. An
+      // earlier version painted every bevel corner dark, reasoning that a corner cannot pick a side.
+      // What that actually produced was a lit top run starting one pixel in from the left and a lit
+      // left run starting one pixel down, so the two never met — the bevel read as two detached
+      // lines floating off the panel rather than as one edge turning a corner.
+      //
+      // Letting shade win instead gives a continuous lit L across the top-left and a continuous dark
+      // L across the bottom-right, which is how a bevel has been drawn since window chrome existed.
+      const shaded = x === last - ring || y === last - ring;
       if (ring === 0) {
         row.push(roles.outline);
       } else if (ring === 1) {
-        const corner = (x === 1 || x === last - 1) && (y === 1 || y === last - 1);
-        row.push(corner ? roles.outline : onLitSide ? lit : unlit);
+        row.push(shaded ? unlit : lit);
       } else if (ring === 2) {
-        row.push(onLitSide ? unlit : lit); // the well's lip: opposed to the outer bevel
+        row.push(shaded ? lit : unlit); // the well's lip: opposed to the outer bevel
       } else {
         row.push(roles.fill);
       }
@@ -147,7 +153,11 @@ export function installSurfaces(root: HTMLElement = document.documentElement): v
   // grey, which is LIGHTER than the panel face, so the bottom and right read as lit as well and the
   // plate looked flat and slightly swollen. With six steps in the ramp and the face near the bottom
   // of it, "darker than the face" leaves exactly one choice.
-  const raised: FrameRoles = { outline: void_, light: mute, shade: void_, fill: panel };
+  // The lit step is TWO ramp steps above the face, not four. The bevel was `--c-mute` first, which
+  // is three steps up from the panel face and read as a hard white line drawn on the panel rather
+  // than as an edge catching light. A bevel is a lighting cue, and a lighting cue that outshines
+  // everything else on screen stops being one.
+  const raised: FrameRoles = { outline: void_, light: dim, shade: void_, fill: panel };
 
   // A recess is filled with the darkest step, so its shading comes from the LIP rather than the
   // interior: a dark upper lip merging with the outline, and a lit lower one.
@@ -156,9 +166,9 @@ export function installSurfaces(root: HTMLElement = document.documentElement): v
   // A control sits ON a panel, so its face is one ramp step lighter. With both on the same face the
   // bevel was doing all the work, and three pixels of bevel is not enough work at button size.
   const control: FrameRoles = { outline: void_, light: mute, shade: void_, fill: edge };
+  // (a control's face is already two steps up, so its lip keeps the brighter step to stay visible)
 
   root.style.setProperty('--frame-raised', `url("${patternUrl(framePixels('raised', raised))}")`);
   root.style.setProperty('--frame-inset', `url("${patternUrl(framePixels('inset', inset))}")`);
   root.style.setProperty('--frame-control', `url("${patternUrl(framePixels('raised', control))}")`);
-  void dim;
 }

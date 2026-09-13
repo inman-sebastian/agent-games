@@ -62,18 +62,23 @@ describe('the panel frame', () => {
     expect(px[last - 2][mid], 'inner bottom is lit').toBe(ROLES.light);
   });
 
-  it('leaves the bevel corners dark rather than picking a side', () => {
-    // A bevel that turns a corner has to choose which side wins, and either choice reads as a
-    // mistake. Dark reads as a mitre.
+  it('turns its corners without breaking the bevel', () => {
+    // THE regression. Painting every bevel corner dark looked principled — a corner cannot pick a
+    // side — and produced a lit top run starting one pixel in from the left and a lit left run
+    // starting one pixel down, so they never met. It read as two detached lines hanging off the
+    // panel. The convention exists for a reason: shade wins where lit and shade meet, which leaves
+    // one continuous lit L and one continuous dark L.
     const px = framePixels('raised', ROLES);
     const last = FRAME_SIZE - 1;
-    for (const [y, x] of [
-      [1, 1],
-      [1, last - 1],
-      [last - 1, 1],
-      [last - 1, last - 1],
-    ]) {
-      expect(px[y][x], `bevel corner ${x},${y}`).toBe(ROLES.outline);
+    expect(px[1][1], 'top-left belongs to the lit run').toBe(ROLES.light);
+    expect(px[last - 1][last - 1], 'bottom-right belongs to the shade run').toBe(ROLES.shade);
+    expect(px[1][last - 1], 'top-right: shade wins').toBe(ROLES.shade);
+    expect(px[last - 1][1], 'bottom-left: shade wins').toBe(ROLES.shade);
+
+    // And the runs are unbroken, which is the property the corner rule exists to protect.
+    for (let i = 1; i < last; i++) {
+      expect(px[1][i], `top run at ${i}`).toBe(i === last - 1 ? ROLES.shade : ROLES.light);
+      expect(px[i][1], `left run at ${i}`).toBe(i === last - 1 ? ROLES.shade : ROLES.light);
     }
   });
 
