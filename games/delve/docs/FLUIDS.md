@@ -93,8 +93,14 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   - Its capacity stops below the rim's own row, since water standing that high is already over it.
   - The excess leaves as a **stream** at `streamRate` (900 px of volume per second), falls straight
     down, and joins the body whose basin it lands in, or starts a new body.
-- **Bodies merge** when their liquid touches, and when two full bodies spill into each other (they
-  stand above a shared rim). A merged body keeps both sets of seeds, so it fills both basins at once.
+- **Bodies merge** when their liquid touches, and when a body spills into one that's connected to it:
+  - the other is full too (both stand above a shared rim), or
+  - the other's liquid has risen back up to the spill point (a pool draining down a shaft into water
+    that has filled up to meet it). Kept apart, the lab showed two stacked surfaces while one drained into
+    the other.
+
+  A merged body keeps both sets of seeds, so it fills both basins at once.
+
 - **Nothing teleports.** A dig can change the true state at once (a pool joined to an empty basin
   levels immediately), so what's _shown_ follows the true state at the stream rate: the highest pixels
   clear first and the lowest fill first. A breached reservoir's level visibly falls while the other side
@@ -109,7 +115,18 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   - one flat pool over a bumpy floor (fails without pits);
   - two full basins join over their rim (fails without the rim merge);
   - a joined basin fills visibly rather than at once (fails if the display snaps);
+  - in motion, no two bodies' shown water ever stacks in a column (fails without merging on a risen
+    spill);
   - deterministic.
+
+**Lab: digging patches the rock.** A dig used to re-render the whole screen of rock and its mask on the
+CPU: 115–215 ms, a lag spike on every cell. The lab now re-renders a strip of columns around the cell.
+
+- The strip is full height, so the strata colours match.
+- Only its middle, where the shading can change, is copied back, and the mask is rebuilt for a few cells.
+- A dig now costs 10–21 ms, and the water update ~2 ms.
+- `fluidLab.verifyRock()` confirms the patched rock and mask match a full recompose exactly.
+- The game draws rock on the GPU and doesn't have this cost.
 
 ## Rendering
 

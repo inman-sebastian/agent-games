@@ -8,7 +8,13 @@
 //       P snap the water to art pixels (for comparison).
 // `window.fluidLab` exposes controls and stats for `pnpm probe`.
 import { STRATA, solidAt, surfaceAt, SUB } from '@delve/shared';
-import { setStrata, composeBand, buildMask, T } from '../src/render/cave-render';
+import {
+  setStrata,
+  composeBand,
+  buildMask,
+  T,
+  SHADE_INFLUENCE_CELLS,
+} from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import {
   createSurface,
@@ -234,16 +240,31 @@ let sim: WaterSim = createWaterSim(width, height, open);
 /** Each body's surface, by body id, over the columns its liquid spans. */
 const surfaces = new Map<number, { surface: Surface; x0: number }>();
 
+/** How long the last dig's parts took, ms — the lab's own profiler for rock changes. */
+const digTimings: Record<string, number> = {};
+const timed = <T>(label: string, work: () => T): T => {
+  const started = performance.now();
+  const result = work();
+  digTimings[label] = Number((performance.now() - started).toFixed(1));
+  return result;
+};
+
 function refreshRock(): void {
-  composeBand(rock, isSolid, bandLeft, bandTop, cols, rows, (column) => surfaceAt(SEED, column));
-  device.queue.copyExternalImageToTexture({ source: rockCanvas }, { texture: rockTexture }, [
-    width,
-    height,
-  ]);
-  const mask = buildMask(isSolid, width, height, bandLeft, bandTop);
-  open = new Uint8Array(width * height);
-  for (let i = 0; i < open.length; i++) open[i] = mask[i] ? 0 : 1;
-  device.queue.writeBuffer(openBuffer, 0, Uint32Array.from(open));
+  timed('composeBand', () =>
+    composeBand(rock, isSolid, bandLeft, bandTop, cols, rows, (column) => surfaceAt(SEED, column)),
+  );
+  timed('uploadRock', () =>
+    device.queue.copyExternalImageToTexture({ source: rockCanvas }, { texture: rockTexture }, [
+      width,
+      height,
+    ]),
+  );
+  const mask = timed('buildMask', () => buildMask(isSolid, width, height, bandLeft, bandTop));
+  timed('uploadOpen', () => {
+    open = new Uint8Array(width * height);
+    for (let i = 0; i < open.length; i++) open[i] = mask[i] ? 0 : 1;
+    device.queue.writeBuffer(openBuffer, 0, Uint32Array.from(open));
+  });
 }
 
 /**
@@ -524,6 +545,65 @@ spriteCanvas.addEventListener('pointerup', () => {
   pointer.down = false;
 });
 
+/**
+ * Re-render only what a change to one cell can affect. A full recompose of the band and its mask took
+ * 120–215 ms a dig, the lag spike when digging. The rock is re-rendered in a strip of columns around the cell —
+ * full height, so the strata colours match the band's — and only the middle, where the shading can have
+ * changed, is copied back; the mask is rebuilt for a few cells around it. `fluidLab.verifyRock()` checks the
+ * patched result against a full recompose.
+ */
+function refreshRockAround(column: number, row: number): void {
+  const reach = SHADE_INFLUENCE_CELLS + 1; // cells a change can shade
+  const margin = reach + 2; // context either side of what's copied back
+  const s0 = Math.max(0, column - margin);
+  const s1 = Math.min(cols, column + margin + 1);
+  const k0 = Math.max(0, column - reach);
+  const k1 = Math.min(cols, column + reach + 1);
+  timed('composeStrip', () => {
+    const strip = Object.assign(document.createElement('canvas'), { width: (s1 - s0) * T, height });
+    composeBand(strip.getContext('2d')!, isSolid, bandLeft + s0, bandTop, s1 - s0, rows, (c) =>
+      surfaceAt(SEED, c),
+    );
+    rock.clearRect(k0 * T, 0, (k1 - k0) * T, height);
+    rock.drawImage(
+      strip,
+      (k0 - s0) * T,
+      0,
+      (k1 - k0) * T,
+      height,
+      k0 * T,
+      0,
+      (k1 - k0) * T,
+      height,
+    );
+  });
+  timed('uploadRock', () =>
+    device.queue.copyExternalImageToTexture(
+      { source: rockCanvas, origin: [k0 * T, 0] },
+      { texture: rockTexture, origin: [k0 * T, 0] },
+      [(k1 - k0) * T, height],
+    ),
+  );
+  timed('patchMask', () => {
+    const m0 = Math.max(0, column - 2);
+    const m1 = Math.min(cols, column + 3);
+    const r0 = Math.max(0, row - 2);
+    const r1 = Math.min(rows, row + 3);
+    const w = (m1 - m0) * T;
+    const h = (r1 - r0) * T;
+    const mask = buildMask(isSolid, w, h, bandLeft + m0, bandTop + r0);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) open[(r0 * T + y) * width + m0 * T + x] = mask[y * w + x] ? 0 : 1;
+    }
+    const rowsFrom = r0 * T * width;
+    device.queue.writeBuffer(
+      openBuffer,
+      rowsFrom * 4,
+      Uint32Array.from(open.subarray(rowsFrom, r1 * T * width)),
+    );
+  });
+}
+
 function dig(column: number, row: number, building: boolean): void {
   const cell = key(bandLeft + column, bandTop + row);
   if (building ? built.has(cell) : !isSolid(bandLeft + column, bandTop + row)) return;
@@ -532,8 +612,8 @@ function dig(column: number, row: number, building: boolean): void {
     built.delete(cell);
     dug.add(cell);
   }
-  refreshRock();
-  sim.setOpen(open);
+  refreshRockAround(column, row);
+  timed('setOpen', () => sim.setOpen(open));
 }
 
 function applyPointer(dt: number): void {
@@ -616,7 +696,7 @@ Object.assign(window, {
     dig: (c0: number, r0: number, c1: number, r1: number) => {
       carve(c0, r0, c1, r1);
       refreshRock();
-      sim.setOpen(open);
+      timed('setOpen', () => sim.setOpen(open));
     },
     pour: (kind: number, x: number, y: number, volume: number) => sim.add(kind, x, y, volume),
     drop: (x: number, y: number) =>
@@ -636,6 +716,27 @@ Object.assign(window, {
       gpuError,
     }),
     pause: (value: boolean) => (paused = value),
+    digTimings: () => ({ ...digTimings }),
+    digCell: (column: number, row: number) => dig(column, row, false),
+    /** Pixels where the patched rock and mask differ from a full recompose — 0 if patching is exact. */
+    verifyRock: () => {
+      const patched = rock.getImageData(0, 0, width, height).data.slice();
+      const patchedOpen = open.slice();
+      refreshRock();
+      const full = rock.getImageData(0, 0, width, height).data;
+      let rockDiff = 0;
+      for (let i = 0; i < full.length; i += 4) {
+        if (
+          full[i] !== patched[i] ||
+          full[i + 1] !== patched[i + 1] ||
+          full[i + 2] !== patched[i + 2]
+        )
+          rockDiff++;
+      }
+      let maskDiff = 0;
+      for (let i = 0; i < open.length; i++) if (open[i] !== patchedOpen[i]) maskDiff++;
+      return { rockDiff, maskDiff };
+    },
     snap: (value: boolean) => (snap = value),
     cols,
     rows,

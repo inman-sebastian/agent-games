@@ -246,21 +246,34 @@ export function createWaterSim(
   }
 
   /**
-   * Two FULL bodies where one spills into the other stand above a shared rim: they're one body. (Each basin
-   * stops below its rim row, so their liquid never touches, and on a bumpy floor two dips spilled their
-   * excess back and forth forever.) Merged, it fills from both basins' seeds and rises over the rim.
+   * A body spilling into another is one body with it once they're connected: when the other is full too (both
+   * stand above a shared rim, and on a bumpy floor two dips spilled their excess back and forth forever), or
+   * when the other's liquid has risen to the spill point (a pool draining down a shaft into water that has
+   * filled back up to it — kept apart, the two showed stacked surfaces while one drained into the other).
+   * Merged, it fills from both bodies' seeds.
    */
   function mergeOverRims(): boolean {
     rebuildOwners();
     for (const body of bodies) {
       if (body.spill < 0 || body.volume <= body.fill.length) continue;
-      const land = landing(body.spill % width, Math.floor(body.spill / width));
+      const spillRow = Math.floor(body.spill / width);
+      const land = landing(body.spill % width, spillRow);
       const other = bodyInBasin(land, body.kind);
-      if (!other || other === body || other.volume < other.fill.length) continue;
+      if (!other || other === body) continue;
+      const full = other.volume >= other.fill.length;
+      const risenToSpill = owner[body.spill] === other.id || levelOf(other) <= spillRow;
+      if (!full && !risenToSpill) continue;
       merge(body.id < other.id ? body : other, body.id < other.id ? other : body);
       return true;
     }
     return false;
+  }
+
+  function levelOf(body: Body): number {
+    const filled = Math.min(body.volume, body.fill.length);
+    return filled > 0
+      ? Math.floor(body.fill[filled - 1] / width)
+      : Math.max(...body.seeds.map((i) => Math.floor(i / width)));
   }
 
   function settle(): void {
@@ -391,12 +404,7 @@ export function createWaterSim(
       const id = shown[index];
       return id === 0 ? null : (bodies.find((body) => body.id === id) ?? null);
     },
-    levelOf: (body) => {
-      const filled = Math.min(body.volume, body.fill.length);
-      return filled > 0
-        ? Math.floor(body.fill[filled - 1] / width)
-        : Math.max(...body.seeds.map((i) => Math.floor(i / width)));
-    },
+    levelOf,
     total: (kind) => bodies.reduce((sum, body) => sum + (body.kind === kind ? body.volume : 0), 0),
   };
 }

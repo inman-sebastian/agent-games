@@ -191,6 +191,44 @@ describe('surface water bodies', () => {
     expect(shownRight()).toBeGreaterThan(20);
   });
 
+  it('never shows two surfaces stacked in one column: a pool draining into the shaft below it joins what rises to meet it', () => {
+    // a pool 40 wide over a 1-wide, 20-deep shaft into a cave that can't hold all of it, so the water rises
+    // back up the shaft into the pool — large enough that the stream rate spans many steps
+    const width = 44;
+    const height = 44;
+    const rows: string[] = [];
+    for (let y = 0; y < height; y++) {
+      let row = '';
+      for (let x = 0; x < width; x++) {
+        const pool = y < 12 && x >= 2 && x < 42;
+        const shaft = y >= 12 && y < 32 && x === 21;
+        const cave = y >= 32 && y < 42 && x >= 12 && x < 32;
+        row += pool || shaft || cave ? '.' : '#';
+      }
+      rows.push(row);
+    }
+    const { open } = grid(rows);
+    const sealed = open.slice();
+    for (let y = 12; y < 32; y++) sealed[y * width + 21] = 0; // the shaft starts sealed
+    const sim = createWaterSim(width, height, sealed);
+    sim.add(WATER, 20, 0, 400); // the pool: ten rows of forty
+    sim.snap();
+    sim.setOpen(open); // dig the shaft
+    run(sim, 6, () => {
+      expect(sim.total(WATER)).toBe(400);
+      // IN MOTION: shown water of one body never sits directly on another's in the same column
+      for (let y = 0; y < height - 1; y++) {
+        for (let x = 0; x < width; x++) {
+          const above = sim.bodyAt(y * width + x);
+          const below = sim.bodyAt((y + 1) * width + x);
+          if (above && below) expect(above.id, `bodies stacked at ${x},${y}`).toBe(below.id);
+        }
+      }
+    });
+    expect(sim.bodies).toHaveLength(1);
+    expect(sim.streams).toHaveLength(0);
+  });
+
   it('is deterministic', () => {
     const make = () => {
       const { width, height, open } = grid([
