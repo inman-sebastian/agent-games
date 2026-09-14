@@ -9,3 +9,4 @@ export * from './rng';
 export * from './registry';
 export * from './protocol';
 export * from './engine'; // re-exports ./blocks (blockAt, solidAt, STRATA, ORES, …)
+export * from './hydrate';

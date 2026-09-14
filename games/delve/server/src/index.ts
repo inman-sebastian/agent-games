@@ -123,6 +123,73 @@ interface Client {
 
 const clients = new Set<Client>();
 
+/**
+ * Run one client's share of a timer so that a failure is THAT client's problem, not everyone's.
+ *
+ * A throw inside a `setInterval` callback is an uncaught exception in Node, which ends the process —
+ * every connected player's session with it. The known ways to get there (malformed messages, saves
+ * from an older build) are closed at the boundary; this is the backstop for the ones nobody has found
+ * yet. The failing client is logged and dropped, since a session that throws once will throw on every
+ * tick after it, and a silent skip would hide that forever.
+ */
+function isolated(client: Client, what: string, work: () => void): void {
+  try {
+    work();
+  } catch (error) {
+    console.error(
+      `[delve] ${what} failed for ${client.playerId ?? 'an unjoined client'} — dropping it:`,
+      error,
+    );
+    clients.delete(client);
+    client.ws.terminate();
+  }
+}
+
+/**
+ * Validate one raw frame from a client into a well-formed message, or null.
+ *
+ * Everything past this point trusts the shape it is handed, so this is the whole trust boundary for
+ * message STRUCTURE (reach and solidity are still the sim's job). It has to be total: a throw in a
+ * ws listener is an uncaught exception in Node, which ends the process and every other player's
+ * session with it. Before this existed, the literal message `null` did that — `JSON.parse('null')`
+ * succeeds, and `msg.t` does not.
+ */
+function parseClientMessage(raw: string): ClientMessage | null {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  const m = data as Record<string, unknown>;
+  const finiteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+  if (m.t === 'join') {
+    if (!finiteNumber(m.protocol)) return null;
+    if (typeof m.playerId !== 'string' || m.playerId.length === 0) return null;
+    return {
+      t: 'join',
+      protocol: m.protocol,
+      playerId: m.playerId,
+      seed: finiteNumber(m.seed) ? m.seed >>> 0 : undefined,
+    };
+  }
+  if (m.t === 'input') {
+    if (!Number.isSafeInteger(m.seq) || (m.seq as number) < 0) return null;
+    return { t: 'input', seq: m.seq as number, input: sanitizeInput(m.input) };
+  }
+  if (m.t === 'command') {
+    const command = m.command as Record<string, unknown> | null | undefined;
+    if (typeof command !== 'object' || command === null) return null;
+    if (command.kind === 'newGame' && finiteNumber(command.seed)) {
+      return { t: 'command', command: { kind: 'newGame', seed: command.seed >>> 0 } };
+    }
+    return null;
+  }
+  return null;
+}
+
 // Clamp a client-supplied input to a safe shape. Reach + solidity are still enforced by the sim
 // (physicsStep only mines a tile within REACH that's actually solid), so this just guards types.
 function sanitizeInput(raw: unknown): Input {
@@ -183,7 +250,7 @@ setInterval(() => {
   while (accumulator >= TICK_DT && steps < MAX_CATCHUP_TICKS) {
     accumulator -= TICK_DT;
     steps++;
-    for (const client of clients) stepClient(client);
+    for (const client of clients) isolated(client, 'tick', () => stepClient(client));
   }
   if (steps === MAX_CATCHUP_TICKS) accumulator = 0; // fell far behind → drop the backlog
 }, TICK_MS);
@@ -225,12 +292,13 @@ function broadcast(client: Client): void {
 }
 
 setInterval(() => {
-  for (const client of clients) broadcast(client);
+  for (const client of clients) isolated(client, 'broadcast', () => broadcast(client));
 }, SNAPSHOT_MS);
 
 setInterval(() => {
   for (const client of clients) {
-    if (client.playerId && client.session) persistSave(client.playerId, client.session);
+    const { playerId, session } = client;
+    if (playerId && session) isolated(client, 'persist', () => persistSave(playerId, session));
   }
 }, PERSIST_MS);
 
@@ -252,7 +320,7 @@ wss.on('connection', (ws) => {
   clients.add(client);
 
   /** Point a connection at a session, fresh or loaded, and clear everything derived from the old one. */
-  const hydrate = (session: Session, fresh: boolean): void => {
+  const attachSession = (session: Session, fresh: boolean): void => {
     client.session = session;
     client.queue.length = 0;
     client.credits = INPUT_BURST;
@@ -267,11 +335,15 @@ wss.on('connection', (ws) => {
   };
 
   ws.on('message', (raw) => {
-    let msg: ClientMessage;
-    try {
-      msg = JSON.parse(raw.toString()) as ClientMessage;
-    } catch {
-      send(ws, { t: 'error', message: 'malformed message (not JSON)' });
+    // The parser makes the SHAPE safe; this makes a failure in handling it (a save that won't write,
+    // say) this client's problem rather than an uncaught exception that ends the process.
+    isolated(client, 'message', () => handleMessage(raw.toString()));
+  });
+
+  const handleMessage = (raw: string): void => {
+    const msg = parseClientMessage(raw);
+    if (!msg) {
+      send(ws, { t: 'error', message: 'malformed message' });
       return;
     }
 
@@ -285,7 +357,7 @@ wss.on('connection', (ws) => {
       const fresh = !loaded;
       const session = loaded ?? newSession(msg.seed ?? (Math.random() * 2 ** 31) >>> 0);
       if (fresh) persistSave(client.playerId, session);
-      hydrate(session, fresh);
+      attachSession(session, fresh);
       return;
     }
 
@@ -297,7 +369,7 @@ wss.on('connection', (ws) => {
     if (msg.t === 'input') {
       // Queued, not applied. The clock spends it.
       if (client.queue.length >= MAX_QUEUED_INPUTS) client.queue.shift();
-      client.queue.push({ seq: msg.seq, input: sanitizeInput(msg.input) });
+      client.queue.push({ seq: msg.seq, input: msg.input }); // already sanitized by the parser
       return;
     }
 
@@ -305,18 +377,38 @@ wss.on('connection', (ws) => {
       const command = msg.command;
       client.dirty = true; // ensure the resulting state change is broadcast even with no inputs in flight
       if (command.kind === 'newGame') {
-        hydrate(newSession(command.seed), true); // client re-hydrates from the hello
+        attachSession(newSession(command.seed), true); // client re-hydrates from the hello
         persistSave(client.playerId, client.session!);
       }
       return;
     }
-  });
+  };
 
   ws.on('close', () => {
     clients.delete(client);
     if (client.playerId && client.session) persistSave(client.playerId, client.session);
   });
 });
+
+// Fail LOUDLY when the port is taken. Under `pnpm dev` the server runs in `tsx watch`, which keeps the
+// process alive after a crash — so `concurrently -k` never notices, the client comes up anyway, and
+// it quietly connects to whatever stale server already holds the port, running old code. That cost a
+// long debugging detour (a player who "wouldn't move" was being corrected by a pre-split server).
+// On BOTH emitters: the WebSocketServer re-emits the http server's listen error on itself, and with no
+// listener there Node throws before an http-server handler ever runs.
+const failToStart = (error: NodeJS.ErrnoException): void => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(
+      `\n[delve] port ${PORT} is already in use — another server is running, probably an old one.\n` +
+        `        The client will connect to IT, not to this code. Stop it first:  lsof -ti:${PORT} | xargs kill\n`,
+    );
+  } else {
+    console.error('[delve] server failed to start:', error);
+  }
+  process.exit(1);
+};
+httpServer.on('error', failToStart);
+wss.on('error', failToStart);
 
 httpServer.listen(PORT, () => {
   const mode = serveStatic ? `serving client/dist + ws ${WS_PATH}` : `ws ${WS_PATH} only (dev)`;

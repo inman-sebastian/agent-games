@@ -27,7 +27,7 @@ import type { Pen } from '@delve/shared';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
-import { hydrate, load, save, fresh } from './save';
+import { load, save, fresh } from './save';
 import { buildInventoryGrid } from './ui/inventory';
 import { defineSlot, type DelveSlot } from './ui/slot';
 import { installSurfaces } from './ui/surface';
@@ -68,7 +68,8 @@ const lb = fieldBuf.getContext('2d')!;
 lb.imageSmoothingEnabled = false;
 
 // ---- state / persistence ----------------------------------------------------------------
-// hydrate/load/save + save-format migration live in ./save (extracted so they're testable
+// load/save (the localStorage cache) live in ./save; turning a save back into a Session is
+// engine.hydrate in @delve/shared, shared with the server (extracted so they're testable
 // without the game loop). `save(s)` takes the current session since it's no longer a closure.
 const SAVE_INTERVAL_MS = 2500;
 
@@ -1352,7 +1353,7 @@ requestAnimationFrame(frame);
 net.connect({
   getSeed: () => s.world.seed,
   onHello: (snapshot) => {
-    s = hydrate(snapshot);
+    s = engine.hydrate(snapshot);
     pendingInputs.length = 0;
     inputSeq = 0;
     correctionX = 0;

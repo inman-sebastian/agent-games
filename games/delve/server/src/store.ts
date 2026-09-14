@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hydrate, toSave } from '@delve/shared';
 import type { Session } from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,12 +17,19 @@ const safeId = (playerId: string): string =>
 
 const saveFile = (playerId: string): string => join(DATA_DIR, `${safeId(playerId)}.json`);
 
-/** The player's saved state, or null if none exists (or the file is unreadable/corrupt). */
+/**
+ * The player's saved state, HYDRATED into a valid Session — or null if none exists (or the file is
+ * unreadable/corrupt).
+ *
+ * Hydrated here rather than trusted: this used to return `JSON.parse(...) as Session`, and the
+ * server simulated whatever an older build had written. A save from before `tech` existed crashed
+ * the clock on the first dig, and a player wedged in rock by the #47 body change stayed wedged.
+ */
 export function loadSave(playerId: string): Session | null {
   const file = saveFile(playerId);
   if (!existsSync(file)) return null;
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as Session;
+    return hydrate(JSON.parse(readFileSync(file, 'utf8')));
   } catch {
     return null; // corrupt save → treat as none; the caller will create a fresh one
   }
@@ -30,5 +38,5 @@ export function loadSave(playerId: string): Session | null {
 /** Persist the player's state (whole-file write). Creates DATA_DIR on first use. */
 export function persistSave(playerId: string, state: Session): void {
   mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(saveFile(playerId), JSON.stringify(state));
+  writeFileSync(saveFile(playerId), JSON.stringify(toSave(state)));
 }
