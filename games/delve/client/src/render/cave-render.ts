@@ -8,7 +8,7 @@
 // note rather than atomised into dozens of names that would obscure the pipeline.
 import { vnoise, mulberry, hashXY } from '@delve/shared';
 import type { StrataResource } from '@delve/shared';
-import { T, TEX, clamp01, hexRgb, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
+import { T, TEX, clamp01, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
 import type { Rgb, RockColors } from './palette';
 import type { Material, ShadeCtx } from './materials/types';
 
@@ -435,11 +435,6 @@ const BG_SILHOUETTE_FREQ_Y = 0.06;
 const BG_SILHOUETTE_THRESHOLD = 0.42;
 
 /**
- * Compose background + rock + sky + stalactites for a world rectangle into 2D context `g`
- * (destination top-left, colsW×rowsH tiles). `W` is legacy (the world is unbounded); solidTile
- * handles any column.
- */
-/**
  * "No sky in this crop" — every row is underground.
  *
  * The dev labs render isolated rock samples with no surface in view, and passing this says so,
@@ -451,6 +446,12 @@ export const NO_SKY = (): number => -1;
 const columnsOf = (bandLeft: number, colsW: number): number[] =>
   Array.from({ length: colsW }, (_, i) => bandLeft + i);
 
+/**
+ * Compose background + rock + sky + stalactites for a world rectangle into 2D context `g`, with the
+ * destination's top-left at `(bandLeft, bandTop)` and `colsW` x `rowsH` CELLS. The world is unbounded,
+ * so `isSolid` answers for any column. (A seventh "world width" argument used to sit here, ignored
+ * since the world stopped having edges; seventeen callers passed five different values for it.)
+ */
 export function composeBand(
   g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   isSolid: SolidTile,
@@ -458,7 +459,6 @@ export function composeBand(
   bandTop: number,
   colsW: number,
   rowsH: number,
-  _legacyWidth: number,
   /**
    * The surface row at a column. A FUNCTION, not a number: the surface is a heightmap (#44), so the
    * sky boundary follows the terrain instead of cutting straight across the band.

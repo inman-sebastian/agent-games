@@ -108,7 +108,6 @@ function materialTile(oreId: number): HTMLCanvasElement {
     left,
     ICON_ROW,
     BAND_W,
-    BAND_H,
     0,
     () => -1, // no sky in the crop; this tile is deep underground
     (column, row) => (column === centreColumn && row === centreRow ? material : null),

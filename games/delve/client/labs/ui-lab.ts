@@ -60,7 +60,6 @@ export function draw(): void {
     bandTop,
     cols,
     rows,
-    WIDTH,
     (column) => surfaceAt(SEED, column),
     (column, row) => oreMaterial(oreAt(SEED, column, row)),
   );

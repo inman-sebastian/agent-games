@@ -106,7 +106,7 @@ function renderSurface(
   const g = canvas.getContext('2d')!;
   g.imageSmoothingEnabled = false;
   const solid = (_c: number, r: number): boolean => r >= depth + 1;
-  composeBand(g, solid, 0, depth, cols, rows, cols, NO_SKY, m.materialAt);
+  composeBand(g, solid, 0, depth, cols, rows, NO_SKY, m.materialAt);
   if (state.lit) lamp(g, cols * T, rows * T, (cols >> 1) * T, (depth + 1) * T, 0, depth, solid);
 }
 
@@ -145,7 +145,7 @@ function renderCave(
   const solid = (c: number, r: number): boolean => r > 0 && !open(c, r);
   const materialAt = (c: number, r: number): Material | null =>
     oreMaterial(oreAt(state.seed, c, r));
-  composeBand(g, solid, bandLeft, depth, cols, rows, cols, NO_SKY, materialAt);
+  composeBand(g, solid, bandLeft, depth, cols, rows, NO_SKY, materialAt);
   const litRadius = Math.max(6, Math.min(cols, rows) * 0.6);
   const litOf = (c: number, r: number): number =>
     Math.max(0, 1 - Math.hypot(c - cx, r - cy) / litRadius);

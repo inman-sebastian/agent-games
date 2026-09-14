@@ -62,12 +62,6 @@ const SURFACE_OCTAVES: readonly { readonly amplitude: number; readonly frequency
 const SURFACE_SALT = 0x5a17; // decorrelates the heightmap from the ore and damage fields
 
 /**
- * The surface row at `column`: rows AT OR ABOVE it are open sky, rows below it are solid rock.
- *
- * Pure `f(seed, column)` like everything else in this file — nothing is stored, and two clients
- * given the same seed agree without exchanging a heightmap.
- */
-/**
  * A direct-mapped cache for `surfaceAt`, which is the hottest function in the world model.
  *
  * It is a pure `f(seed, column)`, so caching it cannot change an answer — and it is recomputed
@@ -76,8 +70,10 @@ const SURFACE_SALT = 0x5a17; // decorrelates the heightmap from the ore and dama
  * and two value-noise octaves each. Measured at 4.5ms for one viewport's worth before this.
  *
  * Direct-mapped on the column's low bits rather than a `Map`, so a hit is two array reads and no
- * allocation. A different seed resets it: correct either way, and a session only ever has one seed —
- * if two interleaved, it would degrade to no cache rather than to a wrong answer.
+ * allocation. A different seed resets it, so it is correct whatever the caller does. It is only FAST
+ * for one seed at a time: that holds for a client, but the server steps every connected player in
+ * turn, so players on different worlds thrash it down to no cache (never to a wrong answer). If the
+ * server's world generation ever shows up in a profile, key the cache by seed.
  */
 const SURFACE_CACHE_SIZE = 1 << 12;
 const SURFACE_CACHE_MASK = SURFACE_CACHE_SIZE - 1;
@@ -86,6 +82,12 @@ const surfaceColumns = new Int32Array(SURFACE_CACHE_SIZE).fill(NO_COLUMN);
 const surfaceRows = new Int32Array(SURFACE_CACHE_SIZE);
 let surfaceCacheSeed = -1;
 
+/**
+ * The surface row at `column`: rows AT OR ABOVE it are open sky, rows below it are solid rock.
+ *
+ * Pure `f(seed, column)` like everything else in this file — nothing is stored (the cache above is invisible to callers), and two clients
+ * given the same seed agree without exchanging a heightmap.
+ */
 export function surfaceAt(seed: number, column: number): number {
   if (seed !== surfaceCacheSeed) {
     surfaceCacheSeed = seed;
@@ -126,7 +128,6 @@ export const ORE_BY_ID: Record<number, OreResource> = Object.fromEntries(
   ORES.map((ore) => [ore.id, ore]),
 );
 
-/** Rarity/tier of an ore = its index in the surface→deep ordering. */
 /** The top of the rarity scale, so the client can normalise without knowing how many ores exist. */
 export const RARITY_MAX = 6;
 

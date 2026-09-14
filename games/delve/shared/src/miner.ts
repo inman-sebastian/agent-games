@@ -9,6 +9,7 @@
 // with `desiredMinerState` and `set()` the machine to it; the machine earns its keep by firing the
 // enter/exit hooks exactly on real changes (see StateMachine.set), which is where the juice lives.
 import { StateMachine } from './fsm';
+import { SUB } from './blocks';
 import type { PlayerState } from './types';
 
 export type MinerState = 'idle' | 'run' | 'jump' | 'fall' | 'mine';
@@ -16,9 +17,10 @@ export type MinerState = 'idle' | 'run' | 'jump' | 'fall' | 'mine';
 /** No table events — the miner is driven purely by `set(desiredMinerState(...))`. */
 export type MinerEvent = never;
 
-/** Below this horizontal speed (tiles/s) the miner reads as standing still, not running. Shared so
- * the client and the derivation agree on one threshold. */
-export const MOVE_EPSILON = 0.5;
+/** Below this horizontal speed the miner reads as standing still, not running. A speed is a length
+ * per second, so it is half a BLOCK per second expressed in cells — left as a bare 0.5 by the 2x2 split
+ * (#44), it quietly became a quarter-block and the run animation lingered on every stop. */
+export const MOVE_EPSILON = 0.5 * SUB;
 
 /**
  * The state the miner should be in for this physics snapshot. Priority, highest first:

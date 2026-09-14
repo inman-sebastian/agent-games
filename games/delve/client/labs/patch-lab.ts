@@ -58,7 +58,7 @@ function canvasOf(w: number, h: number): [HTMLCanvasElement, CanvasRenderingCont
 
 // A — the whole region in one bake
 const [whole, wctx] = canvasOf(COLS * T, ROWS * T);
-composeBand(wctx, solid, bandLeft, bandTop, COLS, ROWS, Infinity, surfaceOf);
+composeBand(wctx, solid, bandLeft, bandTop, COLS, ROWS, surfaceOf);
 
 // B — the same region assembled from chunk bakes, exactly as the game does it
 const [tiled, tctx] = canvasOf(COLS * T, ROWS * T);
@@ -75,7 +75,6 @@ for (let ky = 0; ky < CHUNKS_Y; ky++) {
       chunkRow - MARGIN,
       CW + 2 * MARGIN,
       CH + 2 * MARGIN,
-      Infinity,
       surfaceOf,
     );
     tctx.drawImage(

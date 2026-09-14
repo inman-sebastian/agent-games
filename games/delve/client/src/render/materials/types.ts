@@ -30,14 +30,6 @@ export interface ShadeCtx {
   topDist: number;
 }
 
-/**
- * A material's visual definition. `shade` is the only required piece — it returns the pixel colour
- * with total freedom. Connection is expressed through optional knobs consumed by the compositor:
- *   • `feather` — how far (px) this material bleeds into neighbouring materials at a boundary; a
- *     hard-edged material (e.g. future wood planks) sets it low/0. Defaults to the shared value.
- * (Future hooks — a custom edge-erosion function for the material↔open boundary, and per-pair blend
- *  policy — plug in here when a material first needs them; every current material uses the defaults.)
- */
 /** Per-frame context for a material's animated twinkle (drawn on top of the baked surface, in the
  * presentation layer). Unlike `shade`, this is imperative canvas drawing driven by wall-clock time.
  * It describes one EXPOSED CLUSTER EDGE — a run of adjacent same-material tiles sharing a lit face —
@@ -82,6 +74,14 @@ export interface DamageCtx {
   dirY: number;
 }
 
+/**
+ * A material's visual definition. `shade` is the only required piece — it returns the pixel colour
+ * with total freedom. Connection is expressed through optional knobs consumed by the compositor:
+ *   • `feather` — how far (px) this material bleeds into neighbouring materials at a boundary; a
+ *     hard-edged material (e.g. future wood planks) sets it low/0. Defaults to the shared value.
+ * (Future hooks — a custom edge-erosion function for the material↔open boundary, and per-pair blend
+ *  policy — plug in here when a material first needs them; every current material uses the defaults.)
+ */
 export interface Material {
   /** Per-pixel colour of the BAKED surface (required). */
   shade(ctx: ShadeCtx): Rgb;

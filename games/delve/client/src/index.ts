@@ -4,14 +4,7 @@
 // shake), the HUD/inventory/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
-import type {
-  Session,
-  Input,
-  TileCoord,
-  SimEvent,
-  StateMessage,
-  ClientCommand,
-} from '@delve/shared';
+import type { Session, Input, TileCoord, SimEvent, StateMessage } from '@delve/shared';
 import {
   T,
   setStrata as setRenderStrata,
@@ -23,7 +16,6 @@ import {
 } from './render/cave-render';
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
-import type { Pen } from '@delve/shared';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
@@ -33,10 +25,10 @@ import { defineSlot, type DelveSlot } from './ui/slot';
 import { installSurfaces } from './ui/surface';
 
 // ---- display + world-view geometry ------------------------------------------------------
-// Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
-// resolution, then DISPLAYS at TILE_PX CSS px per tile with image-rendering:pixelated — so a tile
-// "looks like" TILE_PX on screen while the art stays 16px. 32px is a clean 2× integer scale.
-const TILE_PX = T * UPSCALE; // on-screen size of a tile (CSS px) — the art grid, shared with the UI
+// The world grid is CELLS of T=8 art px; four cells make a 16-art-px block (#44). The scene renders at
+// that logical resolution and DISPLAYS at UPSCALE with image-rendering:pixelated, so a cell is
+// TILE_PX = 16 CSS px on screen and a block is 32 — a clean 2x integer scale.
+const TILE_PX = T * UPSCALE; // on-screen size of one CELL (CSS px) — the art grid, shared with the UI
 // The world is unbounded in every direction, so the canvas is a VIEWPORT onto it: a 2-axis camera
 // keeps the miner centred and we render only the visible tile window. Sized by fit().
 let VIEW_COLS = 21;
@@ -364,7 +356,6 @@ function renderChunkSync(cx: number, cy: number): Chunk {
     cy * CH - MARGIN,
     CW + 2 * MARGIN,
     CH + 2 * MARGIN,
-    Infinity,
     surfaceOf,
     materialAt,
   );
@@ -444,8 +435,8 @@ function rebakeChunk(cx: number, cy: number): void {
 
 // ---- lighting ---------------------------------------------------------------------------
 // The geometry-aware lighting system lives in render/lighting (shared with the labs, so they
-// light identically). We keep one instance; each frame we push emitters — the miner's lamp +
-// glowing ore veins — then call lighting.render() with the viewport + this game's solidTile.
+// light identically). We keep one instance; each frame we push the emitters — today only the miner's
+// lamp, since ore stopped glowing — then call lighting.render() with the viewport + solidTile.
 const lighting = createLighting();
 
 // ---- render -----------------------------------------------------------------------------
@@ -454,6 +445,8 @@ const lighting = createLighting();
 const surfaceOf = (column: number): number => engine.surfaceAt(s.world.seed, column);
 
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
+const LAMP_CORE_CELLS = 1 * engine.SUB; // full brightness within a block of the lamp
+const LAMP_EASE_CELLS = 0.5 * engine.SUB; // extra distance the falloff eases over, past the lamp's reach
 // Brightness per BLOCK of lamp reach. `lamp` is a distance in cells since the 2x2 split (#44), and
 // this is the one place it's read as a brightness rather than a distance — multiplying the cell
 // count would inflate the seed and over-light the scene, so it converts back to blocks first.
@@ -562,9 +555,11 @@ function render(t: number): void {
   endPhase('chunks');
 
   // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the lamp's reach
+  // Distances in CELLS: full brightness within one block of the lamp, easing out over its reach. Both
+  // were bare tile counts (1 and 0.5) that the 2x2 split halved in world terms.
   const lightAt = (c: number, r: number): number => {
     const dist = Math.hypot(c - px, r - py);
-    return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.lamp + 0.5));
+    return Math.max(0.14, 1 - Math.max(0, dist - LAMP_CORE_CELLS) / (st.lamp + LAMP_EASE_CELLS));
   };
 
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
@@ -617,7 +612,9 @@ function render(t: number): void {
     // so the old full-screen band paid for ~19k cells to keep a couple of hundred. The 2x2 split
     // (#44) made that the second-biggest cost in the frame (9.3ms of a 25ms frame at 160x120).
     // `lightAt` floors at LAMP_MIN_LIT, so beyond this radius no cell can clear `minLit`.
-    const twinkleReach = Math.ceil(1 + (st.lamp + 0.5)) + 1;
+    // lightAt falls to its floor by LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS, so nothing past that
+    // can clear minLit; one extra cell of slack for the floor/ceil at the edges.
+    const twinkleReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
     const tL = Math.max(colL, Math.floor(px) - twinkleReach);
     const tR = Math.min(colR, Math.floor(px) + twinkleReach);
     const tT = Math.max(rowT, Math.floor(py) - twinkleReach);
@@ -688,7 +685,7 @@ function render(t: number): void {
     facing: s.player.facing,
   }); // lamp bloom is part of the lighting pass
 
-  // coin floaties
+  // floaties: the "+2 Gold" text that rises off a broken ore cell
   ctx.textAlign = 'center';
   for (const f of floaties) {
     const a = Math.max(0, 1 - f.t / f.life);
@@ -757,12 +754,11 @@ const held: Record<HeldKey, boolean> = {
   down: false,
   mine: false,
 };
-let moving = false;
 let curTarget: TileCoord | null = null;
 
 // The miner's animation/behaviour state (idle/run/jump/fall/mine) as a state machine over the pure
-// physics — see @delve/shared miner.ts. Driven once per fixed tick; `.state` selects the walk/idle
-// bob (below), and the enter hook hangs landing juice on the air→ground transition (a soft thud +
+// physics — see @delve/shared miner.ts. Driven once per fixed tick; `.state` picks the animation
+// (poseFor in render/entity/player), and the enter hook hangs landing juice on the air→ground transition (a soft thud +
 // dust + a nudge of shake) — impact feedback the game didn't have before. `lastFallSpeed` is the
 // descent speed captured just before the step, since the physics zeroes vy on contact.
 let lastFallSpeed = 0;
@@ -945,7 +941,7 @@ function onEvent(ev: SimEvent): void {
   chips(cx, cy, 5 + Math.round(prize * 8), ev.ore ? engine.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
   shake = Math.min(7, shake + 1.2 + prize * 4 + (ev.rich ? 2 : 0));
   if (ev.ore) {
-    // ore collected into the inventory (sold later)
+    // ore collected into the inventory (there is no selling — collection is the reward)
     sfx.ore(Math.min(1, prize + (ev.rich ? RICH_BONUS : 0)));
     const col = ev.rich ? '#f2c14e' : engine.ORE_BY_ID[ev.ore].color;
     const name = engine.ORE_BY_ID[ev.ore].name;
@@ -996,7 +992,6 @@ function tick(): void {
   // Only while actually on the ground: a cycle advanced by airborne drift would land mid-stride.
   if (s.player.grounded) walked += Math.abs(s.player.vx) * TICK_DT;
   for (const ev of res.events) onEvent(ev);
-  moving = Math.abs(s.player.vx) > engine.MOVE_EPSILON;
   engine.driveMiner(miner, s.player, s.player.digKey !== null); // may fire the landing hook above
 }
 
@@ -1039,7 +1034,6 @@ function frame(now: number): void {
 
   // advance the sim in fixed ticks (only while playing — title/paused don't bank ticks)
   if (!simRunning()) {
-    moving = false;
     curTarget = null;
     accumulator = 0;
   } else {
@@ -1284,10 +1278,9 @@ addEventListener(
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---- responsive sizing ------------------------------------------------------------------
-// Tiles render at a FIXED "looks-like-16px" size: 1 art px = 1 CSS px, so a 16px tile is 16 CSS px
-// and image-rendering:pixelated upscales it crisply to device pixels (32px on a 2× display) for
-// free — no per-DPR render path needed. The camera centres the miner and the canvas is centred in
-// the viewport.
+// Cells render at a FIXED on-screen size: one art px is UPSCALE (2) CSS px, so an 8-art-px cell is
+// 16 CSS px, and image-rendering:pixelated takes it on to device pixels crisply for free — no per-DPR
+// render path needed. The camera centres the miner and the canvas is centred in the viewport.
 // ponytail: fixed 1:1 for now; revisit fit + true fill when we tackle viewport framing.
 // Both bounds are in CELLS, so the 2x2 split (#44) scales them — they were left behind, which
 // capped a wide window at half the world it used to show and stopped the canvas filling the

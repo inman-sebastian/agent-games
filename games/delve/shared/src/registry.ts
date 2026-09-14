@@ -189,4 +189,3 @@ function cluster(pen: Pen, cx: number, cy: number, radius: number, colors: Triad
 }
 
 export const shapes = { gem, nugget, prism, shard, cluster } as const;
-export type ShapeName = keyof typeof shapes;

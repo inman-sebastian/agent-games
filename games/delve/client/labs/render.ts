@@ -85,7 +85,7 @@ const materialAt =
     : undefined;
 // The real per-column surface, so a crop that includes the surface shows the actual terrain.
 const surfaceOf = (column: number): number => surfaceAt(seed, column);
-composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, surfaceOf, materialAt);
+composeBand(g, solidTile, bandLeft, bandTop, cols, rows, surfaceOf, materialAt);
 
 // crystal style only: draw the faceted ore blocks on top (the harness always reveals ore).
 if (oreStyle !== 'strata') {

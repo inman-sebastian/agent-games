@@ -80,7 +80,6 @@ worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
     bandTop,
     CW + 2 * MARGIN,
     CH + 2 * MARGIN,
-    Infinity,
     surface,
     materialAt,
   );

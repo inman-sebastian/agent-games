@@ -202,7 +202,9 @@ describe('mining mechanics', () => {
   it('mineTile deals damage over hits and eventually breaks the cell', () => {
     const session = newSession(555);
     const col = Math.floor(session.player.x);
-    const row = 1; // first solid row below the surface
+    // The first solid row under this column. It was a hardcoded `1`, true only while the surface was
+    // flat; with the heightmap (#44) it passed because seed 555 happens to be solid there.
+    const row = surfaceAt(session.world.seed, col) + 1;
     expect(solidCell(session.world, col, row)).toBe(true);
     const events: SimEvent[] = [];
     // a large dt runs many paced hits in one call — enough to break shallow rock

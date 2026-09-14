@@ -13,20 +13,22 @@
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
-import { blockAt, solidAt, rockHp, WIDTH, SURFACE_BASE, surfaceAt, SUB } from './blocks';
+import { blockAt, solidAt, WIDTH, surfaceAt, SUB } from './blocks';
 import { tileRand } from './rng';
-import type { Input, SimEvent, WorldState, PlayerState, Session, Block } from './types';
+import type { Input, SimEvent, WorldState, PlayerState, Session } from './types';
 
 export * from './blocks';
 
-// --- platformer physics constants (tile units; time in seconds) ---
-// Player AABB half-extents, in tiles. The body is 0.9 x 1.82 tiles — TALLER THAN ONE TILE, which is
-// the whole point: a one-tile gap no longer fits, so a tunnel has to be dug two tiles tall. That
-// added digging cost was the reason for adopting these proportions (#47).
+// --- platformer physics constants (CELL units; time in seconds) ---
+// Every length here is written as `<value in BLOCKS> * SUB`, so the number you read is the world
+// distance and the multiplier converts it to the cells the sim runs on (#44). A bare number with a
+// length or rate in its unit is the bug this file has had repeatedly — see the "world units" tests.
 //
-// Sized to the character art rather than chosen: the imported sprite's figure is 18 x 29 art px on a
-// 16px tile, so 1.12 x 1.81 tiles. The hitbox is the figure's height exactly and a little narrower
-// than its width, so shoulders and swinging limbs overhang rather than snagging on corners.
+// Player AABB half-extents. The body is 0.9 x 1.82 BLOCKS — taller than one block, which is the whole
+// point: a one-block gap no longer fits, so a tunnel has to be dug two blocks tall (#47). Sized to the
+// character art: the sprite's figure is 18 x 29 art px against a 16-art-px block, so 1.12 x 1.81. The
+// hitbox is the figure's height exactly and a little narrower than its width, so shoulders and
+// swinging limbs overhang rather than snagging on corners.
 const HALF_WIDTH = 0.45 * SUB;
 const HALF_HEIGHT = 0.91 * SUB;
 const GRAVITY = 46 * SUB;
@@ -39,19 +41,18 @@ const RUN_SPEED = 6 * SUB;
 const RUN_ACCEL = 85 * SUB;
 const AIR_ACCEL = 46 * SUB;
 const FRICTION = 60 * SUB;
-// ~1.25 tiles of rise (v²/2g, g=46), UNCHANGED by the size change: jump height in tiles is a
-// property of this and gravity, not of the body, so the player still clears a one-tile step exactly
-// as before. What did change is headroom — a 1.82-tall body in a 2-tall tunnel has 0.18 tiles above
-// its head, so jumping indoors needs a three-tall tunnel.
+// ~1.25 blocks of rise (v²/2g, with both terms in blocks: 10.7²/92), unchanged by the body's size —
+// jump height is a property of this and gravity. What did change is headroom: a 1.82-block body in a
+// two-block tunnel has 0.18 above its head, so jumping indoors needs a three-block tunnel.
 const JUMP_VELOCITY = 10.7 * SUB;
-const REACH = 1 * SUB; // base mining reach in tiles (Chebyshev): adjacent only. Upgradable later.
+const REACH = 1 * SUB; // base mining reach: one BLOCK (Chebyshev) beyond the body's span. See withinReach.
 // One CELL, which after the 2x2 split is HALF A BLOCK — and that is the whole point of the split
 // (#44). A mined staircase now has half-block risers, so walking up one is a small correction rather
 // than the character hopping a whole block. It was 1 block before, 55% of body height; it is now 27%.
 const STEP_UP_TILES = 1;
 const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
-const MAX_STEP_DT = 1 / (30 * SUB); // clamp per-step dt so fast motion can't tunnel a tile
+const MAX_STEP_DT = 1 / (30 * SUB); // clamp per-step dt so fast motion can't tunnel through a cell
 
 // Fixed simulation rate. The authoritative server and each client's prediction step at this exact
 // dt, so a replayed input on the client reproduces the server's result (no lockstep needed — the
@@ -70,7 +71,6 @@ export const PHYS = {
 } as const;
 
 // --- derived-stat tuning ---
-void SURFACE_BASE;
 
 const FORTUNE_SALT = 0x9e3779b9; // golden-ratio hash constant; decorrelates the rich-vein roll from placement
 const RICH_ORE_MULTIPLIER = 3; // a rich vein yields 3× the ore into the inventory
@@ -93,27 +93,11 @@ export function isRich(seed: number, column: number, row: number, fortune: numbe
   return tileRand(seed ^ FORTUNE_SALT, column, row) < fortune;
 }
 
-/** Back-compat static-tile view over blockAt, for callers not yet using the richer descriptor. */
-export function tileInfo(
-  seed: number,
-  column: number,
-  row: number,
-): { wall?: boolean; empty?: boolean; ore?: number; maxHp?: number } {
-  const block: Block = blockAt(seed, column, row);
-  if (block.kind === 'open') return { empty: true, ore: 0, maxHp: 0 };
-  return { ore: block.ore, maxHp: block.hp };
-}
-
 /** A fresh shared world for `seed`. */
 export function newWorld(seed: number): WorldState {
   return { seed: seed >>> 0 || 1, dug: {}, dmg: {} };
 }
 
-/**
- * A fresh player, standing on the surface at the centre column.
- *
- * Takes the seed because the surface is a heightmap: where the ground is depends on the world.
- */
 /** The row the feet rest on at `x`: one below the highest surface the body spans. */
 function groundUnder(seed: number, x: number, hw: number): number {
   const left = Math.floor(x - hw + EPSILON);
@@ -125,6 +109,13 @@ function groundUnder(seed: number, x: number, hw: number): number {
   return highest + 1;
 }
 
+/**
+ * A fresh player, standing on the surface at the centre column.
+ *
+ * Takes the seed because the surface is a heightmap: where the ground is depends on the world. (It
+ * defaults to 1, which is a trap — a spawn for one world placed in another is mid-air or in rock.
+ * hydrate's fallback fell into it; pass the world's seed.)
+ */
 export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerState {
   const startColumn = (WIDTH - 1) >> 1;
   return {
@@ -162,15 +153,6 @@ export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerSt
   };
 }
 
-/**
- * Lift a player out of rock they are overlapping, or return false if there is nowhere to go.
- *
- * Needed because the body grew (#47): a save written when the player was 0.92 tiles tall can put a
- * 1.82-tall body inside the ceiling of its own tunnel, and a player wedged in rock cannot move,
- * jump or dig its way out. Searches upward first — a dug tunnel's headroom is the likeliest space —
- * then downward, then gives up so the caller can fall back to a fresh spawn rather than teleporting
- * someone across the map.
- */
 /** Whether the player's body would be clear of rock centred at `(x, y)`. */
 export function bodyFits(
   world: WorldState,
@@ -194,6 +176,15 @@ export function bodyFits(
 // was a bare 6 that silently became three blocks when the cell halved.
 const UNSTICK_SEARCH_CELLS = 6 * SUB;
 
+/**
+ * Lift a player out of rock they are overlapping, or return false if there is nowhere to go.
+ *
+ * Needed because the body grew (#47): a save written when the player was 0.92 blocks tall can put a
+ * 1.82-tall body inside the ceiling of its own tunnel, and a player wedged in rock cannot move,
+ * jump or dig its way out. Searches upward first — a dug tunnel's headroom is the likeliest space —
+ * then downward, then gives up so the caller can fall back to a fresh spawn rather than teleporting
+ * someone across the map.
+ */
 export function unstick(
   world: WorldState,
   player: PlayerState,
@@ -231,7 +222,7 @@ interface Stats {
   power: number;
   interval: number;
   fortune: number;
-  /** Lamp reach in tiles. (Not a reveal radius — see docs/LIGHTING.md.) */
+  /** Lamp reach in CELLS. (Not a reveal radius — see docs/LIGHTING.md.) */
   lamp: number;
 }
 
@@ -521,7 +512,3 @@ function anySolidInRow(
   }
   return false;
 }
-
-/** Whether the player is standing at ground level. Needs the world, since the surface undulates. */
-export const atSurface = (world: WorldState, player: PlayerState): boolean =>
-  player.y <= surfaceAt(world.seed, Math.floor(player.x)) + 1;

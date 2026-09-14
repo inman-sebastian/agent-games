@@ -12,7 +12,7 @@
 //
 // Controls: arrows or A/D to move, space or W to jump, R to reset, 1-3 to swap character,
 // H toggles the hitbox, G toggles the tile grid.
-import { T, setStrata, composeBand, UPSCALE } from '../src/render/cave-render';
+import { T, setStrata, composeBand, UPSCALE, NO_SKY } from '../src/render/cave-render';
 import * as engine from '@delve/shared';
 import type { Input, MinerState, Session } from '@delve/shared';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from '../src/render/entity/player';
@@ -25,7 +25,7 @@ import { installSurfaces } from '../src/ui/surface';
 interface Candidate {
   readonly id: string;
   readonly label: string;
-  /** Half-extents in tiles. `null` keeps the engine default. */
+  /** Half-extents in CELLS. `null` keeps the engine default. */
   readonly body: { hw: number; hh: number } | null;
   readonly registry: Record<string, SpriteAnim>;
   readonly skin: typeof MINER_SKIN;
@@ -42,7 +42,7 @@ const CANDIDATES: readonly Candidate[] = [
   {
     id: 'player',
     label: '1 · Miner (current)',
-    body: null, // 0.45 x 0.91 → 0.9 x 1.82 tiles
+    body: null, // 0.45 x 0.91 blocks → 0.9 x 1.82 blocks (twice that in cells)
     registry: P,
     skin: MINER_SKIN,
     skinId: 'miner',
@@ -266,7 +266,7 @@ function bakeWorld(): void {
   cv.height = LH;
   const bg = cv.getContext('2d')!;
   bg.imageSmoothingEnabled = false;
-  composeBand(bg, solidTile, LEFT, bandTop, COLS, ROWS, engine.WIDTH, () => -1);
+  composeBand(bg, solidTile, LEFT, bandTop, COLS, ROWS, NO_SKY);
   bg.font = '8px ui-monospace, monospace';
   bg.textAlign = 'center';
   bg.fillStyle = '#f9c22b';
@@ -376,7 +376,7 @@ function render(): void {
 
   const readout = document.getElementById('readout')!;
   readout.textContent =
-    `${c.label}   body ${(hw * 2).toFixed(2)} x ${(hh * 2).toFixed(2)} tiles   ` +
+    `${c.label}   body ${((hw * 2) / engine.SUB).toFixed(2)} x ${((hh * 2) / engine.SUB).toFixed(2)} blocks   ` +
     `sprite ${c.scale}x   state ${minerState}   ${fps.toFixed(0)} fps   ` +
     `${drawMs.toFixed(2)} ms/frame\n` +
     `block ${T * ZOOMS[zoom]}px on screen at ${ZOOMS[zoom]}x ` +

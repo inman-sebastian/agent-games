@@ -148,7 +148,7 @@ function renderScene(): void {
     return c < 0 || c >= COLS || y < 0 || y >= ROWS ? true : grid[y][c];
   };
   // rock + background + sky + stalactites — the exact game renderer, at this stratum's depth
-  composeBand(lb, solidTile, 0, top, COLS, ROWS, COLS, NO_SKY);
+  composeBand(lb, solidTile, 0, top, COLS, ROWS, NO_SKY);
   // ore veins — the exact game vein renderer
   if (o.ore) {
     for (let y = 0; y < ROWS; y++) {
@@ -264,7 +264,7 @@ function renderMine(): void {
       lbuf.width = T;
       lbuf.height = T;
       lb.imageSmoothingEnabled = false;
-      composeBand(lb, solidTile, 0, 1, 1, 1, 1, NO_SKY); // single lit rock tile
+      composeBand(lb, solidTile, 0, 1, 1, 1, NO_SKY); // single lit rock tile
       drawOreBlock(lb, art, 0, 0, 0, 1, d, () => false); // isolated block, cracks by damage
       blit(labelW + i * (cell + gx), y);
     });
@@ -304,7 +304,7 @@ function renderAtlas(): void {
     lbuf.width = T;
     lbuf.height = T;
     lb.imageSmoothingEnabled = false;
-    composeBand(lb, solidTile, 0, top, 1, 1, 1, NO_SKY);
+    composeBand(lb, solidTile, 0, top, 1, 1, NO_SKY);
     actx.drawImage(lbuf, 0, 0, T, T, i * (T * S + gap), 0, T * S, T * S);
   });
 }
