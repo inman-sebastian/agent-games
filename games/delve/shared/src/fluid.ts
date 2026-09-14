@@ -3,27 +3,12 @@
 // can only make the shapes the terrain makes. Pure and DOM-free like the rest of the ruleset, and
 // world-agnostic: it asks a `solid(column, row)` predicate rather than reading a WorldState, so the lab
 // drives it over a hand-built box and the game can later drive it over the real terrain.
-// The model, the prior art it follows, and what is still open: docs/FLUIDS.md.
+// The model — gravity first, then resting bodies level — and why it's this one: docs/FLUIDS.md.
 
 export type FluidKind = 'water' | 'lava';
 
-/** Lava steps once every this many ticks — slow next to water. */
+/** Lava takes both of its phases once every this many ticks — slow next to water, same rules. */
 export const LAVA_TICK_INTERVAL = 4;
-
-/**
- * How far along its row a LONE cell (not in a pool) looks for a drop, in cells — Minecraft's "seek the
- * nearest way down", widened. Pools don't use it: they search through themselves with no limit.
- */
-export const DROP_REACH = 16;
-
-/**
- * The most pool cells one merge search visits.
- *
- * ponytail: a pool larger than this can't find an empty cell on its far side in one search, and settles
- * a little slower (the move comes from a cell nearer the gap instead). Raise it, or cache each pool's
- * lowest empty cell per tick, if a big lake ever settles visibly slowly or shows up in a profile.
- */
-const MERGE_SEARCH_LIMIT = 4096;
 
 export type SolidQuery = (column: number, row: number) => boolean;
 
@@ -42,10 +27,11 @@ export interface FluidField {
 }
 
 /**
- * How a cell moved, which is how a renderer shows it: a `fall` or a `drop` slides along its path; a
- * `merge` joins a pool, whose cells are indistinguishable, so it isn't drawn travelling at all.
+ * How a cell moved, which is how a renderer shows it: a `fall` slides down one cell; a `merge` is a
+ * resting body moving a cell from its surface to an opening, and since a body's cells are
+ * indistinguishable it isn't drawn travelling at all.
  */
-export type FluidMoveType = 'fall' | 'drop' | 'merge';
+export type FluidMoveType = 'fall' | 'merge';
 
 export interface FluidMove {
   readonly from: number;
@@ -111,18 +97,15 @@ export function pourFluid(
 }
 
 /**
- * Wake the fluid that could move because the cell at `(column, row)` changed — terrain dug or built,
- * or fluid arriving or leaving.
+ * Wake the fluid next to a cell that changed — terrain dug or built, or fluid arriving or leaving.
  *
- * Wider than the neighbours: a lone cell looks for a drop along its whole reach, in its own row, and a
- * change also alters what the row above can see. So everything within reach in this row and the one
- * above wakes. A pool needs no more than that — any awake cell in it moves its column's top, so a change
- * anywhere in a pool spreads through the cells beside it. The step only visits active cells, so a settled lake sleeps through its own breach
- * unless whatever dug the wall reports it here.
+ * Only the eight neighbours and the cell itself: one awake cell makes its whole body level, so a change
+ * anywhere in a pool reaches all of it. The step only visits active cells, so a settled lake sleeps
+ * through its own breach unless whatever dug the wall reports it here.
  */
 export function wakeAround(field: FluidField, column: number, row: number): void {
-  for (let wakeRow = row - 1; wakeRow <= row; wakeRow++) {
-    for (let wakeColumn = column - DROP_REACH; wakeColumn <= column + DROP_REACH; wakeColumn++) {
+  for (let wakeRow = row - 1; wakeRow <= row + 1; wakeRow++) {
+    for (let wakeColumn = column - 1; wakeColumn <= column + 1; wakeColumn++) {
       const key = fluidKey(wakeColumn, wakeRow);
       if (field.cells.has(key)) field.active.add(key);
     }
@@ -130,24 +113,21 @@ export function wakeAround(field: FluidField, column: number, row: number): void
 }
 
 /**
- * Advance the fluid one tick. Each active cell, bottom row first, makes at most one move:
+ * Advance the fluid one tick, in two phases. A cell takes part in at most one move.
  *
- * 1. **Fall** into an empty cell below.
- * 2. **Merge**, if the cell is in a pool (its kind above or below it): search from the TOP of its column
- *    through the pool, only down or sideways, for the nearest empty cell lower than that top, and move
- *    the top there. No distance limit, so every pool settles flat; never upward, so there's no pressure.
- * 3. **Seek a drop**, if the cell is alone: the nearest empty cell with nothing under it, along its row,
- *    through empty cells, within `DROP_REACH`. Move to the bottom of it.
- * 4. Otherwise **rest**.
+ * 1. **Gravity.** Every active cell with an empty cell below falls one cell, bottom row first. That is
+ *    all a falling cell does, and falling fluid is never part of a body.
+ * 2. **Resting bodies level.** A body is the fluid of one kind connected (left, right, up, down) through
+ *    cells with rock or fluid under them. Its highest surface cells move to its lowest openings — an
+ *    empty cell beside the body with something under it, or, over a drop, the cell below — one cell per
+ *    opening, while the opening is strictly lower than the source.
  *
- * Every move lands strictly lower than the cell that makes it, which is the whole termination argument:
- * total height only ever falls, so every closed body settles and nothing jitters.
+ * Every move lands strictly lower than where it started, which is the whole termination argument: total
+ * height only ever falls, so every body settles and nothing jitters. An opening is never above the body
+ * alone, so a body never grows upward — there is no pressure (a decided design — FLUIDS.md).
  *
- * A merge can land ABOVE the row being processed, on a cell whose turn is still to come, so no move
- * starts from a cell that arrived this tick; it waits for the next.
- *
- * Cells outside `inRegion` are skipped but stay active: fluid far from every player freezes mid-flow
- * rather than being forgotten.
+ * Cells outside `inRegion` are neither moved nor moved into, but stay active: fluid far from every player
+ * freezes mid-flow rather than being forgotten.
  */
 export function stepFluid(
   field: FluidField,
@@ -161,44 +141,64 @@ export function stepFluid(
   const arrived = new Set<number>();
   const moves: FluidMove[] = [];
 
-  // ponytail: sorts the whole active set every tick, O(A log A). Fine at lab scale; bucket by row if
-  // a real flood shows up in a profile.
-  const order = [...field.active].sort((a, b) => {
-    const rowDifference = rowOfKey(b) - rowOfKey(a);
-    if (rowDifference !== 0) return rowDifference;
-    return sweepRight ? columnOfKey(a) - columnOfKey(b) : columnOfKey(b) - columnOfKey(a);
-  });
-
   const isEmpty = (column: number, row: number): boolean =>
     !solid(column, row) && !field.cells.has(fluidKey(column, row));
-  const dryRuns: DryRuns = new Map();
+  const inReach = (key: number): boolean => !inRegion || inRegion(columnOfKey(key), rowOfKey(key));
+  const kindSteps = (kind: FluidKind): boolean => kind !== 'lava' || lavaSteps;
+  const move = (from: number, to: number, type: FluidMoveType): void => {
+    const kind = field.cells.get(from)!;
+    field.cells.delete(from);
+    field.cells.set(to, kind);
+    arrived.add(to);
+    moves.push({ from, to, type });
+  };
 
+  // ponytail: sorts the whole active set every tick, O(A log A). Fine at lab scale; bucket by row if
+  // a real flood shows up in a profile.
+  const order = [...field.active].sort((a, b) => byRowThenSweep(a, b, true, sweepRight));
+
+  // ---- 1. gravity ----
   let stepped = 0;
+  const resting: number[] = [];
   for (const key of order) {
     const kind = field.cells.get(key);
-    if (kind === undefined) continue; // left this cell earlier in the tick
-    const column = columnOfKey(key);
-    const row = rowOfKey(key);
-    if ((inRegion && !inRegion(column, row)) || (kind === 'lava' && !lavaSteps)) {
+    if (kind === undefined) continue;
+    if (!inReach(key) || !kindSteps(kind)) {
       waiting.add(key);
       continue;
     }
     stepped++;
+    const below = fluidKey(columnOfKey(key), rowOfKey(key) + 1);
+    const belowInReach = inReach(below);
+    if (isEmpty(columnOfKey(key), rowOfKey(key) + 1) && belowInReach) move(key, below, 'fall');
+    else if (isEmpty(columnOfKey(key), rowOfKey(key) + 1)) waiting.add(key);
+    else resting.push(key);
+  }
 
-    const move = chooseMove(field, column, row, kind, sweepRight, isEmpty, dryRuns);
-    if (!move) continue;
-    // The one guard against moving a cell twice in a tick. A merge can land ABOVE the row being
-    // processed, so either this cell or the top of its column may have arrived earlier this tick. Both
-    // cases have a regression test; it covers both because a cell's own move starts from itself.
-    if (arrived.has(move.from)) {
-      waiting.add(key);
-      continue;
+  // ---- 2. resting bodies level ----
+  const levelled = new Set<number>();
+  for (const seed of resting) {
+    const kind = field.cells.get(seed);
+    if (kind === undefined || levelled.has(seed)) continue;
+    const body = collectBody(field, seed, kind, isEmpty);
+    for (const key of body) levelled.add(key);
+
+    const sources = body.filter(
+      (key) =>
+        field.cells.get(fluidKey(columnOfKey(key), rowOfKey(key) - 1)) !== kind &&
+        !arrived.has(key) &&
+        inReach(key),
+    );
+    const openings = [...openingsOf(body, isEmpty, solid)].filter(inReach);
+    sources.sort((a, b) => byRowThenSweep(a, b, false, sweepRight));
+    openings.sort((a, b) => byRowThenSweep(a, b, true, sweepRight));
+
+    for (const opening of openings) {
+      const source = takeFarthestHighest(sources, opening);
+      if (source === undefined) break;
+      if (rowOfKey(opening) <= rowOfKey(source)) break; // the highest source left isn't above it
+      move(source, opening, 'merge');
     }
-    field.cells.delete(move.from);
-    field.cells.set(move.to, kind);
-    dryRuns.clear(); // a move opens and fills cells, so what failed before might not now
-    arrived.add(move.to);
-    moves.push(move);
   }
 
   const changed = new Set<number>();
@@ -211,120 +211,112 @@ export function stepFluid(
   return { stepped, changed, moves };
 }
 
-// ---- choosing a move ----------------------------------------------------------------------------
+// ---- bodies -------------------------------------------------------------------------------------
 
 /**
- * Merge searches that found nothing this tick: pool cell key → the highest top row a failed search
- * reached it from.
+ * Remove and return, from `sources` (sorted highest row first), the highest source FARTHEST from
+ * `opening` along the row.
  *
- * A failed search proves there is no empty cell lower than its top reachable from any cell it visited.
- * A later search starting from — or passing through — one of those cells, from a top at that row or
- * below, can only reach less and needs to go lower, so it fails too and can stop there. Without this,
- * every awake cell at the top of a settling lake searched the whole lake every tick: the lab measured
- * 56 ms/s of stepping for 15 cells a tick. Cleared by every move, since a move changes what's empty.
+ * Farthest, not nearest: a body drains from its far end toward its outlet. Taking the nearest cell of a
+ * one-cell-thick sheet took the very cell that touched the ledge, which cut the rest of the sheet off
+ * from its only drop and stranded it.
+ *
+ * ponytail: a linear scan of the top row per opening, O(openings × top row). Fine for a lab's bodies;
+ * keep the top row in a structure ordered by column if a wide lake drains slowly in a profile.
  */
-type DryRuns = Map<number, number>;
-
-/** The one move this cell makes, or null to rest. */
-function chooseMove(
-  field: FluidField,
-  column: number,
-  row: number,
-  kind: FluidKind,
-  sweepRight: boolean,
-  isEmpty: (column: number, row: number) => boolean,
-  dryRuns: DryRuns,
-): FluidMove | null {
-  const here = fluidKey(column, row);
-  if (isEmpty(column, row + 1)) return { from: here, to: fluidKey(column, row + 1), type: 'fall' };
-  const inPool =
-    field.cells.get(fluidKey(column, row + 1)) === kind ||
-    field.cells.get(fluidKey(column, row - 1)) === kind;
-  if (inPool) return mergeMove(field, column, row, kind, sweepRight, isEmpty, dryRuns);
-  return dropMove(column, row, sweepRight, isEmpty);
+function takeFarthestHighest(sources: number[], opening: number): number | undefined {
+  if (sources.length === 0) return undefined;
+  const topRow = rowOfKey(sources[0]);
+  const openingColumn = columnOfKey(opening);
+  let bestIndex = 0;
+  let bestDistance = -1;
+  for (let index = 0; index < sources.length && rowOfKey(sources[index]) === topRow; index++) {
+    const distance = Math.abs(columnOfKey(sources[index]) - openingColumn);
+    if (distance > bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return sources.splice(bestIndex, 1)[0];
 }
 
 /**
- * A pool cell's move: the top of its column goes to the nearest empty cell lower than that top, found by
- * a breadth-first search through the pool that only ever steps down or sideways.
- *
- * Down is tried before sideways, so a pool fills from the bottom. Never stepping up is what keeps this
- * from being pressure: the far arm of a U-bend is only reachable by climbing, so it stays dry.
+ * Bottom row first (`lowestFirst`) or top row first, and within a row in this tick's sweep direction,
+ * so the order is deterministic and neither side is favoured.
  */
-function mergeMove(
+function byRowThenSweep(a: number, b: number, lowestFirst: boolean, sweepRight: boolean): number {
+  const rowDifference = lowestFirst ? rowOfKey(b) - rowOfKey(a) : rowOfKey(a) - rowOfKey(b);
+  if (rowDifference !== 0) return rowDifference;
+  return sweepRight ? columnOfKey(a) - columnOfKey(b) : columnOfKey(b) - columnOfKey(a);
+}
+
+/**
+ * Every cell of `kind` connected to `seed` through cells that rest: something directly under them.
+ *
+ * "Directly under", not "supported all the way down". A stream that has joined a body counts as part of
+ * it, which is harmless because only a cell standing on rock may spill (`openingsOf`), so the stream has
+ * no openings of its own. A recursive all-the-way-down test was tried and removed once that rule made it
+ * redundant: every test passed without it.
+ *
+ * ponytail: walks the whole body every tick it has an awake cell, so a huge lake fed by one stream pays
+ * for the lake. Keep bodies between ticks and update them incrementally if that ever profiles.
+ */
+function collectBody(
   field: FluidField,
-  column: number,
-  row: number,
+  seed: number,
   kind: FluidKind,
-  sweepRight: boolean,
   isEmpty: (column: number, row: number) => boolean,
-  dryRuns: DryRuns,
-): FluidMove | null {
-  const top = topOfColumn(field, column, row, kind);
-  const topRow = rowOfKey(top);
-  const knownDry = (key: number): boolean => (dryRuns.get(key) ?? Infinity) <= topRow;
-  if (knownDry(top)) return null;
-  const sides = sweepRight ? [1, -1] : [-1, 1];
-  const queue = [top];
-  const seen = new Set(queue);
-  for (let index = 0; index < queue.length && index < MERGE_SEARCH_LIMIT; index++) {
-    const cellColumn = columnOfKey(queue[index]);
-    const cellRow = rowOfKey(queue[index]);
-    const next: readonly (readonly [number, number])[] = [
-      [cellColumn, cellRow + 1],
-      [cellColumn + sides[0], cellRow],
-      [cellColumn + sides[1], cellRow],
-    ];
-    for (const [nextColumn, nextRow] of next) {
-      if (isEmpty(nextColumn, nextRow)) {
-        if (nextRow > topRow)
-          return { from: top, to: fluidKey(nextColumn, nextRow), type: 'merge' };
+): number[] {
+  const body = [seed];
+  const seen = new Set(body);
+  for (let index = 0; index < body.length; index++) {
+    const column = columnOfKey(body[index]);
+    const row = rowOfKey(body[index]);
+    for (const [nextColumn, nextRow] of [
+      [column - 1, row],
+      [column + 1, row],
+      [column, row - 1],
+      [column, row + 1],
+    ]) {
+      const key = fluidKey(nextColumn, nextRow);
+      if (seen.has(key) || field.cells.get(key) !== kind || isEmpty(nextColumn, nextRow + 1))
         continue;
-      }
-      const nextKey = fluidKey(nextColumn, nextRow);
-      if (seen.has(nextKey) || field.cells.get(nextKey) !== kind || knownDry(nextKey)) continue;
-      seen.add(nextKey);
-      queue.push(nextKey);
+      seen.add(key);
+      body.push(key);
     }
   }
-  // Only a search that ran to completion proves anything; one cut off by the limit might have found a
-  // cell just past it.
-  if (queue.length < MERGE_SEARCH_LIMIT) {
-    for (const key of seen) dryRuns.set(key, Math.min(dryRuns.get(key) ?? Infinity, topRow));
-  }
-  return null;
-}
-
-/** A lone cell's move: to the bottom of the nearest drop along its row, through empty cells. */
-function dropMove(
-  column: number,
-  row: number,
-  sweepRight: boolean,
-  isEmpty: (column: number, row: number) => boolean,
-): FluidMove | null {
-  const here = fluidKey(column, row);
-  let best: { column: number; distance: number } | null = null;
-  for (const direction of sweepRight ? [1, -1] : [-1, 1]) {
-    for (let distance = 1; distance <= DROP_REACH; distance++) {
-      const probe = column + direction * distance;
-      if (!isEmpty(probe, row)) break;
-      if (!isEmpty(probe, row + 1)) continue; // an empty cell on a floor: look past it
-      if (!best || distance < best.distance) best = { column: probe, distance };
-      break;
-    }
-  }
-  if (!best) return null;
-  return { from: here, to: fluidKey(best.column, row + 1), type: 'drop' };
+  return body;
 }
 
 /**
- * The topmost cell of the unbroken column of `kind` standing on `(column, row)`.
+ * Where a body can put a cell. Beside each of its cells:
  *
- * ponytail: walks up one cell at a time, so a very deep column costs its height per merge. Cache column
- * tops per tick if deep lakes draining ever profile.
+ * - the empty cell there, if it has something under it — the body widens onto a floor or a pool;
+ * - or, if that cell is over a drop AND the body cell stands on rock, the cell under it — the body
+ *   spills over the edge of the floor it stands on.
+ *
+ * Only ever BESIDE a body cell: an empty cell with the body only underneath it is never an opening, and
+ * that omission is what keeps a body from growing upward — no pressure.
+ *
+ * Only a cell ON ROCK spills. A stream that has reached the pool below is a column of fluid resting on
+ * fluid; if its cells could spill, it poured out sideways at every height into a V under the ceiling it
+ * came through — the lab's third fault. A pool still overflows its rim: the rim's top is rock, so the
+ * cell beside it is a floor opening first, and spills from there.
  */
-function topOfColumn(field: FluidField, column: number, row: number, kind: FluidKind): number {
-  let top = row;
-  while (field.cells.get(fluidKey(column, top - 1)) === kind) top--;
-  return fluidKey(column, top);
+function openingsOf(
+  body: readonly number[],
+  isEmpty: (column: number, row: number) => boolean,
+  solid: SolidQuery,
+): Set<number> {
+  const openings = new Set<number>();
+  for (const key of body) {
+    const row = rowOfKey(key);
+    const onRock = solid(columnOfKey(key), row + 1);
+    for (const column of [columnOfKey(key) - 1, columnOfKey(key) + 1]) {
+      if (!isEmpty(column, row)) continue;
+      if (!isEmpty(column, row + 1)) openings.add(fluidKey(column, row));
+      else if (onRock) openings.add(fluidKey(column, row + 1));
+    }
+  }
+  return openings;
 }

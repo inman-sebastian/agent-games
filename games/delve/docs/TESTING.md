@@ -69,10 +69,12 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
 - **Fluid** (`shared/src/fluid.test.ts`, #30) — the whole-cell automaton under random terrain and
   pours: cell counts conserved exactly every tick, never in rock, every move strictly lower and no cell
   moving twice in a tick (plus two shrunk regressions for that), deterministic, everything comes to
-  rest supported, water and lava settle into flat pools even in basins far wider than any search
-  distance, a pool cell never skates across its surface, a U-bend never rises (no pressure), lava
-  slower than water, kinds never mix, a settled lake sleeps until a breach is reported, resting fluid
-  follows the cell below it down, and fluid outside the active region freezes without loss.
+  rest supported, nothing spreads into mid-air, water and lava settle into flat pools even in basins
+  far wider than any search distance, a U-bend never rises (no pressure), lava slower than water, kinds
+  never mix, a settled lake sleeps until a breach is reported, resting fluid follows the cell below it
+  down, and fluid outside the active region freezes without loss. **Fluid in motion is checked every
+  tick, not only once settled** (the gap that let model 3's mid-air wedges through): a dam breach and a
+  pool draining through a hole, plus a sheet draining off a ledge and a pool overflowing a wall.
 - **The world's bounds** (`shared/src/bounds.test.ts`, #26) — size presets, the bedrock floor and
   the side edges: nothing out of bounds or below the floor is ever `mineable` or broken by
   `mineTile`, a body walking into either edge stops inside the world, every ore band ends above the

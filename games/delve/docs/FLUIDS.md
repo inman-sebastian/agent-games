@@ -36,62 +36,77 @@ It costs detail that levels bought: a small amount of water can't spread into a 
 surface in motion steps a whole cell at a time. The model below is built to make that read as
 deliberate.
 
-## The model — whole cells that only ever move down
+## The model — gravity first, then resting bodies level
 
-A falling-sand automaton. A cell on its own finds its way down like Minecraft water; a cell that is part
-of a **pool** (fluid of its kind below it or above it) moves as part of that pool, the way Dwarf
-Fortress moves water through full tiles, minus the climbing. Each active fluid cell makes at most one
-move per tick, bottom row first:
+Two phases per tick, in this order, and a cell takes part in only one:
 
-1. **Fall.** If the cell below is empty, move into it.
-2. **Merge.** If the cell is in a pool, take the **top of its column** and search from it _through the
-   pool_, moving only **down or sideways, never up**, for the nearest empty cell lower than that top.
-   The top moves there. There's no distance limit, so a pool of any width settles flat.
-3. **Seek a drop.** A lone cell on rock (no fluid of its kind above or below) looks along its row,
-   within `DROP_REACH` cells and only through empty cells, for the nearest **drop**: an empty cell with
-   nothing under it. It moves straight to the bottom of it. That's a trickle running along a floor to a
-   ledge.
-4. **Rest.** Otherwise, stay put.
+**1. Gravity.** Every active cell with an empty cell below it falls one cell, bottom row first. That's
+all a falling cell does that tick. **Falling fluid is never part of a pool**, however many cells of
+its kind are around it, so a stream stays a stream until it lands.
 
-Ties go to this tick's sweep direction, which alternates every tick.
+**2. Resting bodies level.** A **body** is the fluid of one kind that's connected, left, right, up or
+down, through cells that **rest**: rock or other fluid directly under them. For each body that has an
+awake cell:
+
+- Its **sources** are its surface cells, the ones with nothing of their kind above.
+- Its **openings** are the places it can put a cell. For each body cell, look at the empty cell beside
+  it. If that cell has something under it, the opening is that cell. If it's over air, the body's edge
+  overhangs a drop, and the opening is the cell **below** it, so the fluid spills and falls.
+- The **highest sources move to the lowest openings**, one cell per opening, for as long as the opening
+  is strictly lower than the source.
 
 The rules that make it behave:
 
-- **Every move lands strictly lower than where it started.** Total height only ever falls, which
-  guarantees that every body settles and nothing can oscillate. The research below singles this out: a
-  sideways step that isn't also a fall is how whole-cell water ends up trading places forever.
+- **Every move lands strictly lower than where it started.** A fall is one row down; a levelling move
+  pairs a source with an opening below it. Total height only ever falls, so every body settles and
+  nothing oscillates.
 - **Mass is a cell count.** A move empties one cell and fills another, so fluid is conserved exactly by
   construction, and identically on every machine. No level system managed this (see prior art).
-- **Every pool settles flat, water and lava alike.** A top cell keeps merging while any empty cell
-  below it is reachable through its pool, so a settled pool has full rows under a single partial top
-  row. That row is still whole cells, just not every one of them.
-- **It doesn't jitter.** A cell never moves sideways to a spot as high as itself, so a flat pool is
-  still rather than shuffling left and right. That's the classic falling-sand failure.
-- **Fluid landing on a pool joins it; it doesn't skate.** A falling cell that lands on its own kind is
-  in a pool, so it merges: it goes straight into the nearest open space the pool can reach, and never
-  searches across the pool's surface. (The previous version had it slide along the top looking for a
-  drop, which read as skating.)
-- **Nothing important appears to jump.** The sim returns every move with its type. A **fall** or **drop**
-  slides along an L-shaped path (never a diagonal, which would clip a rock corner). A **merge** isn't
-  animated: pool cells are indistinguishable, so the honest picture is the arriving cell vanishing into
-  the pool and the pool's edge filling where the sim put it.
-- **No pressure** (decided). The merge search never goes up, so water never climbs: a U-bend or a
-  tunnel dug up the far side of a lake fills only to the height of the connection.
+- **Nothing spreads in mid-air.** An opening either has something under it or is a spill over an edge.
+  A body grows along floors and over ledges, never sideways out into the air.
+- **A pool drains and fills evenly.** Cells leave from the body's highest row and arrive at its lowest
+  openings, so the surface falls or rises a row at a time, instead of the columns nearest the change
+  emptying first.
+- **Flow has a speed.** A body gains at most one cell per opening per tick, so a breach's front
+  advances a cell per tick along the floor, and spills fall a cell per tick.
+- **Every settled pool is flat, water and lava alike.** A settled body has no opening lower than its
+  highest cell: every row under its top row is full, and the top row holds the remainder. There's no
+  distance limit anywhere, so this holds for a pool of any width and for a one-cell-thick sheet.
+- **It doesn't jitter.** No move is sideways at the same height.
+- **No pressure** (decided). An empty cell with the body only underneath it isn't an opening, so a body
+  never grows upward. The far arm of a U-bend, or a tunnel up the far side of a lake, fills only to
+  the height of the connection.
+- **Moving fluid.** The sim returns every move with its type. A **fall** slides down one cell. A
+  **merge** isn't animated: a body's cells are indistinguishable, so the honest picture is the pool
+  losing a cell at its surface and gaining one at its edge.
 - **Kinds don't mix.** To water, lava is a wall, and the reverse. The obsidian reaction is the obvious
   follow-up. Per the research, it belongs in a **separate pass after movement**, so the result doesn't
   depend on scan order and every reaction can be logged against the conservation count.
-- **Lava is slow, not thick.** It follows exactly the same rules and settles into the same flat pools,
-  and it steps once every `LAVA_TICK_INTERVAL` ticks (4). (It used to have a 2-cell reach, which made
-  it heap into stepped mounds. The author ruled that out: every fluid settles flat.)
+- **Lava is slow, not thick.** It follows exactly the same rules, and both of its phases run once every
+  `LAVA_TICK_INTERVAL` ticks (4).
 
 ### History
 
-- **Levels → whole cells.** The 0–255 prototype drew films and curves (above).
-- **A reach-limited row search → the merge search.** The whole-cell model's first version levelled
-  pools by looking 16 cells along a row. Any pool wider than that settled into **16-cell-wide steps**,
-  lava's 2-cell reach heaped it into mounds, and cells landing on a pool skated across its surface. All
-  three came from searching a fixed distance along a row rather than through the pool, and were fixed
-  together.
+Four models, each found wanting in the lab, recorded so the next change starts from the right place:
+
+1. **0–255 levels.** It drew 1 px films and curved surfaces (above).
+2. **Whole cells, row search.** Cells looked 16 cells along their row for somewhere lower. Wide pools
+   settled into 16-cell steps, lava's 2-cell reach heaped mounds, and landing fluid skated across the
+   surface.
+3. **Whole cells, per-cell pool search.** A cell with its kind above or below it searched through the
+   pool, with no limit, and moved the top of its own column. Pools finally settled flat, but moving
+   fluid misbehaved badly: a breach grew a wedge of water hanging in mid-air, and a stream through a hole
+   spread into a V under the ceiling. The review asked to step back, and three faults turned up:
+   - "In a pool" meant "has neighbours of its kind", which is also true of a falling stream.
+   - A pool could place a cell anywhere empty and lower, including in mid-air.
+   - The cell that moved was the top of whichever column was being processed, not the pool's highest
+     cell, so a draining surface went ragged.
+
+   The underlying mistake was patching the previous rule each time instead of stating the physics
+   first. The tests only checked final settled shapes, never the shape of fluid while it moves.
+
+4. **Gravity, then resting bodies** (this one). Built from those three faults, with the in-motion
+   shapes tested every tick.
 
 ## Prior art
 
@@ -103,7 +118,7 @@ decompiled or open source, **[W]** from a wiki or talk.
 | **Terraria** [P]       | A byte level per tile. Falls, then **averages 1–3 tiles either side with rounding**, and deletes small amounts (under 2, under 20 when it can flow). A 5,000-cell active queue with overflow buffer; panics into a whole-world "Settling liquids" pass. The server stops sending liquid when busy. | The active set, and settling before play    |
 | **Starbound** [P]      | Float level plus a real pressure field (U-bends work). Unseeded random left/right order. Zeroes tiny levels                                                                                                                                                                                        | Reactions as a separate pass after movement |
 | **Noita** [W]          | Whole-pixel materials, bottom-up, in place, a **per-pixel "moved this frame"** stamp, 64×64 chunks with dirty rects, 4-pass checkerboard threading. Documents surface water sliding forever without a longer search or sleep                                                                       | Whole cells; chunked dirty regions later    |
-| **Minecraft** [W]      | Source and flowing blocks with levels 0–7. Flowing water searches **up to 4 blocks for the nearest way down** and flows only that way                                                                                                                                                              | The nearest-drop search, for lone cells     |
+| **Minecraft** [W]      | Source and flowing blocks with levels 0–7. Flowing water searches **up to 4 blocks for the nearest way down** and flows only that way                                                                                                                                                              | Flowing toward the way down: spills         |
 | **Dwarf Fortress** [W] | Depth 1–7. Pressure by **teleporting** falling water through full tiles to the nearest open tile, never higher than one level under its source                                                                                                                                                     | Moving through full cells, but never upward |
 | **ONI** [W]            | One element per cell, with mass. Minimum-flow thresholds stop endless trickles                                                                                                                                                                                                                     | One kind per cell                           |
 
@@ -124,10 +139,8 @@ Sources: [Terraria `Liquid.cs` (decompiled)](https://github.com/TheVamp/Terraria
 
 Only cells that might change are stepped:
 
-- **The active set** holds fluid near anything that changed last tick. Because a lone cell looks for
-  drops along its row, a change wakes fluid within `DROP_REACH` in its own row and the row above, not
-  just its neighbours. A pool needs nothing wider: any active cell in it moves its column's top, so a
-  change anywhere in a pool propagates through the cells beside it. A settled lake leaves the set and costs nothing.
+- **The active set** holds the fluid next to anything that changed last tick. Nothing wider is needed:
+  one awake cell makes its whole body level, so a change anywhere in a pool reaches all of it. A settled lake leaves the set and costs nothing.
 - **Terrain changes wake fluid.** Digging a cell next to a lake has to be reported (`wakeAround`), or
   the lake sleeps through its own breach.
 - **Active regions near players only** (the epic's decision). `stepFluid` takes an optional region
@@ -148,43 +161,40 @@ that assumption. So the lab reports, per tick:
 ## Lab findings
 
 Measured with `pnpm probe` against the lab, recorded here because they're what the netcode decision
-will be argued from. Headless Chrome on the author's machine. **The figures below are from the
-whole-cell model**; the earlier levels prototype's are in the git history.
+will be argued from. Headless Chrome on the author's machine, a 3400×1900 window (212×118 cells).
+**These are model 4's figures**; earlier models' are in the table below and in the git history.
 
-| Scene                                       | Measured                                                                                                 |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| **Caves**, 212×118 cells, ~1 s in (peak)    | ~1,300 active, ~700 stepped and **~550 changed per tick**. **~5.7 ms per tick** (170 ms/s at 30 ticks/s) |
-| The same, as replication                    | **≤ ~820 cells per 20 Hz broadcast, ≤ ~80 KB/s** at the peak, ~18 KB/s by 2.5 s                          |
-| The same, 8 s in                            | 40 active, 4 changed per tick, 22 ms/s. Then settled: **0 active, 0 changed**                            |
-| **U-bend**, left arm poured full            | Left arm stays full; the right arm fills only the channel under the divider. **No pressure**, as decided |
-| **Lava over water**, 4,000 ticks presettled | Lava pours through the hole and settles as a **flat layer** on the water; no mounds                      |
+| Scene                            | Measured                                                                                           |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **Caves**, ~1 s in (peak)        | 578 active, 383 stepped and **223 changed per tick**. **~2.3 ms per tick** (70 ms/s at 30 ticks/s) |
+| The same, as replication         | **≤ ~335 cells per 20 Hz broadcast, ≤ ~33 KB/s** at the peak, ~8 KB/s by 2.5 s, ~1 KB/s by 8 s     |
+| **Dam breach**, 3 s in           | Only ~10 cells stepped per tick, but **~3 ms per tick**: the whole reservoir is walked as one body |
+| **U-bend**, left arm poured full | Left arm stays full; the right arm fills only the channel. **No pressure**, as decided             |
+| **Lava over water**, settled     | Drains through the hole as a single column; nothing under the shelf; a flat layer on the water     |
 
-The cost story, across the three versions on the same caves:
+Across the models, on the same caves:
 
-| Version                         | Peak replication | Peak CPU     | Settles                        |
-| ------------------------------- | ---------------- | ------------ | ------------------------------ |
-| 0–255 levels                    | ~120 KB/s        | ~1.3 ms/tick | Kept rippling                  |
-| Whole cells, row search of 16   | ~68 KB/s         | ~3 ms/tick   | ~25 s, but in steps and mounds |
-| Whole cells, merge through pool | ~80 KB/s         | ~5.7 ms/tick | Flat pools                     |
+| Model                                | Peak replication | Peak CPU     | In motion                              |
+| ------------------------------------ | ---------------- | ------------ | -------------------------------------- |
+| 1. 0–255 levels                      | ~120 KB/s        | ~1.3 ms/tick | Films and curves                       |
+| 2. Whole cells, row search           | ~68 KB/s         | ~3 ms/tick   | Steps, mounds, skating                 |
+| 3. Whole cells, per-cell pool search | ~80 KB/s         | ~5.7 ms/tick | Wedges and Vs hanging in mid-air       |
+| 4. Gravity, then resting bodies      | ~33 KB/s         | ~2.3 ms/tick | Falls, spills and spreads along floors |
 
-**The pool search is what costs.** The first measurement of it spent 56 ms/s stepping just 15 cells a
-tick, because every awake cell on top of a settling lake searched the whole lake again. A per-tick
-memo of searches that came up dry (`DryRuns` in `fluid.ts`) cut that to 22 ms/s. The peak is still
-about twice the row-search version, because every move clears the memo. If that ever matters, the
-known upgrade is to track each pool's lowest reachable empty cells incrementally rather than
-searching for them.
+**Model 4 is the cheapest yet to replicate**, because fluid only changes where it actually flows. Its
+CPU cost is the **body walk**: a body with one awake cell is walked whole, every tick, so a large
+reservoir feeding a thin breach costs its size (the breach row above). The upgrade path, marked
+`ponytail:` in `fluid.ts`, is to keep bodies between ticks and update them as cells move.
 
 What the lab shows that the design still has to answer:
 
-- **The partial top row is a one-row plateau.** When a pool's volume isn't a whole number of rows,
-  its top row holds the remainder as a contiguous run, wherever the fluid happened to arrive, with the
-  rest of the row one cell lower. Whole cells can't avoid a partial row, but its **position** is a
-  choice. Packing it against a wall would need a sideways move at the same height, which the
-  termination argument rules out, unless it gets a potential of its own (for example, distance to the
-  nearest wall).
-- **A one-cell-thick sheet only drains within `DROP_REACH`.** A sheet on a floor isn't a pool (nothing
-  above or below its cells), so its edge looks for a drop only 16 cells along. On the lava-over-water
-  shelf, the sheet ends 17 cells from the hole and stays put.
+- **The partial top row is a one-row plateau.** When a pool's volume isn't a whole number of rows, its
+  top row holds the remainder as a contiguous run, wherever the fluid arrived, with the rest of the
+  row one cell lower. Whole cells can't avoid a partial row; only its **position** is a choice.
+- **A spreading front is sloped until it settles.** A block of fluid put down on a floor spreads with
+  45° stepped sides, because every opening beside it is filled each tick, lowest first. Restricting
+  moves to the lowest openings would square the front off, at the cost of a flat one-cell "skirt"
+  running out from its base.
 - **Lava rests on water.** "Kinds are walls" lets lava lie on top of a pool and interleave with it. The
   obsidian reaction pass would resolve every such contact, which is a reason to build it before fluid
   reaches the game.
@@ -196,7 +206,13 @@ What the lab shows that the design still has to answer:
 - **Cells are conserved exactly**, every tick.
 - **Every move lands strictly lower**, and **no cell moves twice in a tick**.
 - **Every pool settles flat**, water and lava, in a basin far wider than any search distance.
-- **A cell landing on its own kind never makes a drop move** across the pool's surface; it merges.
+- **Nothing spreads into mid-air**: a levelling move lands on support, or just past an edge it spills
+  over.
+- **In motion, checked every tick**: a dam breach pours down the far face and spreads along the floor
+  with no air under it, and a pool draining through a hole in its floor stays flat to one row the
+  whole way down, with nothing under the ceiling below.
+- **At the edges**: a one-cell sheet that reaches a ledge drains off it completely, and a pool
+  overflows a wall lower than its surface.
 - **Fluid never occupies a solid cell.**
 - **Stepping is deterministic.**
 - **Fluid always settles onto support**: every resting fluid cell has rock or fluid under it, so

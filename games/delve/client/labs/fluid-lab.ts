@@ -87,11 +87,18 @@ const pourRect = (
 
 const SCENES: readonly Scene[] = [
   {
-    // The classic: a full reservoir behind a wall. Dig the wall (right-drag) to breach it.
-    name: 'dam break',
+    // A full reservoir behind a wall with a breach part-way up it, so it pours as it loads: the review's
+    // hanging-wedge case (FLUIDS.md history). Dig the wall lower (right-drag) to breach it further.
+    name: 'dam breach',
     build: () => {
       const damColumn = Math.floor(cols * 0.35);
-      fillRect(damColumn, Math.floor(rows * 0.3), 2, rows);
+      const damTop = Math.floor(rows * 0.3);
+      const breachTop = Math.floor(rows * 0.5);
+      fillRect(damColumn, damTop, 2, rows);
+      for (let row = breachTop; row < breachTop + 3; row++) {
+        rock.delete(fluidKey(damColumn, row));
+        rock.delete(fluidKey(damColumn + 1, row));
+      }
       pourRect('water', WALL, Math.floor(rows * 0.35), damColumn - WALL, rows);
     },
   },
@@ -328,13 +335,13 @@ function draw(): void {
 }
 
 /**
- * Every fluid cell as a whole cell (PALETTE.md#fluids). A cell that fell or dropped last tick is drawn
- * sliding along its path instead of in place: the sim has already decided where it ends, and this only
- * animates toward it.
+ * Every fluid cell as a whole cell (PALETTE.md#fluids). A cell that fell last tick is drawn sliding the
+ * one cell down instead of in place: the sim has already decided where it ends, and this only animates
+ * toward it.
  */
 function drawFluid(progress: number): void {
-  // Destination key → source key, for the moves drawn travelling. A merge isn't: pool cells are
-  // indistinguishable, so the cell simply joins the pool where the sim put it (FLUIDS.md).
+  // Destination key → source key, for the moves drawn travelling. A merge isn't: a body's cells are
+  // indistinguishable, so it just loses a cell at its surface and gains one at its edge (FLUIDS.md).
   const inTransit = new Map<number, number>();
   for (const move of lastMoves) {
     if (move.type !== 'merge') inTransit.set(move.to, move.from);
@@ -346,7 +353,9 @@ function drawFluid(progress: number): void {
     const colours = cellKind === 'water' ? WATER : LAVA;
     const covered = fluidAt(field, column, row - 1) === cellKind;
     const from = inTransit.get(key);
-    const [x, y] = from === undefined ? [column * T, row * T] : pathPoint(from, key, progress);
+    // A fall is always one cell straight down, so the slide is the last `1 - progress` of a cell.
+    const x = column * T;
+    const y = from === undefined ? row * T : row * T - Math.round((1 - progress) * T);
     g.globalAlpha = colours.alpha;
     g.fillStyle = covered ? colours.deep : colours.body;
     g.fillRect(x, y, T, T);
@@ -356,29 +365,6 @@ function drawFluid(progress: number): void {
     }
   }
   g.globalAlpha = 1;
-}
-
-/**
- * Where a moving cell is, in whole art pixels, `progress` of the way along its move.
- *
- * An L, never a diagonal, so a moving block never cuts through a rock corner: a drop slides across its
- * row and then falls one cell; a fall is straight down.
- */
-function pathPoint(from: number, to: number, progress: number): [number, number] {
-  const fromX = columnOfKey(from) * T;
-  const fromY = rowOfKey(from) * T;
-  const toX = columnOfKey(to) * T;
-  const toY = rowOfKey(to) * T;
-  const horizontal = Math.abs(toX - fromX);
-  const vertical = toY - fromY;
-  const travelled = Math.round((horizontal + vertical) * progress);
-  const acrossFirst = vertical === T && horizontal > 0; // a drop: across, then one cell down
-  const firstLeg = acrossFirst ? horizontal : vertical;
-  const alongFirst = Math.min(travelled, firstLeg);
-  const alongSecond = travelled - alongFirst;
-  const directionX = Math.sign(toX - fromX);
-  if (acrossFirst) return [fromX + directionX * alongFirst, fromY + alongSecond];
-  return [fromX + directionX * alongSecond, fromY + alongFirst];
 }
 
 function drawOverlays(): void {

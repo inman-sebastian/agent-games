@@ -212,7 +212,8 @@ describe('fluid invariants', () => {
     );
   });
 
-  it('a cell in a pool never skates: only a lone cell on rock makes a drop move', () => {
+  it('nothing spreads into mid-air: a merge lands on support, or just past an edge it spills over', () => {
+    // The fault behind the hanging wedge and the V under the shelf (docs/FLUIDS.md history, model 3).
     fc.assert(
       fc.property(rockArb, pourArb, (rock, pours) => {
         const solid = boxSolid(rock);
@@ -221,18 +222,21 @@ describe('fluid invariants', () => {
           for (const pour of pours) {
             if (pour.atTick === tick) pourFluid(field, pour.c, pour.r, pour.kind, solid);
           }
-          const inPool = new Set<number>();
-          for (const [key, kind] of field.cells) {
-            const column = columnOfKey(key);
-            const row = rowOfKey(key);
-            const touching =
-              fluidAt(field, column, row + 1) === kind || fluidAt(field, column, row - 1) === kind;
-            if (touching) inPool.add(key);
-          }
+          const before = new Map(field.cells);
           const { moves } = stepFluid(field, solid);
           for (const move of moves) {
-            if (move.type !== 'drop') continue;
-            expect(inPool.has(move.from), 'a pool cell skated across the surface').toBe(false);
+            if (move.type !== 'merge') continue;
+            const kind = field.cells.get(move.to);
+            const column = columnOfKey(move.to);
+            const row = rowOfKey(move.to);
+            const supported = solid(column, row + 1) || field.cells.has(fluidKey(column, row + 1));
+            const overhang = fluidKey(column, row - 1);
+            const spill =
+              !solid(column, row - 1) &&
+              !before.has(overhang) &&
+              (before.get(fluidKey(column - 1, row - 1)) === kind ||
+                before.get(fluidKey(column + 1, row - 1)) === kind);
+            expect(supported || spill, `merge into mid-air at ${column},${row}`).toBe(true);
           }
         }
       }),
@@ -377,6 +381,128 @@ describe('settling', () => {
     expect(fluidAt(field, 5, H - 1)).toBe('lava');
     expect(fluidCount(field, 'water')).toBe(1);
     expect(fluidCount(field, 'lava')).toBe(1);
+  });
+});
+
+describe('fluid in motion — checked every tick, not just once settled', () => {
+  it('a dam breach pours down the far face and spreads along the floor, never hanging in the air', () => {
+    // The review's first screenshot: water through a breach grew a wedge in mid-air.
+    const width = 60;
+    const height = 40;
+    const DAM = 20; // two cells thick
+    const BREACH_TOP = 14;
+    const rock = new Set<number>();
+    for (let row = 8; row < height; row++) {
+      rock.add(fluidKey(DAM, row));
+      rock.add(fluidKey(DAM + 1, row));
+    }
+    const solid = boxSolid(rock, width, height);
+    const field = newFluidField();
+    for (let row = 12; row < height; row++) {
+      for (let column = 0; column < DAM; column++) pourFluid(field, column, row, 'water', solid);
+    }
+    settle(field, solid);
+    for (let row = BREACH_TOP; row < BREACH_TOP + 3; row++) {
+      for (const column of [DAM, DAM + 1]) {
+        rock.delete(fluidKey(column, row));
+        wakeAround(field, column, row);
+      }
+    }
+    const breached = boxSolid(rock, width, height);
+    for (let tick = 0; tick < 400; tick++) {
+      stepFluid(field, breached);
+      // Past the waterfall column, every fluid cell stands on an unbroken column down to the floor.
+      for (const key of field.cells.keys()) {
+        const column = columnOfKey(key);
+        if (column <= DAM + 2) continue;
+        for (let row = rowOfKey(key) + 1; row < height; row++) {
+          expect(
+            field.cells.has(fluidKey(column, row)),
+            `tick ${tick}: air under ${column},${rowOfKey(key)}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('a pool draining through a hole in its floor stays flat the whole way down', () => {
+    // The review's second screenshot: lava draining through a shelf went ragged, and spread into a V
+    // under the ceiling below.
+    const width = 80;
+    const height = 50;
+    const SHELF = 20;
+    const HOLE = 40;
+    const rock = new Set<number>();
+    for (let column = 0; column < width; column++)
+      if (column !== HOLE) rock.add(fluidKey(column, SHELF));
+    const solid = boxSolid(rock, width, height);
+    const field = newFluidField();
+    for (let row = 12; row < SHELF; row++) {
+      for (let column = 0; column < width; column++) pourFluid(field, column, row, 'lava', solid);
+    }
+    for (let tick = 0; tick < 4000 && fluidCount(field, 'lava') > 0; tick++) {
+      stepFluid(field, solid);
+      const heights: number[] = [];
+      for (let column = 0; column < width; column++) {
+        if (Math.abs(column - HOLE) <= 1) continue; // the cells feeding the hole
+        let depth = 0;
+        for (let row = 0; row < SHELF; row++) if (field.cells.has(fluidKey(column, row))) depth++;
+        heights.push(depth);
+      }
+      expect(
+        Math.max(...heights) - Math.min(...heights),
+        `tick ${tick}: ${heights.join('')}`,
+      ).toBeLessThanOrEqual(1);
+      // Below the shelf, nothing clings to its underside: the stream falls to the floor first.
+      for (const key of field.cells.keys()) {
+        if (rowOfKey(key) !== SHELF + 1 || columnOfKey(key) === HOLE) continue;
+        expect(false, `tick ${tick}: lava spread under the shelf at ${columnOfKey(key)}`).toBe(
+          true,
+        );
+      }
+    }
+  });
+});
+
+describe('bodies at their edges', () => {
+  it('a one-cell-thick sheet that reaches a ledge drains off it completely, however long it is', () => {
+    // A sheet is just a thin body: its edge cell stands on rock beside a drop, so the body spills there
+    // until it's gone. (A sheet that doesn't reach any drop is a flat puddle and stays one.)
+    const width = 70;
+    const height = 20;
+    const SHELF = 8;
+    const rock = new Set<number>();
+    for (let column = 0; column < width - 6; column++) rock.add(fluidKey(column, SHELF));
+    const solid = boxSolid(rock, width, height);
+    const field = newFluidField();
+    for (let column = 0; column < width - 6; column++)
+      pourFluid(field, column, SHELF - 1, 'water', solid);
+    settle(field, solid);
+    for (let column = 0; column < width; column++) {
+      expect(fluidAt(field, column, SHELF - 1), `stranded on the shelf at ${column}`).toBeNull();
+    }
+    expect(fluidCount(field, 'water')).toBe(width - 6);
+  });
+
+  it('a pool overflows a wall lower than its surface, and fills the far side', () => {
+    const width = 20;
+    const height = 12;
+    const WALL = 10;
+    const rock = new Set<number>();
+    for (let row = height - 3; row < height; row++) rock.add(fluidKey(WALL, row));
+    const solid = boxSolid(rock, width, height);
+    const field = newFluidField();
+    for (let row = height - 6; row < height; row++) {
+      for (let column = 0; column < WALL; column++) pourFluid(field, column, row, 'water', solid);
+    }
+    settle(field, solid);
+    let farSide = 0;
+    for (const key of field.cells.keys()) if (columnOfKey(key) > WALL) farSide++;
+    expect(farSide).toBeGreaterThan(0);
+    for (let column = 0; column < width; column++) {
+      if (column === WALL) continue;
+      expect(fluidAt(field, column, height - 1), `dry floor at ${column}`).toBe('water');
+    }
   });
 });
 
