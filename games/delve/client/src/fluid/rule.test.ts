@@ -269,6 +269,25 @@ describe('the pixel fluid rule', () => {
     expect(beyond).toBeGreaterThan(120);
   });
 
+  it('settles a wide pool flat after its wall is dug away — a distant surface still presses', () => {
+    const width = 120;
+    const height = 40;
+    const floor = height - 1;
+    const grid = makeGrid(width, height, (x, y) => y === floor || x === 0 || x === width - 1);
+    for (let y = 4; y < floor; y++) {
+      for (let x = 1; x < 36; x++) grid.state[y * width + x] = liquid(WATER, (x + y) % 2 === 0, 0);
+    }
+    for (let pass = 1; pass <= 1800; pass++) stepFluid(grid, pass);
+    const levels: number[] = [];
+    for (let x = 1; x < width - 1; x++) {
+      let top = floor;
+      while (top > 0 && kindOf(grid.state[(top - 1) * width + x]) !== EMPTY) top--;
+      levels.push(floor - top);
+    }
+    // measured at #87: 10–11 with a head cost of 1/256 px per px; 10–13 (terraced) at 1/4
+    expect(Math.max(...levels) - Math.min(...levels)).toBeLessThanOrEqual(1);
+  }, 20000);
+
   it('sinks lava through water, and lava falls slower than water', () => {
     const column = (): FluidGrid => makeGrid(1, 40, (_x, y) => y === 39);
     const layered = column();

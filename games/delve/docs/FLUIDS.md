@@ -73,8 +73,10 @@ rock.
    of the body a pixel is part of.
    - Head flows only through **resting** liquid (liquid standing on something), so a falling stream
      never pressurizes the pool it lands in (lesson 1).
-   - A step costs ¼ px sideways, 1 px up and nothing down. Every cycle costs something, so a head left
-     behind by a drained surface climbs back to the truth instead of circulating.
+   - A step costs 1/256 px sideways, 1 px up and nothing down. Every cycle costs something, so a head
+     left behind by a drained surface climbs back to the truth instead of circulating. The sideways cost
+     is tiny because it's how far out of level a settled body can stay: at ¼ px a wide pool froze three
+     pixels terraced; at 1/256 it settles flat.
    - A pixel is **under pressure** when its body's surface stands **more than one pixel** above it.
      One pixel isn't pressure: a stray pixel on a pool's partial top row would otherwise push the
      pixel under it into the row's gaps forever (found by the basin property).
@@ -120,6 +122,7 @@ rock.
   - a settled pool levels flat across the whole floor when its wall is dug away (the staircase above);
   - lava sinks through water, and falls slower;
   - a falling column stays one unbroken run, every pass;
+  - a wide pool whose wall is dug away settles flat to one pixel (it fails at the old ¼ px head cost);
   - a dug-away dam face collapses under its own head: 187 pixels past the face after 50 passes, against
     50 without the head field.
 
@@ -152,11 +155,22 @@ rock.
     at 16 passes a frame it's still a dune.
   - Measured in the twin: the slope's edge pixels are under pressure with open space beside them, yet
     mass crosses the slope at about one pixel per pass in total. Each move needs the pixel below to have
-    moved first, and space can only enter the body at the toe.
+    moved first, and space only enters the body at the toe.
   - Pressure decides _whether_ liquid moves; this is about _how much_ can move per pass, which the 2×2
     block caps.
-  - The next design step is **row transport**: pressurized liquid moving several pixels along a row in
-    one pass. The alternative is a different model for resting liquid.
+- **Tried and set aside: row transport.** An extra stage in 8-pixel row blocks swapped runs of
+  pressurized liquid with runs of supported empty space, so liquid could cross up to 7 px a pass.
+  - Measured against the same rule without it, it **didn't level any faster** (9–29 px against 12–27 after
+    1,600 passes on a 160×64 dune).
+  - On a slope, only one pixel ahead of an edge is supported, so it moved one pixel, like the 2×2 block.
+    Letting it move over unsupported space would spread liquid in mid-air (lesson 2).
+  - An earlier "improvement" came from comparing against the previous commit instead of the rule without
+    transport. The gain was the head cost, which stayed.
+  - The patch is kept outside the repo.
+- **What's left:**
+  - Resting liquid needs a model that moves bulk volume, not surface pixels: a height field (virtual
+    pipes / shallow water) for resting bodies, with this automaton for falling and splashing.
+  - Or accept slow levelling for large bodies.
 - **Cost:** 16 passes over 480×320 art pixels take ~5 ms to GPU done. A game-sized area would need
   fewer passes or a smaller active region.
 

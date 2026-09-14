@@ -43,9 +43,9 @@ const LAVA: u32 = 2u;
 const DIRECTION_BIT: u32 = 4u;
 const ENERGY_SHIFT: u32 = 8u;
 const CHANCE_SCALE: u32 = 1024u;
-const HEAD_UNITS: u32 = 4u;
+const HEAD_UNITS: u32 = 256u;
 const HEAD_SIDE: u32 = 1u;
-const HEAD_UP: u32 = 4u;
+const HEAD_UP: u32 = 256u;
 const FALL_RUN: i32 = 64;
 const ROCK: u32 = 0xffffffffu;  // rule.ts's -1: rock, or outside the grid
 

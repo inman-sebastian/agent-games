@@ -30,10 +30,13 @@ const withEnergy = (state: number, energy: number): number =>
 /**
  * Head is measured in HEAD_UNITS per pixel of height. A step through liquid adds to it: HEAD_SIDE sideways,
  * HEAD_UP upward, nothing downward. Every cycle therefore costs something, so a head left behind by a
- * surface that has drained away climbs back to the truth instead of circulating forever. And a sideways
- * step costs a quarter of a pixel, so any slope steeper than one in four is under pressure and flows.
+ * surface that has drained away climbs back to the truth instead of circulating forever.
+ *
+ * The sideways cost must be tiny, because it's how far out of level a settled body can stay: a pool
+ * can't feel a surface that stands less than a pixel higher per HEAD_UNITS pixels away. At a quarter pixel
+ * per pixel a wide pool froze three pixels out of level; at 1/256 it settles flat (rule.test.ts).
  */
-export const HEAD_UNITS = 4;
+export const HEAD_UNITS = 256;
 export const HEAD_SIDE = 1;
 export const HEAD_UP = HEAD_UNITS;
 
