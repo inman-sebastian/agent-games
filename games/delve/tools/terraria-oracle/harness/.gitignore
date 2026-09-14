@@ -7,3 +7,5 @@ SmoothWorld.generated.cs
 WorldGen.cs.txt
 Collision.generated.cs
 Collision.cs.txt
+TileDrawing.generated.cs
+TileDrawing.cs.txt

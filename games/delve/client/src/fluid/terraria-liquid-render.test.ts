@@ -6,6 +6,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   createTerrariaLiquid,
+  FULL,
+  insideShape,
+  OPEN,
   LIQUID_LAVA,
   LIQUID_WATER,
   type TerrariaLiquid,
@@ -22,13 +25,19 @@ import { LAVA_STYLE, WATER_STYLE, type LiquidStyle } from './liquid-render';
 
 const CELL = 8;
 
-/** '#' rock, '~' full, '.' open: a liquid with every wet tile on the list, as a scene starts. */
+/** A cell's shape in a scene: '1'–'4' a slope, '#' full rock, anything else open. */
+function shapeIn(rows: string[], column: number, row: number): number {
+  const c = rows[row]?.[column] ?? '#';
+  return c === '#' ? FULL : c >= '1' && c <= '4' ? Number(c) : OPEN;
+}
+
+/** '#' rock, '1'–'4' a slope, '~' full, '.' open: a liquid with every wet tile on the list, as a scene starts. */
 function scene(rows: string[], kind = LIQUID_WATER): TerrariaLiquid {
   const width = rows[0].length;
   const height = rows.length;
   const solid = new Uint8Array(width * height);
   rows.forEach((line, y) =>
-    [...line].forEach((c, x) => (solid[y * width + x] = c === '#' ? 1 : 0)),
+    [...line].forEach((_, x) => (solid[y * width + x] = shapeIn(rows, x, y) === OPEN ? 0 : 1)),
   );
   const liquid = createTerrariaLiquid(width, height, solid, kind);
   rows.forEach((line, y) =>
@@ -44,7 +53,12 @@ function scene(rows: string[], kind = LIQUID_WATER): TerrariaLiquid {
 }
 
 /** Draw over a cave wall of two tones (dark blotches on a lighter wall), as the lab's background has. */
-function drawOverWall(liquid: TerrariaLiquid, style: LiquidStyle, time = 0): Uint8ClampedArray {
+function drawOverWall(
+  liquid: TerrariaLiquid,
+  style: LiquidStyle,
+  time = 0,
+  rows?: string[],
+): Uint8ClampedArray {
   const width = liquid.width * CELL;
   const height = liquid.height * CELL;
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -52,15 +66,23 @@ function drawOverWall(liquid: TerrariaLiquid, style: LiquidStyle, time = 0): Uin
     const dark = ((pixel % width) >> 3) % 3 === 0;
     pixels.set(dark ? [38, 34, 46, 255] : [70, 64, 82, 255], pixel * 4);
   }
-  // the rock mask: open everywhere but the solid cells, as the lab's is
+  // the rock mask: open everywhere but the solid cells (a slope's solid half), as the lab's is
+  const shapeAt = rows ? (column: number, row: number) => shapeIn(rows, column, row) : undefined;
   const open = new Uint8Array(width * height);
   for (let pixel = 0; pixel < width * height; pixel++) {
-    const cell =
-      Math.floor(pixel / width / CELL) * liquid.width + Math.floor((pixel % width) / CELL);
-    open[pixel] = liquid.isSolid(cell) ? 0 : 1;
+    const x = pixel % width;
+    const y = Math.floor(pixel / width);
+    const column = Math.floor(x / CELL);
+    const row = Math.floor(y / CELL);
+    const shape = shapeAt
+      ? shapeAt(column, row)
+      : liquid.isSolid(row * liquid.width + column)
+        ? FULL
+        : OPEN;
+    open[pixel] = insideShape(shape, x - column * CELL, y - row * CELL, CELL) ? 0 : 1;
   }
   drawTerrariaLiquid(
-    { liquid, cell: CELL, open, width, height, originX: 0, originY: 0, time },
+    { liquid, cell: CELL, open, width, height, originX: 0, originY: 0, time, shapeAt },
     pixels,
     style,
   );
@@ -378,5 +400,52 @@ describe('the liquid picture', () => {
     expect(lights.length).toBe(7);
     // water casts none
     expect(liquidLights(scene(['###', '#.#', '#~#', '###']))).toEqual([]);
+  });
+
+  describe('behind a slope (#95)', () => {
+    /** Which of a cell's pixels the liquid painted over the wall. */
+    const painted = (rows: string[], column: number, row: number): boolean[] => {
+      const liquid = scene(rows);
+      const before = drawOverWall(
+        scene(rows.map((line) => line.replace(/~/g, '.'))),
+        WATER_STYLE,
+        0,
+        rows,
+      );
+      const after = drawOverWall(liquid, WATER_STYLE, 0, rows);
+      const width = liquid.width * CELL;
+      const out: boolean[] = [];
+      for (let py = 0; py < CELL; py++) {
+        for (let px = 0; px < CELL; px++) {
+          const index = ((row * CELL + py) * width + column * CELL + px) * 4;
+          out.push(before[index] !== after[index] || before[index + 2] !== after[index + 2]);
+        }
+      }
+      return out;
+    };
+
+    it("shows the pool through a slope's open half, and never in its solid half", () => {
+      const rows = ['######', '#~~2.#', '#~~###', '######'];
+      painted(rows, 3, 1).forEach((wet, i) => {
+        const inSolid = insideShape(2, i % CELL, Math.floor(i / CELL), CELL);
+        expect(wet, `pixel ${i % CELL},${Math.floor(i / CELL)}`).toBe(!inSolid);
+      });
+    });
+
+    it('heats lava behind a slope like the lava beside it, not like rock', () => {
+      const rows = ['#######', '#.....#', '#~~2..#', '#~~####', '#######'];
+      const liquid = scene(rows, LIQUID_LAVA);
+      const pixels = drawOverWall(liquid, LAVA_STYLE, 0, rows);
+      const width = liquid.width * CELL;
+      const hot = LAVA_BANDS.slice(-3).map((band) => band.join(','));
+      // just under the surface, in the slope's open corner
+      const index = ((2 * CELL + 3) * width + 3 * CELL + 1) * 4;
+      expect(hot).toContain(`${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`);
+    });
+
+    it('hides it in a ceiling slope with a dry open side, as Terraria does', () => {
+      expect(painted(['######', '#~~4.#', '#~~###', '######'], 3, 1).some(Boolean)).toBe(false);
+      expect(painted(['######', '#~~4##', '#~~###', '######'], 3, 1).some(Boolean)).toBe(true);
+    });
   });
 });

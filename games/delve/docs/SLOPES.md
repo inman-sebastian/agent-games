@@ -116,7 +116,17 @@ swapped when only the right neighbour is solid, and ceilings first under a solid
   only straight faces. **The render gate** gained two slope-sampler views (`gpu-lab`, `?slopes=1` to see it):
   every exposed cell near the centre takes one of the four slopes, since the heightmap has no overhangs to put
   ceiling slopes in the strata views; a broken ceiling slope in the WGSL fails both.
-- **Liquid rendering** ports `DrawTile_LiquidBehindTile` into the liquid renderer, checked against the oracle.
+- **Liquid rendering** (#95). The sim is untouched: a slope is solid to liquid, as in Terraria. The renderer ports
+  `DrawTile_LiquidBehindTile` (`liquidBehindTile` in `terraria-liquid-render.ts`): for each solid cell, which
+  of its neighbours' liquid shows behind it, as the rectangle Terraria draws — from the tile's own liquid and
+  from neighbours on its open sides, a full-width block from the level line, a strip under liquid above, hidden
+  in a ceiling slope unless both sides are wet or full. The rectangle is filled only inside the slope's **open
+  half** (`insideShape`), so a full cell gets none and the rock's eroded edge stays dry, as the author asked of
+  liquid beside rock ([FLUIDS.md](FLUIDS.md#deviations)). Those pixels take DELVE's look: body, with the
+  surface line where the rectangle's top is Terraria's top edge (source row 0). Terraria also draws the tile's
+  side-edge frame there; DELVE draws edges only toward air, so it doesn't. **Checked against Terraria's code:**
+  `fetch.sh` extracts the method from `TileDrawing.cs`; `BehindOracle.cs` runs it on random neighbourhoods
+  (`behind-scenes.json`) and `behind.test.ts` requires the same rectangle, or none. The lab's **slopes** scene shows it.
 
 ## Work
 

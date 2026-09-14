@@ -156,7 +156,8 @@ Nothing here is checked against a reading of Terraria's code: it's checked again
 
 To regenerate: run `tools/terraria-oracle/harness/fetch.sh` (it fetches `Liquid.cs`, `LiquidBuffer.cs` and
 `LiquidRenderer.cs` from the 1.4.0.5 decompile, [AliceSavard/Terarria1405](https://github.com/AliceSavard/Terarria1405),
-and extracts the Smooth World pass for [SLOPES.md](SLOPES.md) — Re-Logic's code, `.gitignore`d), then, with the
+and extracts the Smooth World pass, the player collision methods and `DrawTile_LiquidBehindTile` for
+[SLOPES.md](SLOPES.md) — Re-Logic's code, `.gitignore`d), then, with the
 .NET 8 SDK, `dotnet run -c Release -- ../scenes.json out.json` and gzip `out.json` to `oracle.json.gz`.
 
 ## Deviations
@@ -167,14 +168,16 @@ and extracts the Smooth World pass for [SLOPES.md](SLOPES.md) — Re-Logic's cod
   rather than 60% translucent; lava is emissive and lights the cave through DELVE's lighting rather than
   Terraria's corner-light tint.
 - **No wave shader, no lava bubbles.** Terraria distorts liquid with a wave filter and spawns lava dust.
-- **Left out because DELVE doesn't have them:** slopes, half bricks, platforms, honey, water–lava reactions
+- **Liquid behind slopes** is Terraria's rectangle clipped to the slope's open half, in DELVE's look
+  ([SLOPES.md](SLOPES.md)).
+- **Left out because DELVE doesn't have them:** half bricks, platforms, honey, water–lava reactions
   (one liquid per simulation for now), underworld evaporation, multiplayer sync, panic mode.
 
 ## The lab
 
 `client/labs/liquid-lab.html` starts on the port. A scene starts as the oracle's do: its tiles filled, then
 every wet tile on the list column by column. Scenes: reservoir, full breach, partial breach, three gaps, gap
-under water, pool over a cave, lava breach, U-bend, terraces. **S** (or `?sim=pipes`) switches to the cell
+under water, pool over a cave, lava breach, U-bend, slopes (sloped banks and a shelf with a sloped underside, [SLOPES.md](SLOPES.md)), terraces. **S** (or `?sim=pipes`) switches to the cell
 pipes for comparison. **L** toggles DELVE's lighting: lamp-only darkness with the lamp on the pointer, and
 lava's light.
 

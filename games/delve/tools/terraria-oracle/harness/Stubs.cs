@@ -35,8 +35,10 @@ namespace Microsoft.Xna.Framework
   public struct Color
   {
     public byte R, G, B, A;
+    /// <summary>What the colour has been multiplied by, from Lighting.GetColor's 1: the behind-tile oracle records it.</summary>
+    public float Scale;
     public static Color White => new Color();
-    public static Color operator *(Color c, float s) => c;
+    public static Color operator *(Color c, float s) { c.Scale *= s; return c; }
   }
   public class GameTime { public TimeSpan ElapsedGameTime; }
 }
@@ -98,6 +100,7 @@ namespace Terraria.ID
         public static bool[] Sand = new bool[1000];
       }
       public static bool[] Platforms = new bool[1000];
+      public static bool[] BlocksWaterDrawingBehindSelf = new bool[1000];
     }
   }
 }
@@ -151,6 +154,7 @@ namespace Terraria
     public void halfBrick(bool v) => _half = v;
     public void color(byte c) { }
     public byte slope() => _slope;
+    public int blockType() => _half ? 1 : _slope > 0 ? _slope + 1 : 0;
     public void slope(byte s) => _slope = s;
     public bool inActive() => false;
     public short frameY;
@@ -203,6 +207,7 @@ namespace Terraria
   public static class Lighting
   {
     public static void GetCornerColors(int x, int y, out Terraria.Graphics.VertexColors v, float s) { v = default; }
+    public static Color GetColor(int x, int y) => new Color { Scale = 1 };
   }
   public class TileBatchStub
   {
@@ -214,7 +219,12 @@ namespace Terraria
   {
     public ReLogic.Content.Asset<T> Request<T>(string name, ReLogic.Content.AssetRequestMode mode) => new ReLogic.Content.Asset<T>();
   }
-  public class MainInstanceStub { public Microsoft.Xna.Framework.Graphics.GraphicsDevice GraphicsDevice; }
+  public class WaterfallManagerStub { public bool CheckForWaterfall(int x, int y) => false; }
+  public class MainInstanceStub
+  {
+    public Microsoft.Xna.Framework.Graphics.GraphicsDevice GraphicsDevice;
+    public WaterfallManagerStub waterfallManager = new WaterfallManagerStub();
+  }
 
   public static class Main
   {
@@ -243,6 +253,9 @@ namespace Terraria
     public static bool gamePaused, hasFocus = true;
     public static float windSpeedCurrent;
     public static void DrawTileInWater(Vector2 offset, int x, int y) { }
+    public static int waterStyle;
+    public static float[] liquidAlpha = new float[13];
+    public static bool IsLiquidStyleWater(int style) => style != 1 && style != 11;
   }
 
   public static class WorldGen
@@ -318,5 +331,40 @@ namespace Terraria
       state ^= state << 5;
       return (int) (state % (uint) max);
     }
+  }
+}
+
+namespace Terraria.DataStructures
+{
+  public class TileDrawInfo
+  {
+    public Terraria.Tile tileCache;
+    public ushort typeCache;
+  }
+}
+
+namespace Terraria.GameContent.Drawing
+{
+  using Microsoft.Xna.Framework;
+
+  /// <summary>The TileDrawing the extracted DrawTile_LiquidBehindTile runs in: its draw is recorded, not drawn.</summary>
+  public partial class TileDrawing
+  {
+    private bool[] _tileSolidTop = new bool[1000];
+    public Vector2 DrawnPosition;
+    public Rectangle DrawnSize;
+    public float DrawnScale;
+    public int Draws;
+
+    private void DrawPartialLiquid(Terraria.Tile tileCache, Vector2 position, Rectangle liquidSize, int liquidType, Color aColor)
+    {
+      DrawnPosition = position;
+      DrawnSize = liquidSize;
+      DrawnScale = aColor.Scale;
+      Draws++;
+    }
+
+    public void Behind(int x, int y, Terraria.DataStructures.TileDrawInfo info) =>
+      DrawTile_LiquidBehindTile(true, -1, Vector2.Zero, Vector2.Zero, x, y, info);
   }
 }

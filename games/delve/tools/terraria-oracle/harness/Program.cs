@@ -1,6 +1,7 @@
 // The oracle: runs scenes through Terraria 1.4.0.5's own Liquid.cs and LiquidRenderer.cs and writes what they
 // produce, for the TypeScript port's tests to match exactly. `smooth <in> <out>` runs the Smooth World pass
-// instead (SmoothOracle.cs), `collision <in> <out>` the player collision methods (CollisionOracle.cs). Run fetch.sh
+// instead (SmoothOracle.cs), `collision <in> <out>` the player collision methods (CollisionOracle.cs), `behind <in> <out>` liquid drawn
+// behind a tile (BehindOracle.cs). Run fetch.sh
 // first.
 //
 // Scene (JSON): rows ('#' rock, '~' full water, '.' open), updates, snapshotEvery, events [{at, op, x, y, amount}].
@@ -21,6 +22,11 @@ using Terraria.GameContent.Liquid;
 if (args[0] == "smooth")
 {
   SmoothOracle.Run(args[1], args[2]);
+  return;
+}
+if (args[0] == "behind")
+{
+  BehindOracle.Run(args[1], args[2]);
   return;
 }
 if (args[0] == "collision")

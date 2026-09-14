@@ -3,7 +3,7 @@
 // 8 art px cells, checked exactly against Terraria's own code (tools/terraria-oracle). What it draws is DELVE's:
 // a texture on Terraria's layout with a top-lit rim, whole Resurrect 64 colours, water you see the cave
 // through, lava that's opaque and lights the dark, and no fading trail. See docs/FLUIDS.md, "The look".
-import { LIQUID_LAVA, vnoise, type TerrariaLiquid } from '@delve/shared';
+import { FULL, insideShape, LIQUID_LAVA, OPEN, vnoise, type TerrariaLiquid } from '@delve/shared';
 import { paint, type LiquidStyle, type Rgb, WATER_STYLE } from './liquid-render';
 import { hexRgb, moltenSurface } from '../render/palette';
 
@@ -25,6 +25,8 @@ export interface TerrariaLiquidFrame {
   readonly originX: number;
   readonly originY: number;
   readonly time: number;
+  /** A solid cell's shape (FULL or a slope), by the liquid's column and row; without it every solid cell is full. */
+  readonly shapeAt?: (column: number, row: number) => number;
 }
 
 /** LiquidRenderer.LiquidCache, as arrays over the cells. */
@@ -417,6 +419,103 @@ export function liquidLights(liquid: TerrariaLiquid): { column: number; row: num
   return lights;
 }
 
+/** A tile and the four beside it, for liquidBehindTile: each one's shape (OPEN, FULL or a slope) and liquid (0–255). */
+export interface TileNeighbourhood {
+  readonly shape: number;
+  readonly liquid: number;
+  readonly left: { readonly shape: number; readonly liquid: number };
+  readonly right: { readonly shape: number; readonly liquid: number };
+  readonly above: { readonly shape: number; readonly liquid: number };
+  readonly below: { readonly shape: number; readonly liquid: number };
+}
+
+/** The liquid drawn behind a tile, in Terraria's 16-per-tile units: where in the tile, and its source rectangle. */
+export interface BehindRect {
+  readonly x: number;
+  readonly y: number;
+  readonly sourceX: number;
+  readonly sourceY: number;
+  readonly width: number;
+  readonly height: number;
+  /** Drawn at no brightness: a ceiling slope with an open, dry side. */
+  readonly hidden: boolean;
+}
+
+/**
+ * TileDrawing.DrawTile_LiquidBehindTile (TileDrawing.cs:2411), for a solid tile of rock (no half bricks, no tile
+ * types that block it): the liquid Terraria draws behind the tile before the tile, which shows through a slope's
+ * open half. From the tile's own liquid and from neighbours on its open sides. Null when there's none.
+ */
+export function liquidBehindTile(tile: TileNeighbourhood): BehindRect | null {
+  const { shape: slope, left, right, above, below } = tile;
+  /** WorldGen.SolidTile: an active full block. */
+  const solidTile = (neighbour: { shape: number }): boolean => neighbour.shape === FULL;
+  const blockType = slope > 0 ? slope + 1 : 0;
+  let level = 0;
+  let wetLeft = false;
+  let wetRight = false;
+  let wetAbove = false;
+  let fullBelow = false;
+  let own = false;
+  if (tile.liquid > 0 && blockType !== 0) {
+    own = true;
+    level = Math.max(level, tile.liquid);
+  }
+  if (left.liquid > 0 && slope !== 1 && slope !== 3) {
+    wetLeft = true;
+    level = Math.max(level, left.liquid);
+  }
+  if (right.liquid > 0 && slope !== 2 && slope !== 4) {
+    wetRight = true;
+    level = Math.max(level, right.liquid);
+  }
+  if (above.liquid > 0 && slope !== 3 && slope !== 4) wetAbove = true;
+  if (below.liquid > 0 && slope !== 1 && slope !== 2 && below.liquid > 240) fullBelow = true;
+  if (!wetAbove && !fullBelow && !wetLeft && !wetRight && !own) return null;
+
+  let x = 0;
+  let y = 0;
+  let sourceY = 4;
+  let width = TILE;
+  let height = TILE;
+  if (fullBelow && (wetLeft || wetRight)) {
+    wetLeft = true;
+    wetRight = true;
+  }
+  if ((!wetAbove || !(wetLeft || wetRight)) && !(fullBelow && wetAbove)) {
+    if (wetAbove) {
+      height = slope !== 0 ? 12 : 4;
+    } else if (fullBelow && !wetLeft && !wetRight) {
+      y = 12;
+      height = 4;
+    } else {
+      // the level line, in whole steps of two units
+      const line = Math.trunc((256 - level) / 32) * 2;
+      // Terraria's `blockType != 0 ||` here only reaches half bricks: a slope takes its source row from the line
+      const top = above.liquid === 0 && !solidTile(above) ? 0 : 4;
+      y = line;
+      height = TILE - line;
+      if (slope !== 0) {
+        sourceY = line;
+      } else if (wetLeft && wetRight) {
+        sourceY = top;
+      } else if (wetLeft) {
+        sourceY = top;
+        width = 4;
+      } else {
+        x = 12;
+        sourceY = top;
+        width = 4;
+      }
+    }
+  }
+  const ceiling = slope === 3 || slope === 4;
+  const hidden =
+    ceiling &&
+    ((left.liquid === 0 && !solidTile(left)) || (right.liquid === 0 && !solidTile(right)));
+  return { x, y, sourceX: 0, sourceY, width, height, hidden };
+}
+
 /** LiquidRenderer's draw cache, per cell (row by row): what InternalPrepareDraw hands InternalDraw. */
 export interface LiquidDraw {
   readonly visible: Uint8Array;
@@ -534,7 +633,8 @@ export function drawTerrariaLiquid(
         ? settleKind(target, liquid, cell, x, y, target.shown[pixel])
         : Texel.Clear;
       kinds[pixel] = kind;
-      rock[pixel] = solid ? 1 : 0;
+      // liquid behind a slope is liquid, not rock, to the heat
+      rock[pixel] = solid && kind === Texel.Clear ? 1 : 0;
       // open air, by pixel: nothing drawn and not rock — so the empty top of a partly filled tile counts, and
       // heat starts where the lava does, not at its tile's top
       air[pixel] = kind === Texel.Clear && !solid ? 1 : 0;
@@ -737,5 +837,56 @@ function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined)
       }
     }
   }
+  drawBehindSlopes(frame, target.shown);
   return target;
+}
+
+/**
+ * Liquid behind slopes (#95): Terraria's rectangle behind each solid tile (liquidBehindTile), inside the slope's
+ * open half only — a full cell has none, and the rock's eroded edge stays dry. Body, with the surface line where
+ * the rectangle starts at the texture's top edge; no side edges, which DELVE draws only toward air.
+ */
+function drawBehindSlopes(frame: TerrariaLiquidFrame, shown: Uint8Array): void {
+  const { liquid, cell, width, height, shapeAt } = frame;
+  if (!shapeAt) return;
+  const scale = TILE / cell; // Terraria units per art px
+  const neighbour = (column: number, row: number): { shape: number; liquid: number } => {
+    if (column < 0 || row < 0 || column >= liquid.width || row >= liquid.height) {
+      return { shape: FULL, liquid: 0 };
+    }
+    const index = row * liquid.width + column;
+    return {
+      shape: liquid.isSolid(index) ? shapeAt(column, row) : OPEN,
+      liquid: liquid.level[index],
+    };
+  };
+  for (let row = 0; row < liquid.height; row++) {
+    for (let column = 0; column < liquid.width; column++) {
+      const index = row * liquid.width + column;
+      if (!liquid.isSolid(index)) continue;
+      const shape = shapeAt(column, row);
+      if (shape === FULL || shape === OPEN) continue;
+      const rect = liquidBehindTile({
+        shape,
+        liquid: liquid.level[index],
+        left: neighbour(column - 1, row),
+        right: neighbour(column + 1, row),
+        above: neighbour(column, row - 1),
+        below: neighbour(column, row + 1),
+      });
+      if (!rect || rect.hidden) continue;
+      for (let py = 0; py < cell; py++) {
+        const unitY = py * scale - rect.y;
+        if (unitY < 0 || unitY >= rect.height) continue;
+        for (let px = 0; px < cell; px++) {
+          const unitX = px * scale - rect.x;
+          if (unitX < 0 || unitX >= rect.width || insideShape(shape, px, py, cell)) continue;
+          const x = column * cell + px;
+          const y = row * cell + py;
+          if (x >= width || y >= height) continue;
+          shown[y * width + x] = edge(Math.floor((rect.sourceY + unitY) / UNITS_PER_PIXEL), true);
+        }
+      }
+    }
+  }
 }

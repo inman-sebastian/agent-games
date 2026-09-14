@@ -9,6 +9,9 @@
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
   STRATA,
+  FULL,
+  OPEN,
+  shapeAt,
   solidAt,
   surfaceAt,
   SUB,
@@ -57,9 +60,16 @@ const bandTop = Number(new URLSearchParams(location.search).get('top') ?? 120);
 const SEED = 12345;
 const dug = new Set<string>();
 const built = new Set<string>();
+/** Slopes a scene builds (#95), by cell; a built cell without one is full. */
+const sloped = new Map<string, number>();
 const key = (column: number, row: number): string => `${column},${row}`;
 const isSolid = (column: number, row: number): boolean =>
   built.has(key(column, row)) || (solidAt(SEED, column, row) && !dug.has(key(column, row)));
+const shapeOf = (column: number, row: number): number => {
+  if (!isSolid(column, row)) return OPEN;
+  const cell = key(column, row);
+  return built.has(cell) ? (sloped.get(cell) ?? FULL) : shapeAt(SEED, column, row);
+};
 const carve = (c0: number, r0: number, c1: number, r1: number): void => {
   for (let r = r0; r < r1; r++) {
     for (let c = c0; c < c1; c++) {
@@ -71,6 +81,23 @@ const carve = (c0: number, r0: number, c1: number, r1: number): void => {
 const build = (c0: number, r0: number, c1: number, r1: number): void => {
   for (let r = r0; r < r1; r++)
     for (let c = c0; c < c1; c++) built.add(key(bandLeft + c, bandTop + r));
+};
+/**
+ * Slope the built cells' corners, as world smoothing would: a floor cell open on one side becomes the floor slope
+ * falling that way, a ceiling cell open on one side the ceiling slope.
+ */
+const slopeCorners = (): void => {
+  const solid = (c: number, r: number): boolean => isSolid(bandLeft + c, bandTop + r);
+  for (const cell of built) {
+    const [column, row] = cell.split(',').map(Number);
+    const c = column - bandLeft;
+    const r = row - bandTop;
+    const left = solid(c - 1, r);
+    const right = solid(c + 1, r);
+    if (left === right) continue;
+    if (!solid(c, r - 1) && solid(c, r + 1)) sloped.set(cell, left ? 1 : 2);
+    else if (!solid(c, r + 1) && solid(c, r - 1)) sloped.set(cell, left ? 3 : 4);
+  }
 };
 
 // ---- scenes ------------------------------------------------------------------------------------------------------
@@ -184,6 +211,23 @@ const SCENES: Scene[] = [
     },
   },
   {
+    name: 'slopes',
+    hint: 'a basin with sloped banks and a shelf with a sloped underside: the water shows through their open halves',
+    setup() {
+      carve(3, 3, cols - 3, rows - 3);
+      const mid = cols >> 1;
+      const bottom = rows - 4;
+      for (let c = 3; c < cols - 3; c++) {
+        const bank = Math.max(0, Math.abs(c - mid) - 6);
+        const top = Math.max(7, bottom - bank);
+        build(c, top, c + 1, rows - 3);
+      }
+      build(mid + 3, 10, cols - 3, 12);
+      slopeCorners();
+      return { water: [[3, 5, cols - 3, rows - 3]] };
+    },
+  },
+  {
     name: 'terraces',
     hint: 'hold W over the top basin: it fills and spills down each step',
     setup() {
@@ -230,9 +274,19 @@ const LAMP_INTENSITY = 1.3;
 const LAVA_INTENSITY = 1.1;
 
 function refreshRock(): void {
-  composeBand(rock, isSolid, bandLeft, bandTop, cols, rows, (column) => surfaceAt(SEED, column));
+  composeBand(
+    rock,
+    isSolid,
+    bandLeft,
+    bandTop,
+    cols,
+    rows,
+    (column) => surfaceAt(SEED, column),
+    undefined,
+    shapeOf,
+  );
   rockPixels = rock.getImageData(0, 0, width, height).data.slice();
-  const mask = buildMask(isSolid, width, height, bandLeft, bandTop);
+  const mask = buildMask(isSolid, width, height, bandLeft, bandTop, shapeOf);
   open = new Uint8Array(width * height);
   for (let i = 0; i < open.length; i++) open[i] = mask[i] ? 0 : 1;
 }
@@ -246,8 +300,16 @@ function refreshRockAround(column: number, row: number): void {
   const k0 = Math.max(0, column - reach);
   const k1 = Math.min(cols, column + reach + 1);
   const strip = Object.assign(document.createElement('canvas'), { width: (s1 - s0) * T, height });
-  composeBand(strip.getContext('2d')!, isSolid, bandLeft + s0, bandTop, s1 - s0, rows, (c) =>
-    surfaceAt(SEED, c),
+  composeBand(
+    strip.getContext('2d')!,
+    isSolid,
+    bandLeft + s0,
+    bandTop,
+    s1 - s0,
+    rows,
+    (c) => surfaceAt(SEED, c),
+    undefined,
+    shapeOf,
   );
   rock.clearRect(k0 * T, 0, (k1 - k0) * T, height);
   rock.drawImage(strip, (k0 - s0) * T, 0, (k1 - k0) * T, height, k0 * T, 0, (k1 - k0) * T, height);
@@ -265,7 +327,7 @@ function refreshRockAround(column: number, row: number): void {
   const r1 = Math.min(rows, row + 3);
   const w = (m1 - m0) * T;
   const h = (r1 - r0) * T;
-  const mask = buildMask(isSolid, w, h, bandLeft + m0, bandTop + r0);
+  const mask = buildMask(isSolid, w, h, bandLeft + m0, bandTop + r0, shapeOf);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) open[(r0 * T + y) * width + m0 * T + x] = mask[y * w + x] ? 0 : 1;
   }
@@ -297,6 +359,7 @@ function loadScene(index: number): void {
   sceneIndex = (index + SCENES.length) % SCENES.length;
   dug.clear();
   built.clear();
+  sloped.clear();
   const setup = SCENES[sceneIndex].setup();
   refreshRock();
   lava = setup.lava === true;
@@ -312,7 +375,10 @@ function loadScene(index: number): void {
     // as the oracle starts a scene: the tiles filled, then every wet tile on the list, column by column
     const tiles = liquid as TerrariaLiquid;
     for (const [c0, r0, c1, r1] of setup.water) {
-      for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) tiles.level[r * cols + c] = 255;
+      for (let r = r0; r < r1; r++) {
+        for (let c = c0; c < c1; c++)
+          if (!tiles.isSolid(r * cols + c)) tiles.level[r * cols + c] = 255;
+      }
     }
     for (let c = 0; c < cols; c++) {
       for (let r = 0; r < rows; r++)
@@ -332,6 +398,7 @@ function dig(column: number, row: number, building: boolean): void {
   const cell = key(bandLeft + column, bandTop + row);
   const solidNow = isSolid(bandLeft + column, bandTop + row);
   if (building ? solidNow : !solidNow) return;
+  sloped.delete(cell);
   if (building) built.add(cell);
   else {
     built.delete(cell);
@@ -438,6 +505,7 @@ function frame(now: number): void {
     originX: bandLeft * T,
     originY: bandTop * T,
     time: elapsed,
+    shapeAt: (column: number, row: number) => shapeOf(bandLeft + column, bandTop + row),
   };
   if (terraria) {
     if (!lava) drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, image.data, style);
