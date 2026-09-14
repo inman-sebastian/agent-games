@@ -687,11 +687,35 @@ before the last reload looked perfect:
   worst pixel of a chunk-assembled render is off by **207** (of 1020 across four channels) from the
   same region baked in one piece; at the shading's influence radius it is off by **5**.
 
-The lesson for the next grid change: **grep for every constant whose unit is a length or a
-per-step rate**, not just the ones the simulation reads. A rate per step is a length in disguise,
-and so is a count of cells used as a margin. Of the five found here, only one was caught by a test;
-the renderer's own units needed a purpose-built check
-([patch-lab](../tools/README.md)) that renders a region two ways and diffs them.
+**And five more, found by the maintenance run** that went looking for this class deliberately — so
+the list stops being "what someone happened to notice":
+
+- `RUN_ACCEL` / `AIR_ACCEL` / `FRICTION` — lengths per second squared. Speed and gravity were scaled
+  but these weren't, so reaching top speed took 0.15s instead of 0.07, the skid after letting go ran
+  0.55 blocks instead of 0.30, and air control halved. Tests now state movement in **seconds and
+  blocks**.
+- `MOVE_EPSILON` — a speed threshold, so the run animation lingered until a quarter of the intended
+  speed on every stop.
+- `unstick`'s search range — six cells, i.e. three blocks where it meant six, so rescues that used
+  to succeed fell through to a fresh spawn.
+- The lamp falloff's core and ease distances in `index.ts` — "full brightness within 1" became one
+  cell.
+- **Depth shown to the player** — the HUD, the codex's "deepest" and the debug panel printed a cell
+  row as metres, doubling every reading. A metre is a block: the miner is 1.82 blocks tall.
+
+**The one that can't be fixed after the fact: saves.** The split halved the unit of every saved
+position and dug-cell key, and there was no migration — so a pre-split save loads at half its real
+coordinates with its tunnels shrunk and shifted. Saves carried no format version, which makes a
+pre-split save indistinguishable from one written since, so it cannot be migrated retroactively.
+They carry `SAVE_FORMAT` now, so the next change of meaning can be.
+
+The lesson for the next grid change: **grep for every constant whose unit is a length, a speed, an
+acceleration or a per-step rate**, not just the ones the simulation reads — a rate per step is a length
+in disguise, and so is a count of cells used as a margin. **Bump `SAVE_FORMAT` and migrate.** And
+state feel in units a player perceives: **none** of these was caught by a test that existed
+beforehand — every test that guards one now was written after it was found. They needed a person
+playing, a measurement, or a purpose-built check like [patch-lab](../tools/README.md) that renders a
+region two ways and diffs them.
 
 ### Also queued
 
@@ -705,7 +729,7 @@ the renderer's own units needed a purpose-built check
   obsolete.
 - **Rendering perf** — the per-frame passes are done (above); what's left is the chunk BAKE rate.
   Chunks are still `CW`×`CH` in cells, so they cover a quarter of the world area they used to and
-  the worker bakes four times as many while you move. It keeps up (bakes are off-thread and the
-  blits cost 0.4ms), so this is a queued tidy, not a problem: doubling `CW`/`CH` restores the old
-  world area per chunk and cuts the per-chunk overscan overhead.
-- **Miner sprite** — redraw + animate for the finer 32px grid.
+  the worker bakes four times as many while you move. `MARGIN` also went from 1 to 3 cells for
+  correctness, which roughly doubles each bake's area. It keeps up (bakes are off-thread, the blits
+  cost 0.4ms), so this is a queued tidy, not a problem: doubling `CW`/`CH` restores the old world
+  area per chunk and makes the fixed margin a smaller share of every bake.

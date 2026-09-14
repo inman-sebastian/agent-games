@@ -52,9 +52,10 @@ not images:
    `probe` / scripted `play`) — pure Node, no browser.
 2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
    via headless Chrome (no MCP), against a running `pnpm dev` server (set `SHOT_BASE`). The
-   `page` is a path under the Vite root (`src/`): `labs/render.html` (world crops, the
-   default), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game). Keep
-   `w`/`h`/`scale` small so the image is tiny; then `Read` it.
+   `page` is a path under the Vite root (`client/`): `labs/render.html` (world crops, the
+   default), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game — pass
+   `play=1` or you capture the title screen). `w`/`h` are CELLS; keep them and `scale` small so the
+   image is tiny, then `Read` it.
 3. **Only if neither can answer it** (live input feel, real FPS) → Playwright with `?debug`,
    and read the **debug-overlay text** via `browser_evaluate` — never a full-viewport / 4K
    screenshot when a small `shot.sh` crop would do.

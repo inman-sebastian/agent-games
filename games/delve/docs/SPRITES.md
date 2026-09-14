@@ -144,7 +144,7 @@ inconsistent across its forty-odd files and every flag below exists because a re
 | pixels we have, the export lacks     | stray marks on a layer the artist hid                   | dropped by default; `--keep-strays` to keep |
 | same pixels, different colours       | layer opacity or a blend mode, which the reader ignores | `--trust-source` keeps the layer unblended  |
 | differences both ways, spread evenly | the PNG export is older than the `.aseprite`            | `--trust-source`                            |
-| a layer maps to no slot              | add a `SLOTS` pattern                                   | `--skip` it, or `--allow-unknown-layers`    |
+| a layer maps to no slot              | add a pattern to the entity's `slots` (`BIPED_SLOTS`)   | `--skip` it, or `--allow-unknown-layers`    |
 
 ## Checking your work
 
@@ -228,10 +228,11 @@ space also means the light is attached to the body and turns with it, which is w
 does; a caller wanting a world-fixed light negates its x offset when the sprite is flipped.
 
 **Materials for characters are calibrated separately.** Use `armourSurface` / `plateArmourSurface`
-from `skin.ts`, not `clothSurface` / `plateSurface` from `limb.ts`. The latter were tuned against a
-16px tile; pointed at a 3-5px imported limb, their noise swings across most of the band ladder and
-the figure comes out as white speckle with its silhouette dissolved. Same lesson the procedural rig
-learned about edge erosion — a treatment sized for a tile is most of a small part.
+from `skin.ts`. They replaced the procedural rig's `clothSurface` / `plateSurface` (deleted with the
+rig), which were tuned against a 16-px block: pointed at a 3-5px imported limb, their noise swung
+across most of the band ladder and the figure came out as white speckle with its silhouette
+dissolved. Same lesson the rig learned about edge erosion — a treatment sized for a block is most of
+a small part.
 
 ## Adding another entity
 
@@ -474,8 +475,9 @@ is already built from rather than a second competing dark. Toggle it in the lab,
 
 ## Scale, and the player body
 
-The character is drawn at **1x**, which makes the figure 18 x 29 art px — **1.12 x 1.81 tiles** on a
-16px tile. The player hitbox is sized to it: `HW 0.45`, `HH 0.91`.
+The character is drawn at **1x**, which makes the figure 18 x 29 art px — **1.12 x 1.81 blocks**
+against a 16-art-px block. The player hitbox is sized to it: half-extents of **0.45 x 0.91 blocks**,
+which the sim stores in cells as `0.45 * SUB` and `0.91 * SUB` since the 2x2 split (#44).
 
 Terraria's exact three tiles is not reachable. Integer sprite scaling on a 16px tile gives 1.81 or
 3.62 tiles and nothing between, so the earlier "keep Terraria's proportions" decision became a choice

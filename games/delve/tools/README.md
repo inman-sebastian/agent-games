@@ -44,7 +44,7 @@ Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic /
 
 ```sh
 node tools/sim.ts state  [--seed N] [--from save.json]      # raw state as JSON
-node tools/sim.ts probe  --seed N --c C --r R               # tileInfo at one cell
+node tools/sim.ts probe  --seed N --c C --r R               # the block descriptor at one cell
 node tools/sim.ts map    --seed N [--c C --r R --w W --h H] # ASCII ore/cluster map
 node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 ```
@@ -101,7 +101,7 @@ SHOT_BASE=http://localhost:5199 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none&lamp=0' out.png  # raw ore-block art
 ```
 
-Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in tiles),
+Query params (all optional): `seed`, `c`,`r` (centre cell), `w`,`h` (region in CELLS — 8 art px each since the 2x2 split, so `shot.sh` sizes the window as `w × 8 × scale`; override with `CELL_PX`),
 `scale` (px per art px), `cave` (`shaft`|`none`), `lamp` (1 apply lighting / 0 raw art),
 `miner` (0/1), `lamp` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
@@ -113,7 +113,7 @@ the game headlessly:
 ```sh
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html  # a material in a cave
-SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'play=1&w=30&h=18&scale=2' /tmp/game.png index.html      # the game itself (play=1 skips the title)
 ```
 
 ### Shooting the real game

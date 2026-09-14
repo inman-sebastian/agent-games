@@ -58,17 +58,33 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
   streams over random seeds, asserting after every step: **no tunneling** into solid rock, **no
   NaN**, bounded velocity, **monotonic depth**, **deterministic replay**, and **material
   conservation** (everything broken is exactly what's in the inventory + codex log). Plus targeted
-  ore-break conservation, `mineTile` mechanics, reach enforcement, `isRich`, and the #8
-  unbounded-movement regression.
+  ore-break conservation, `mineTile` mechanics (including that an already-dug cell pays nothing),
+  reach — one `withinReach` rule, agreeing cell for cell with what `physicsStep` mines — `isRich`,
+  facing as the movement rule alone, and the #8 unbounded-movement regression.
+  **Movement feel is stated in world units**: seconds to top speed, blocks of skid, lamp reach in
+  blocks, `unstick`'s search in blocks. Those exist because the 2x2 split left a dozen lengths in the
+  wrong unit and not one pre-existing test noticed — every invariant held while the game felt
+  different. An invariant proves the sim is consistent; only a world-unit assertion proves it still
+  feels the way it was tuned.
+- **Restoring a save** (`shared/src/hydrate.test.ts`) — old formats, fields added since, a body
+  wedged in rock rescued (or respawned on the save's OWN world), junk that isn't a save at all, and
+  the `SAVE_FORMAT` stamp. Pure and in the shared ruleset, because the server applies the same rule.
 - **Protocol e2e** (`server/src/protocol.e2e.test.ts`) — the fullest end-to-end path short of a
   browser: `beforeAll` spawns the **real** server against a throwaway data dir, then drives the
   WebSocket protocol the way `client/src/net.ts` does. Asserts fresh-world join,
   determinism/authority (server state == the client's local prediction of the same inputs),
   anti-cheat (out-of-reach mine rejected), reconnect hydration, and protocol-version rejection.
-  (Slowest suite; isolated port + temp dir keep it hermetic.)
-- **Client save + DOM** (`client/src/save.test.ts`, `client/src/ui/inventory.test.ts`) — save
-  format migration (incl. old pre-economy saves loading cleanly) and the inventory panel's row
-  builder under happy-dom (the ore-icon factory is injected so tests don't touch canvas).
+  Also that **the server survives what it is sent** — malformed frames (`null`, arrays, missing
+  fields, garbage `seq`) leave it serving the next client, and a save from an older build loads and
+  can be mined in. Both were process-killing crashes before; the first test brought the test server
+  down outright when it was written. (Slowest suite; isolated port + temp dir keep it hermetic.)
+- **Save store** (`server/src/store.test.ts`) — hostile player ids can't read or write outside
+  `DATA_DIR`; a corrupt file loads as null. Goes red when the id sanitizing is removed.
+- **Network status** (`client/src/net.test.ts`) — a fake WebSocket asserts "online" means the server
+  accepted the join: not on socket open, not after a rejection, and no gameplay traffic before it.
+- **Client cache + DOM** (`client/src/save.test.ts`, `client/src/ui/inventory.test.ts`) — the
+  localStorage cache (empty/corrupt storage, round-trip) and the inventory panel's row builder under
+  happy-dom (the ore-icon factory is injected so tests don't touch canvas).
 
 ## The content gate (missing)
 
@@ -147,7 +163,10 @@ discovered ahead of its fix.
 ## Not covered here
 
 - **How it looks** — canvas rendering isn't pixel-asserted in Vitest. Use `tools/shot.sh` for tight
-  cropped renders (see [tools/README.md](../tools/README.md)). Real-browser E2E (Playwright driving
+  cropped renders (see [tools/README.md](../tools/README.md)). One rendering INVARIANT does have a
+  check, in the browser rather than the gate: `client/labs/patch-lab.html` asserts chunk bakes match a
+  whole-region bake, reporting PASS/FAIL as text. It is not in `pnpm test` because it needs a canvas —
+  run it after touching `cave-render` or the chunk geometry. Real-browser E2E (Playwright driving
   the page) is intentionally out of scope for now; it could be added as its own project later.
 - **Interactive inspection** — `tools/sim.ts` (`pnpm sim map/probe/play`) stays as a CLI for
   eyeballing world-gen and scripted playthroughs; it's a tool, not a gate.

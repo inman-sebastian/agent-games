@@ -25,7 +25,8 @@ Pick the cheapest rung that answers your question:
   invariant **teeth**: break the code it guards and confirm the test goes red before trusting it.
 - **`pnpm sim <cmd>`** (`tools/sim.ts`) — interactive inspection of the pure engine (not a gate):
   - `pnpm sim state [--seed N] [--from save.json]` — raw state as JSON.
-  - `pnpm sim probe --seed N --c C --r R` — tileInfo at one cell.
+  - `pnpm sim probe --seed N --c C --r R` — the block descriptor at one cell (ore, hp, empty, and
+    the generator's block row).
   - `pnpm sim map --seed N [--c C --r R --w W --h H]` — ASCII ore/cluster map + coverage %/tier counts.
   - `pnpm sim play --seed N --do "d600 r120"` — run an action script through real physics, dump result.
 
@@ -39,14 +40,23 @@ Green before shipping.
 Headless Chrome, no MCP. Needs a running dev server: `pnpm dev`, then `SHOT_BASE=http://localhost:5173`
 (use the port `pnpm dev` printed). Then `Read` the PNG.
 
+> **Check the server is really yours.** If `pnpm dev` prints that port 8787 is in use, stop the other
+> server before trusting anything. The server exits loudly now, but the client still comes up and
+> will happily connect to an OLD server holding the port — whose authoritative corrections make a
+> player look frozen, a fix look broken, or old behaviour look current. `lsof -ti:8787 | xargs kill`.
+
 ```sh
 SHOT_BASE=http://localhost:5173 tools/shot.sh 'QUERY' /tmp/out.png [page]
 ```
 
 - `page` (under the Vite client root) defaults to `labs/render.html`; also
   `labs/material-lab.html` (per-material surface + cave preview; `mat`/`view`/`depth`/`seed`,
-  `ui=0` for a bare shot), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game).
-- `QUERY` sets `w`/`h`/`scale` (**keep small** so the PNG is tiny) plus page params, e.g. render lab:
+  `ui=0` for a bare shot), `labs/style-lab.html`, `labs/light-lab.html`, `labs/char-lab.html`
+  (characters against real collision), or `index.html` (the game — add **`play=1`** to skip the
+  title screen, or you capture the title panel).
+- `QUERY` sets `w`/`h`/`scale` plus page params. **`w`/`h` are CELLS** (8 art px each) since the 2x2
+  split, so the PNG is `w × 8 × scale` px wide — `w=70&scale=5` is 2800px, not tiny. Keep them small.
+  Page params, e.g. render lab:
   `seed`, `c`,`r` (centre col/row), `cave=shaft`, `lamp=0|1`, `miner=0|1`, `orestyle=strata|crystal`,
   `dmg=1` (damage-stage inspector).
 - Set `WATCHDOG=20` (seconds) for continuously-animating pages (the game, light lab) so capture
@@ -55,8 +65,13 @@ SHOT_BASE=http://localhost:5173 tools/shot.sh 'QUERY' /tmp/out.png [page]
   `tools/shot.sh 'orestyle=strata&r=120&cave=shaft&lamp=1&w=70&h=56&scale=5&miner=0' /tmp/w.png labs/render.html`
   · `tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html`
 
-In the running game, the **`?debug`** panel (F3) has live toggle buttons — **Lighting / Fog /
-Twinkle / Damage / Tiles** — to isolate a render pass while diagnosing.
+In the running game, the **`?debug`** panel (F3) has live toggle buttons — **lighting / fog /
+twinkle / damage** — to isolate a render pass, and a **per-pass frame breakdown** (`phase …`,
+`light field … scrim …`, `bakes …`) to read before optimising anything.
+
+**A rendering invariant with a text verdict:** `labs/patch-lab.html` renders a carved region as one
+bake and again from chunk bakes, and prints `PASS`/`FAIL` (also the page title). Run it after touching
+`cave-render` or the chunk geometry — it is not in `pnpm test`, because it needs a canvas.
 
 ## 4. Last resort — live feel only (Playwright/MCP)
 
@@ -66,8 +81,17 @@ Only for things a still can't answer: real input feel, real FPS, animation timin
 - To inspect pixel detail, draw a **zoom-crop overlay** of the game canvas into the page (drawImage a
   small source region onto a scaled offscreen canvas, `image-rendering: pixelated`) and screenshot
   that element — not the 4K viewport.
-- Drive input by dispatching `KeyboardEvent`s (the game reads `e.code`: `KeyS`/`KeyJ` = mine down,
-  `KeyD`/`KeyA` = move, hold = keydown without keyup).
+- Drive input with **trusted** events — Playwright's `page.keyboard.down/up` and `page.mouse` (via
+  `browser_run_code_unsafe`). Synthetic `dispatchEvent(new KeyboardEvent(...))` does NOT move the
+  player; a probe built on it silently tests nothing. The game reads `e.code`: `KeyA`/`KeyD` or the
+  arrows move, `KeyJ` mines (with `KeyS`/↓ held, straight down), hold = down without up.
+- **Keyboard mining can't descend a shaft on its own** — it clears one of the two columns the body
+  spans (#53). To carve a test tunnel, aim the pointer at each cell, converting world cells to CSS
+  pixels from the debug panel's `cam` line and the canvas bounding box.
+- A dug world lives on the SERVER, filed under the player id in `localStorage` (`delve.playerId`).
+  Clearing `localStorage` gives a fresh world because it drops that id, not because the world was
+  stored locally. The server flushes saves every 2.5s and on disconnect, so a dev-server restart
+  (on any watched file change) loses at most the last couple of seconds of digging.
 - Clean up any screenshot files + `.playwright-mcp/` artifacts afterwards.
 
 ## Rule of thumb

@@ -110,11 +110,11 @@ export const MY_ARMOUR: SpriteSkin = {
 };
 ```
 
-Use `armourSurface` / `plateArmourSurface` from `skin.ts`, **not** `clothSurface` / `plateSurface`
-from `limb.ts`. The latter were tuned against a 16px tile; pointed at a 3-5px imported limb their
-noise swings across most of the band ladder and the figure comes out as speckle with its silhouette
-dissolved. Same lesson the procedural rig learned about edge erosion: a treatment sized for a tile is
-most of a small part.
+Use `armourSurface` / `plateArmourSurface` from `skin.ts`. They exist because the surfaces written for
+the old procedural rig (`clothSurface` / `plateSurface`, deleted with it) were tuned against a 16-px
+block; pointed at a 3-5px imported limb their noise swung across most of the band ladder and the figure
+came out as speckle with its silhouette dissolved. The lesson outlived the files: a treatment sized for
+a block is most of a small part, so size any new surface to the part it lands on.
 
 Materials are lit by a **position** in sprite-local pixels — `PLAYER_LAMP` for a carried lamp,
 `lampFrom(dx, dy)` for an entity lit from outside, `OVERHEAD` for a fixed light. Distance flattens

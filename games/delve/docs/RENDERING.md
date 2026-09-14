@@ -19,15 +19,17 @@ Dig**, **Super Motherload**, Quintino "Deep Cave", BigManJD. Hard-won principles
 
 ## Resolution & pixel density
 
-Art is authored at what _looks like_ 16×16 tiles. The scene renders to a **logical**
-buffer at that art resolution and is displayed at an **integer scale** (currently
-2×, i.e. 32 on-screen px per tile), with `image-rendering: pixelated` handling the
-device's own pixel density. Do **not** render the whole scene at the device scale —
+The world grid is **cells** of 8×8 art px, and four cells make a **block** of 16×16 — the unit the
+materials were authored at and the one the world is generated on ([DESIGN.md](DESIGN.md#block-granularity--the-22-split-done)).
+The scene renders to a **logical** buffer at art resolution and is displayed at an **integer scale**
+(`UPSCALE` = 2: 16 on-screen px per cell, 32 per block), with `image-rendering: pixelated` handling
+the device's own pixel density. Do **not** render the whole scene at the device scale —
 that would multiply the (per-pixel) lighting cost for no visual gain.
 
-The canvas **fills the whole viewport edge-to-edge**: its logical width is the full
-field width and its logical height matches the window aspect, so tiles stay square
-with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome bar.
+The canvas **fills the viewport edge-to-edge**: `fit()` sizes it to the window in whole cells (plus
+one of overscan), centred, so cells stay square with no letterboxing. The world is unbounded, so the
+canvas is a camera window onto it, not a view of a fixed field; its size is capped
+(`MAX_VIEW_TILES`, in cells) only so a huge window can't ask for an unbounded canvas. The HUD floats as an **overlay** on top, not in a chrome bar.
 
 ## Layers (composited bottom-to-top)
 
@@ -64,7 +66,7 @@ horizon colour. It's the only part of the frame that isn't tile-driven.
 - **The gradient is smooth, not dithered.** Every other surface here quantises and Bayer-dithers to
   hold the pixel-art grain — rock, the darkness scrim, the vignette. The sky interpolates per
   scanline, so it's the single continuous-tone element in the game and reads as from a different
-  renderer up close. It wants the same `DSTEP`-style ordered dither as the scrim.
+  renderer up close. It wants the same `DITHER_STEPS`-style ordered dither as the scrim.
 
 **It will also stop being static.** With a [day/night cycle](DESIGN.md#the-world) the two stops
 become a function of time, interpolated between phase keyframes — which means the sky can no longer
