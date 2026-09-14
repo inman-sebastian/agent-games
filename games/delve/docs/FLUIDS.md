@@ -79,6 +79,38 @@ It's pure, deterministic TypeScript, and cheap: a few thousand springs for a scr
 **Splashes** are small ballistic droplets thrown up where something breaks the surface. They're
 decoration: they fall back, and vanish in water or on rock without adding to it.
 
+## Flow — how digging moves water (step 2)
+
+`client/src/fluid/bodies.ts`. Pure, deterministic, and volumes are whole pixels.
+
+- **A basin fills lowest pixel first** from the body's seeds (where its liquid came to rest). The level
+  is the highest row filled. The body's liquid is the first `volume` pixels of that order, sorted lowest
+  row first, so any volume stands flat.
+- **Pits are part of the basin.** A pixel reached below the level is a pit if everything connected
+  below the level lies within `PIT_DEPTH` (3) rows of it. The eroded rock leaves such pits all along a
+  floor, and treating each as a way down kept a pool trickling into itself.
+- **Deeper, it's a way down: the basin spills.**
+  - Its capacity stops below the rim's own row, since water standing that high is already over it.
+  - The excess leaves as a **stream** at `streamRate` (900 px of volume per second), falls straight
+    down, and joins the body whose basin it lands in, or starts a new body.
+- **Bodies merge** when their liquid touches, and when two full bodies spill into each other (they
+  stand above a shared rim). A merged body keeps both sets of seeds, so it fills both basins at once.
+- **Nothing teleports.** A dig can change the true state at once (a pool joined to an empty basin
+  levels immediately), so what's _shown_ follows the true state at the stream rate: the highest pixels
+  clear first and the lowest fill first. A breached reservoir's level visibly falls while the other side
+  fills from the bottom.
+  - The surface is drawn per column from what's shown, so the two sides can stand at different heights
+    while water flows.
+- **Tests** (`bodies.test.ts`, each red-checked):
+  - fills flat;
+  - overflows a rim as a stream into the next basin, conserving every pixel;
+  - drains through a hole dug in its floor;
+  - merges pools joined below their surfaces;
+  - one flat pool over a bumpy floor (fails without pits);
+  - two full basins join over their rim (fails without the rim merge);
+  - a joined basin fills visibly rather than at once (fails if the display snaps);
+  - deterministic.
+
 ## Rendering
 
 - **Where water is:** in each body column, from the level plus that column's offset down to the rock.
