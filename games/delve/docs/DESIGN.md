@@ -647,14 +647,44 @@ Note the direction of the lesson: the split didn't make the renderer slow, it ma
 sloppiness expensive enough to find. See [LIGHTING.md](LIGHTING.md#cost) for the bounds and their
 derivations.
 
-**Two more lengths were left in block units** by the migration, both found while measuring rather
-than by playing:
+**Three more lengths were left in block units** by the migration. Note how they were found: two
+while measuring, one only by a human playing the game. The grid change was verified as
+world-generation and collision, and every one of these is presentation — the tests were never going
+to catch them.
 
 - `BASE_LAMP`/`LANTERN_LAMP_BONUS` — the lamp is a distance, so leaving it at 3.4 halved how far the
   miner could see, with no change to a line of lighting code. Now `* SUB`, with a test that states
   the reach in blocks so a future re-scale can't shrink it again.
 - `MIN_VIEW_TILES`/`MAX_VIEW_TILES` — counted in cells now, so the cap bound at half the world area
   it used to and a wide window's canvas stopped filling the viewport entirely.
+- `OPEN_ATTEN`/`ROCK_ATTEN`/`DIAGONAL_ATTEN` — the lighting's **per-step** conduction, tuned when a
+  step was a block. A step is half a block now, so light decayed twice as fast per unit of world
+  distance: the lamp lit the cells the miner stood on and a carved tunnel went black a block or two
+  out, while a fresh window looked perfect because the surface is lit by daylight, not by
+  propagation. They're authored per block and rooted to the per-cell step now
+  (`perBlock ** (1 / SUB)`), so `SUB` cell-steps decay exactly as one block-step did — a restoration,
+  not a re-tune. `lampReachBlocks` is exported purely so a test can assert the reach in blocks;
+  [LIGHTING.md](LIGHTING.md#cost) has the derivation.
+
+And two in the RENDERER's own units, both reported by playing, not by measuring — the symptom was
+light appearing to stick to the single cell next to a freshly mined tunnel, while anything dug
+before the last reload looked perfect:
+
+- **A dig repainted a 3x3-cell window** instead of re-baking. The window has to cover how far the
+  dig moved the shading, and that region is not a disc: the top-light seeds from the nearest opening
+  above and walks DOWNWARD, so opening a cell re-shades everything beneath it for `TOP_LIGHT_ROWS`.
+  A 3x3 window of the old, twice-as-big cells had slack; the split took it away. Digs now **re-bake
+  the affected chunks** — exact by construction, since a chunk bake reads live world state and takes
+  its own context — synchronously for the chunk under the pick, off-thread for the rest.
+- **`MARGIN`**, a chunk's context in cells, was 1. Measured in `labs/patch-lab`: at `MARGIN 1` the
+  worst pixel of a chunk-assembled render is off by **207** (of 1020 across four channels) from the
+  same region baked in one piece; at the shading's influence radius it is off by **5**.
+
+The lesson for the next grid change: **grep for every constant whose unit is a length or a
+per-step rate**, not just the ones the simulation reads. A rate per step is a length in disguise,
+and so is a count of cells used as a margin. Of the five found here, only one was caught by a test;
+the renderer's own units needed a purpose-built check
+([patch-lab](../tools/README.md)) that renders a region two ways and diffs them.
 
 ### Also queued
 

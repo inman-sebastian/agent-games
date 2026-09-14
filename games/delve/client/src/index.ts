@@ -12,7 +12,15 @@ import type {
   StateMessage,
   ClientCommand,
 } from '@delve/shared';
-import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './render/cave-render';
+import {
+  T,
+  setStrata as setRenderStrata,
+  composeBand,
+  mix,
+  hashXY,
+  SHADE_INFLUENCE_CELLS,
+  TOP_LIGHT_ROWS,
+} from './render/cave-render';
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import type { Pen } from '@delve/shared';
@@ -38,7 +46,12 @@ let LH = VIEW_ROWS * T;
 // Cached rock CHUNK size (tiles) + a shading-context margin so chunk seams are invisible.
 const CW = 12;
 const CH = 6;
-const MARGIN = 1;
+// Context a chunk bake needs around itself, in CELLS. The shading reads a falloff range sideways
+// and seeds the top-light from above, so a chunk rendered with less context than that disagrees
+// with a whole-region render at its seams. Measured in labs/patch-lab: at MARGIN 1 the worst pixel
+// is off by 207 (of 1020 across 4 channels); at the influence radius it is off by 5, i.e. nothing.
+// It was 1 when a cell was a whole block and there was slack; the 2x2 split (#44) removed it.
+const MARGIN = SHADE_INFLUENCE_CELLS;
 const CAMERA_LERP = 0.16; // per-frame fraction the camera closes on its target (smooth follow)
 const CHUNK_CACHE_LIMIT = 400; // start evicting far chunks once the cache grows past this
 const CHUNK_EVICT_MARGIN = 12; // keep chunks within this many chunk-cells of the view
@@ -46,8 +59,8 @@ const CHUNK_EVICT_MARGIN = 12; // keep chunks within this many chunk-cells of th
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 
-// Scratch buffer: renders one chunk (+margin) at a time when baking rock; also reused for the
-// small per-dig patch window (always ≤ a chunk, so it fits).
+// Scratch buffer: renders one chunk (+margin) at a time when baking rock. A dig re-bakes whole
+// chunks through this same path, so there is no separate patch-window size to keep in step.
 const fieldBuf = document.createElement('canvas');
 fieldBuf.width = (CW + 2 * MARGIN) * T;
 fieldBuf.height = (CH + 2 * MARGIN) * T;
@@ -297,7 +310,9 @@ if (canOffloadChunks) {
       chunk.ctx.drawImage(bmp, 0, 0);
       bmp.close();
       chunks.set(key, chunk);
-      if (queued) for (const [c, r] of queued) patchDig(c, r); // re-apply digs that landed mid-flight
+      // Digs that landed while this bake was in flight: the live dug set is complete now, so one
+      // more bake settles it — no need to replay them individually.
+      if (queued && queued.length) rebakeChunk(cx, cy);
     };
     worker.onerror = () => {
       worker = null; // fall back to sync on failure
@@ -307,9 +322,9 @@ if (canOffloadChunks) {
   }
 }
 
-// dug tiles overlapping a chunk's render region — extended 12 rows up so the Worker has the
+// dug cells overlapping a chunk's render region — extended TOP_LIGHT_ROWS up so the Worker has the
 // openings that feed top-light seeding (usually empty for fresh depth).
-const TOP_LIGHT_LOOKUP_ROWS = 12;
+const TOP_LIGHT_LOOKUP_ROWS = TOP_LIGHT_ROWS;
 function dugInRegion(cx: number, cy: number): string[] {
   const left = cx * CW - MARGIN;
   const right = cx * CW + CW - 1 + MARGIN;
@@ -377,55 +392,53 @@ function getChunk(cx: number, cy: number): Chunk | null {
 // generated, queue the patch to re-apply when it arrives.
 function patchDig(c: number, r: number): void {
   const start = performance.now();
-  const coreL = c - 1;
-  const coreR = c + 1;
-  const coreT = r - 1;
-  const coreB = r + 1;
-  const bandLeft = coreL - MARGIN;
-  const bandTop = coreT - MARGIN;
-  composeBand(
-    lb,
-    solidTile,
-    bandLeft,
-    bandTop,
-    coreR - coreL + 1 + 2 * MARGIN,
-    coreB - coreT + 1 + 2 * MARGIN,
-    Infinity,
-    surfaceOf,
-    materialAt,
-  );
-  // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
-  for (let cy = chunkY(coreT); cy <= chunkY(coreB); cy++) {
-    for (let cx = chunkX(coreL); cx <= chunkX(coreR); cx++) {
+  // A dig REBAKES the chunks it can affect rather than patching a window around it. A chunk bake is
+  // exact by construction — it reads live world state and takes its own context, including the rows
+  // above that seed the top-light — while a patch window has to predict how far the shading moved.
+  // That distance is not a disc: `topDist` walks DOWN from an opening, so a dig re-shades everything
+  // beneath it for TOP_LIGHT_ROWS cells. The old 3x3-cell window covered it back when a cell was
+  // twice as big and there was slack; after the 2x2 split (#44) it left a ring of stale rock around
+  // every fresh tunnel, which read as the lamp light sticking to the one cell that got redrawn.
+  const ownCx = chunkX(c);
+  const ownCy = chunkY(r);
+  for (let cy = chunkY(r - SHADE_INFLUENCE_CELLS); cy <= chunkY(r + TOP_LIGHT_ROWS); cy++) {
+    for (
+      let cx = chunkX(c - SHADE_INFLUENCE_CELLS);
+      cx <= chunkX(c + SHADE_INFLUENCE_CELLS);
+      cx++
+    ) {
       const key = ckey(cx, cy);
-      const chunk = chunks.get(key);
-      if (!chunk) {
-        if (pending.has(key)) {
-          const queued = pending.get(key) || [];
-          queued.push([c, r]);
-          pending.set(key, queued);
-        }
+      if (!chunks.has(key)) {
+        // Not baked yet. If a bake is already in flight it may have been requested with a dug set
+        // from before this dig, so mark it to be rebaked the moment it lands.
+        if (pending.has(key)) pending.set(key, [...(pending.get(key) ?? []), [c, r]]);
         continue;
       }
-      const wl = Math.max(coreL, cx * CW); // world-tile intersection of the core and this chunk
-      const wr = Math.min(coreR, cx * CW + CW - 1);
-      const wt = Math.max(coreT, cy * CH);
-      const wb = Math.min(coreB, cy * CH + CH - 1);
-      chunk.ctx.drawImage(
-        fieldBuf,
-        (wl - bandLeft) * T,
-        (wt - bandTop) * T,
-        (wr - wl + 1) * T,
-        (wb - wt + 1) * T,
-        (wl - cx * CW) * T,
-        (wt - cy * CH) * T,
-        (wr - wl + 1) * T,
-        (wb - wt + 1) * T,
-      );
+      // The chunk under the pick is redrawn synchronously so digging stays instant; the rest only
+      // change shading a few cells away and can land a frame or two later, off-thread.
+      if (cx === ownCx && cy === ownCy) renderChunkSync(cx, cy);
+      else rebakeChunk(cx, cy);
     }
   }
   lastRebuildMs = performance.now() - start;
   rebuildCount++;
+}
+
+/** Re-bake an ALREADY cached chunk off-thread, keeping the current pixels visible until it lands. */
+function rebakeChunk(cx: number, cy: number): void {
+  if (!worker) {
+    renderChunkSync(cx, cy);
+    return;
+  }
+  const key = ckey(cx, cy);
+  if (pending.has(key)) {
+    // A bake is in flight with a possibly-stale dug set — flag it so it rebakes again on arrival.
+    pending.set(key, [...(pending.get(key) ?? []), [cx, cy]]);
+    return;
+  }
+  pending.set(key, null);
+  bakeSentAt.set(key, performance.now());
+  worker.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
 }
 
 // ---- lighting ---------------------------------------------------------------------------
@@ -440,7 +453,10 @@ const lighting = createLighting();
 const surfaceOf = (column: number): number => engine.surfaceAt(s.world.seed, column);
 
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
-const LAMP_REACH_GAIN = 0.16; // added lamp brightness per tile of lamp reach (Deep Lantern reaches further)
+// Brightness per BLOCK of lamp reach. `lamp` is a distance in cells since the 2x2 split (#44), and
+// this is the one place it's read as a brightness rather than a distance — multiplying the cell
+// count would inflate the seed and over-light the scene, so it converts back to blocks first.
+const LAMP_REACH_GAIN = 0.16; // added lamp brightness per block of lamp reach (Deep Lantern reaches further)
 
 // idle dust motes that drift near the lamp (positions are seeded once, animated by time)
 const motes = Array.from({ length: 10 }, () => ({
@@ -709,7 +725,7 @@ function render(t: number): void {
       (py - 0.1) * T,
       0,
       LAMP_COLOR,
-      LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * st.lamp,
+      LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
     );
     lighting.render({
       g: ctx,
@@ -847,15 +863,25 @@ function pointerTile(): TileCoord | null {
   const wy = ((aim.cy - rect.top) / rect.height) * LH + camY;
   return { column: Math.floor(wx / T), row: Math.floor(wy / T) };
 }
-// keyboard aim: the neighbour tile in the held/facing direction (S/↓ down, else side/facing)
+// keyboard aim: the neighbour cell in the held/facing direction (S/↓ down, else side/facing).
+// Aiming DOWN is relative to the FEET, not the centre. `player.y` is the body's centre and the body
+// is 2*HH tall — 3.64 cells since the 2x2 split (#44) — so the old `floor(y) + 1` addressed a cell
+// INSIDE the player. It always hit open space, which is not solid, so mining down with the keyboard
+// silently did nothing at all. (Sideways is unaffected: the column is outside the body either way.)
 function keyboardAimTile(): TileCoord {
+  if (held.down) {
+    // the cell the feet are standing on. y + HH lands exactly on the boundary when grounded, so
+    // nudge inside it before flooring rather than trusting the float to fall the right way.
+    return {
+      column: Math.floor(s.player.x),
+      row: Math.floor(s.player.y + engine.PHYS.HH + 0.01),
+    };
+  }
   let dx = 0;
-  let dy = 0;
-  if (held.down) dy = 1;
-  else if (held.left) dx = -1;
+  if (held.left) dx = -1;
   else if (held.right) dx = 1;
   else dx = s.player.facing === 'left' ? -1 : 1;
-  return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) + dy };
+  return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) };
 }
 
 // ---- game loop (fixed-tick sim + client prediction) -------------------------------------

@@ -6,7 +6,8 @@
 // One independent system: every light source — the miner's lamp, glowing ore, anything later —
 // is an emitter and obeys the SAME rules. Light is OCCLUDED BY ROCK: emitters seed a world-space
 // per-tile colour field, propagated across the visible tile window (Terraria's technique) —
-// open/dug tiles conduct light (OPEN_ATTEN per step), solid rock absorbs it fast (ROCK_ATTEN).
+// open/dug cells conduct light (OPEN_ATTEN per step), solid rock absorbs it fast (ROCK_ATTEN) —
+// both authored per BLOCK and rooted to the per-cell step, so the reach is a world distance.
 // So light pools down carved tunnels and dies a couple tiles into rock; the lit region takes the
 // SHAPE of the dug space, not a circle. The field is compdd per tile then composited as a
 // GPU-upscaled additive colour glow + a per-pixel DITHERED darkness scrim (pixel-art fog).
@@ -15,6 +16,7 @@
 // the field around the view, so the grid stays small in an unbounded world).
 //   r === 0  → lamp field (warm, drives the darkness scrim / visibility).
 //   r  >  0  → ore-glow field (its own colour, kept separate so the lamp can't swamp it).
+import { SUB } from '@delve/shared';
 import type { LightColor } from '@delve/shared';
 
 const DITHER_STEPS = 10; // brightness quantisation levels for the darkness scrim + vignette
@@ -24,10 +26,16 @@ const AMBIENT: LightColor = [0, 0, 0]; // no floor — lamp-only visibility: unl
 const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades toward (deep, cool)
 const ADD = 0.26; // how strongly the light field shows as additive glow
 const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
-const OPEN_ATTEN = 0.7; // per-step light conduction down an open tunnel
-const ROCK_ATTEN = 0.68; // per-step conduction into solid rock — light bleeds a couple tiles into the
-// undug walls around a tunnel (a subtle Terraria-style lit-wall look), not just a thin rim
-const DIAGONAL_ATTEN = 0.9; // extra factor on diagonal propagation steps
+// Conduction is authored PER BLOCK and converted to the per-cell step the sweeps actually take.
+// These were tuned when one step was one block; the 2x2 split (#44) made a step half a block, which
+// silently halved the distance light travels — the lamp lit only the cells nearest the miner and a
+// carved tunnel went dark a block or two out. Taking the SUB-th root makes SUB cell-steps decay
+// exactly as one block-step used to, so the reach is restored rather than re-tuned by eye.
+const perCell = (perBlock: number): number => perBlock ** (1 / SUB);
+const OPEN_ATTEN = perCell(0.7); // light conduction down an open tunnel, per block
+const ROCK_ATTEN = perCell(0.68); // conduction into solid rock — light bleeds a couple of BLOCKS into
+// the undug walls around a tunnel (a subtle Terraria-style lit-wall look), not just a thin rim
+const DIAGONAL_ATTEN = perCell(0.9); // extra factor on diagonal propagation steps
 const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
 const ORE_GLOW = 1.6; // ore-glow seed strength (r>0 emitters flood their colour into open space)
 const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
@@ -44,6 +52,18 @@ const VIGNETTE_SPAN = 0.48; // and reaches full over this fraction of the half-h
 const VIGNETTE_MAX = 0.5; // max vignette darkness at the corners
 
 export const LAMP_COLOR: LightColor = [1.0, 0.72, 0.42]; // warm lantern
+
+/**
+ * How far, in BLOCKS, a seed of `intensity` carries down an open tunnel before the scrim crushes it
+ * to black. Exported to be asserted: the reach is a WORLD distance, and it has to stay one across a
+ * change to the grid. Both times this system broke it was a length left in the old units after the
+ * 2x2 split (#44) — first the lamp stat, then the per-step attenuation — and each time the symptom
+ * was light hugging the miner while a carved tunnel went dark, which no test could see.
+ */
+export function lampReachBlocks(intensity: number): number {
+  if (intensity <= LIGHT_FLOOR) return 0;
+  return Math.log(LIGHT_FLOOR / intensity) / Math.log(OPEN_ATTEN) / SUB;
+}
 
 interface Emitter {
   x: number;

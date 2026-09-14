@@ -54,6 +54,27 @@ surroundings out of the dark** by the identical rule, and the **first rock layer
 around a lit tunnel catches a warm rim for free** (one attenuated step of warm light)
 — the SteamWorld dug-edge signature, emergent rather than special-cased.
 
+## Reach is a world distance
+
+`OPEN_ATTEN`, `ROCK_ATTEN` and `DIAGONAL_ATTEN` are authored **per block** and converted to the
+per-cell step the sweeps take, via `perBlock ** (1 / SUB)`. So `SUB` cell-steps decay exactly as one
+block-step does, and **how far light carries doesn't change when the grid is subdivided**.
+
+This is not a style preference — it's the bug this system has shipped twice, both times after the
+2×2 split (#44), and both times presenting identically: the lamp lights only what the miner is
+standing on while a carved tunnel goes black a block or two out, _and a fresh window looks perfect_
+because the surface is lit by daylight rather than by propagation.
+
+1. `BASE_LAMP` stayed at 3.4 when the unit became cells — the lamp's reach halved with no change to
+   a line of lighting code.
+2. The attenuation stayed per-step when a step became half a block — light decayed twice as fast per
+   unit of world distance.
+
+`lampReachBlocks(intensity)` is exported for no reason other than to be asserted (see
+`lighting.test.ts`): it states the reach in **blocks**, so a future re-scale that leaves a length in
+the wrong units fails a test instead of shipping. If you add a constant here whose unit is a length
+or a per-step rate, express it per block. **A rate per step is a length in disguise.**
+
 ## Cost
 
 The pass is **bounded by the lamp, not by the screen** — every step below does work proportional to
