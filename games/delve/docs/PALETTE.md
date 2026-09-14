@@ -75,7 +75,7 @@ suspended there, and it buys three things:
 
 The lamp is **warm** and the void is **cool** ([LIGHTING.md](LIGHTING.md)). So **daylight is cool
 and neutral** — otherwise the surface and the mine light alike and the contrast that makes lamplight
-feel like *your* light disappears.
+feel like _your_ light disappears.
 
 The payoff: at night the surface goes cool and dark, and the warm lamp matters up there by exactly
 the same rule it matters underground. One visual language, two places.
@@ -86,11 +86,11 @@ The sky is a **two-stop vertical gradient, dithered like everything else** (see
 [RENDERING.md](RENDERING.md) — it is currently smooth, which is a bug). Keyframed per phase and
 interpolated between them, zenith → horizon:
 
-| Phase | Zenith | Horizon |
-| ----- | ------ | ------- |
-| **Day** | `#4d9be6` | `#8fd3ff` |
+| Phase           | Zenith    | Horizon   |
+| --------------- | --------- | --------- |
+| **Day**         | `#4d9be6` | `#8fd3ff` |
 | **Dusk / dawn** | `#753c54` | `#f57d4a` |
-| **Night** | `#2e222f` | `#323353` |
+| **Night**       | `#2e222f` | `#323353` |
 
 All six are R64. Night's zenith is R64's darkest, which is the same shadow step the strata ramps
 use — so the night sky and the deepest rock share a floor.
@@ -116,21 +116,21 @@ cleanly in a square and they all read at roughly the same size. Metals are lumpy
 misshapen **nuggets** (a per-ore seeded angular wobble, never perfect spheres); gems
 are faceted/airier by design.
 
-| Ore     | Triad                     | Shape          | Band (rows) |
-| ------- | ------------------------- | -------------- | ----------- |
-| Dirt    | `#48371f #6d5230 #8f6b3c` | nugget (`dim`) | 2–8         |
-| Copper  | `#7a3045 #cd683d #f79617` | nugget         | 4–24        |
-| Iron    | `#3e3546 #7f708a #c7dcd0` | nugget         | 16–52       |
-| Silver  | `#625565 #9babb2 #e8eef5` | nugget         | 40–92       |
-| Gold    | `#4c3e24 #f9c22b #fbff86` | nugget         | 76–156      |
-| Emerald | `#165a4c #1ebc73 #91db69` | prism          | 132–240     |
-| Ruby    | `#831c5d #f04f78 #f68181` | cluster        | 216–370     |
-| Diamond | `#0b8a8f #30e1b9 #8ff8e2` | gem            | 330–530     |
-| Mythril | `#484a77 #905ea9 #a884f3` | shard          | 480+        |
-| Quartz  | `#6f6d78 #c9c7d0 #ffffff` | prism          | 95–210      |
-| Platinum| `#5f6b7e #bcc9d6 #f0f6ff` | nugget         | 210–360     |
-| Obsidian| `#17151f #33304a #8a86b0` | shard          | 430–650     |
-| Stone Bricks | `#3e3546 #6f708a #9babb2` | nugget    | 20–90       |
+| Ore          | Triad                     | Shape          | Band (rows) |
+| ------------ | ------------------------- | -------------- | ----------- |
+| Dirt         | `#48371f #6d5230 #8f6b3c` | nugget (`dim`) | 2–8         |
+| Copper       | `#7a3045 #cd683d #f79617` | nugget         | 4–24        |
+| Iron         | `#3e3546 #7f708a #c7dcd0` | nugget         | 16–52       |
+| Silver       | `#625565 #9babb2 #e8eef5` | nugget         | 40–92       |
+| Gold         | `#4c3e24 #f9c22b #fbff86` | nugget         | 76–156      |
+| Emerald      | `#165a4c #1ebc73 #91db69` | prism          | 132–240     |
+| Ruby         | `#831c5d #f04f78 #f68181` | cluster        | 216–370     |
+| Diamond      | `#0b8a8f #30e1b9 #8ff8e2` | gem            | 330–530     |
+| Mythril      | `#484a77 #905ea9 #a884f3` | shard          | 480+        |
+| Quartz       | `#6f6d78 #c9c7d0 #ffffff` | prism          | 95–210      |
+| Platinum     | `#5f6b7e #bcc9d6 #f0f6ff` | nugget         | 210–360     |
+| Obsidian     | `#17151f #33304a #8a86b0` | shard          | 430–650     |
+| Stone Bricks | `#3e3546 #6f708a #9babb2` | nugget         | 20–90       |
 
 Metals (Dirt/Copper/Iron/Silver/Gold) all use the lumpy `nugget`; the four gems
 keep their distinct crystal shapes. **Dirt** is a `dim` ore — a plain clod with no

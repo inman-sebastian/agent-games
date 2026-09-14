@@ -342,18 +342,18 @@ path equals the name, so nothing changed for the existing pack.
 Two manifest fields follow from it: **`only`** selects a facing (a side-scroller can use exactly one,
 and listing every other facing in `skip` would say nothing), and **`sheetRow`** points the PNG
 cross-check at the right row. Without `sheetRow` the height guard failed and the check was skipped
-*silently*, which is the worst outcome — that check is the only thing that catches a stale export.
+_silently_, which is the worst outcome — that check is the only thing that catches a stale export.
 
 ### Still open: a skin keys on COLOUR, and not every pack encodes parts that way
 
 The current pack is a **colour-coded template**: each body part has its own code, which is what lets
 `TEMPLATE_PARTS` map a colour to a part and a shade rank. Hana is a **blank base character** — three
 colours total (outline, light, shadow) shared by every part. Part identity lives only in the
-*layers*.
+_layers_.
 
 So `TEMPLATE_PARTS` cannot express a skin for it, and the test that every template colour maps to a
 part fails by design. Per-slot **materials** already key on the slot name and would work; a
-per-slot *flat ramp* has no equivalent. That is the gap if a pack like this is ever adopted.
+per-slot _flat ramp_ has no equivalent. That is the gap if a pack like this is ever adopted.
 
 ### Driving them: `client/labs/char-lab.html`
 
@@ -373,14 +373,14 @@ several hundred. Anything static in a lab belongs in a cache; the compositor is 
 
 The fixture is a per-column table, and every zone is one question:
 
-| Zone | Asks |
-| --- | --- |
-| 1-tile step | does step-up assist feel like help or a yank |
-| 2-tile step | is the jump readable as the way past it |
-| 2-tile corridor | stand but not jump — cost or tedium |
-| 3-tile corridor | the clearance a jump actually needs |
-| 1-tile crawl | only a sub-tile body fits; the small character's whole argument |
-| shaft | falling, and getting back out |
+| Zone            | Asks                                                            |
+| --------------- | --------------------------------------------------------------- |
+| 1-tile step     | does step-up assist feel like help or a yank                    |
+| 2-tile step     | is the jump readable as the way past it                         |
+| 2-tile corridor | stand but not jump — cost or tedium                             |
+| 3-tile corridor | the clearance a jump actually needs                             |
+| 1-tile crawl    | only a sub-tile body fits; the small character's whole argument |
+| shaft           | falling, and getting back out                                   |
 
 **The hitbox is drawn from the same half-extents the sim collides with**, so a mismatch between box
 and sprite is visible rather than inferred. That is the point of the lab: the 2× candidate matches the
@@ -388,17 +388,17 @@ miner's box exactly, and the 1× candidate's box is a third of the area.
 
 ### What it actually costs
 
-| | Current pack | Hana Caraka |
-| --- | --- | --- |
-| Height | 30 art px, ~1.9 tiles | **15 art px, ~0.9 tiles** |
-| View | side profile | three-quarter, facing the viewer |
-| Facings | one | three (`up`, `down`, `side`) |
-| Legs | own layers | none — the body carries them |
+|          | Current pack          | Hana Caraka                              |
+| -------- | --------------------- | ---------------------------------------- |
+| Height   | 30 art px, ~1.9 tiles | **15 art px, ~0.9 tiles**                |
+| View     | side profile          | three-quarter, facing the viewer         |
+| Facings  | one                   | three (`up`, `down`, `side`)             |
+| Legs     | own layers            | none — the body carries them             |
 | Encoding | colour-coded per part | blank base: 3 codes for the whole figure |
 
 **The three-quarter view is fine, and an earlier note in this file said otherwise.** Plenty of
 side-scrollers draw characters facing the viewer; it reads as deliberate as long as it is
-*consistent*. The complaint that produced that note was about the deleted procedural rig, whose
+_consistent_. The complaint that produced that note was about the deleted procedural rig, whose
 perspective wandered frame to frame — inconsistency, not the angle itself. Corrected here because a
 wrong reason on record is worse than no reason.
 
@@ -407,14 +407,14 @@ sprite must be scaled by a whole number or it stops being pixel art:
 
 - **1×** — the figure is about one tile. The player body would come back down from 1.81 tiles, which
   re-opens every clearance in DESIGN.md. A one-tile miner makes tight tunnels viable and two-tile
-  corridors generous, which is arguably a *better* fit for a digging game.
+  corridors generous, which is arguably a _better_ fit for a digging game.
 - **2×** — the figure matches the current height exactly, but its pixels are twice the size of the
   world's. That breaks the one-pixel-grid rule the rest of the project holds, and it is visible: the
   outline comes out two art pixels thick against 16px tiles.
 
 **Per-part colour is the open gap.** `base` gives the whole figure one ramp, which is all the source
 encodes. Differentiating head from torso needs per-slot **materials**, which key on the slot name and
-so do not care how the source encoded parts — but there is no per-slot *flat ramp*, which is what a
+so do not care how the source encoded parts — but there is no per-slot _flat ramp_, which is what a
 simple recolour would want.
 
 ## Locomotion timing, and the step-up lift## Locomotion timing, and the step-up lift
@@ -422,14 +422,14 @@ simple recolour would want.
 **The walk cycle is locked to DISTANCE, not to the clock.** One full cycle covers `STRIDE_TILES`
 (2.2 tiles, so 1.1 per step) and the frame is chosen from the fraction of a stride covered.
 
-This began as a fix for the cycle reading as *slow* and turned out to be the same bug as the feet
+This began as a fix for the cycle reading as _slow_ and turned out to be the same bug as the feet
 skating. Driven by the pack's authored 1.08s at DELVE's 6 tiles a second, one cycle covered **6.5
 tiles** — a 3.2-tile stride on a character 0.9 tiles wide. Locking to the ground fixes both at once:
 
-| | Cycle | Effective rate | Stride |
-| --- | --- | --- | --- |
-| Clock-driven | 1.08 s | 7.4 fps | 6.5 tiles |
-| Distance-locked | 0.37 s at full speed | **21.8 fps** | 2.2 tiles (1.1 per step) |
+|                 | Cycle                | Effective rate | Stride                   |
+| --------------- | -------------------- | -------------- | ------------------------ |
+| Clock-driven    | 1.08 s               | 7.4 fps        | 6.5 tiles                |
+| Distance-locked | 0.37 s at full speed | **21.8 fps**   | 2.2 tiles (1.1 per step) |
 
 **No new art.** The frames were always there, being shown too slowly — which is worth remembering
 before reaching for more frames, because the pack has none to give.
@@ -440,7 +440,7 @@ A stationary player holds its frame, which is correct and is why there is no min
 ### The step-up lift
 
 The step-up assist (#44) moves the body a whole tile in one tick, and it has to — an assist that
-took time would not be an assist. But an instant one-tile rise reads as the character *teleporting*
+took time would not be an assist. But an instant one-tile rise reads as the character _teleporting_
 onto the ledge, which is exactly how it was reported.
 
 So the sim emits a `step` event carrying the height, and the renderer draws the figure **below** its

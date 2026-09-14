@@ -214,16 +214,16 @@ hydrates the persisted world.
 ### What real multiplayer needs (decided shape)
 
 The port was deliberately thin — a single-player game in multiplayer-shaped plumbing, kept
-malleable. The *architecture* is right and the hardest call (server authority) is already made; the
+malleable. The _architecture_ is right and the hardest call (server authority) is already made; the
 **feature set** is unbuilt. The gap is concrete:
 
-| Needed | Why |
-| --- | --- |
-| **World lifetime decoupled from connection lifetime** | Today each connection owns its **own private world** (`server/src/index.ts` holds one `Session` per socket). Many players must join *one* world, and worlds must outlive their creators. |
-| **Player roster + join/leave** | The `state` message carries **one** player and no roster — there is no representation of a second player anywhere in the protocol. |
-| **Entity replication** | Enemies, NPCs, dropped loot and projectiles are all server-owned entities. **The protocol has no entity concept at all** — the wire model is tiles plus one player. |
-| **Interest management** | The client currently receives the world's **entire** dug-tile set, which doesn't scale with world size or player count. |
-| **Three-scope persistence** | See below. A single JSON per player can't hold a shared world. |
+| Needed                                                | Why                                                                                                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **World lifetime decoupled from connection lifetime** | Today each connection owns its **own private world** (`server/src/index.ts` holds one `Session` per socket). Many players must join _one_ world, and worlds must outlive their creators. |
+| **Player roster + join/leave**                        | The `state` message carries **one** player and no roster — there is no representation of a second player anywhere in the protocol.                                                       |
+| **Entity replication**                                | Enemies, NPCs, dropped loot and projectiles are all server-owned entities. **The protocol has no entity concept at all** — the wire model is tiles plus one player.                      |
+| **Interest management**                               | The client currently receives the world's **entire** dug-tile set, which doesn't scale with world size or player count.                                                                  |
+| **Three-scope persistence**                           | See below. A single JSON per player can't hold a shared world.                                                                                                                           |
 
 **Keep replication area-of-interest-shaped from the start**, even behind a naive radius check. What
 forecloses scale isn't a naive implementation — it's baking **send-everything-to-everyone** into the
@@ -240,11 +240,11 @@ itself sits in [#29](https://github.com/inman-sebastian/agent-games/issues/29).
 travel into any world you join, and starting a fresh character is easy. That splits saved state into
 **three scopes with different owners and lifetimes**:
 
-| Scope | Holds | Lifetime |
-| --- | --- | --- |
-| **Account** | The discovery codex, settings | Forever; shared across *all* of a player's characters |
-| **Character** | Attributes, equipment, inventory, unlocks | Per character; travels between worlds |
-| **World** | Terrain mutations (`dug`/`dmg`), fluid, entities, NPCs, time of day | Per world; outlives whoever made it |
+| Scope         | Holds                                                               | Lifetime                                              |
+| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Account**   | The discovery codex, settings                                       | Forever; shared across _all_ of a player's characters |
+| **Character** | Attributes, equipment, inventory, unlocks                           | Per character; travels between worlds                 |
+| **World**     | Terrain mutations (`dug`/`dmg`), fluid, entities, NPCs, time of day | Per world; outlives whoever made it                   |
 
 **What exists today:** one whole-file JSON per `playerId` under `server/data/`
 (`server/src/store.ts`, which says so itself — fine for single-player, a real store is a later
@@ -266,7 +266,7 @@ and that hosting model is planned-around rather than committed. Recorded so the 
 so it's assumed:
 
 - **Hibernation** — a world with nobody in it stops ticking entirely. It's the lever that keeps cost
-  proportional to *active* worlds rather than *created* ones. Fluid mid-flow **runs to completion on
+  proportional to _active_ worlds rather than _created_ ones. Fluid mid-flow **runs to completion on
   resume**, treating downtime as owing time rather than having stopped; resuming from the paused
   state would make logging out a way to freeze a disaster.
 - **Retention** — created worlds accumulate forever unless something evicts them.
@@ -279,7 +279,7 @@ nobody connected, so what remains is unloading the sessions rather than inventin
 > **Decided, not built.** See [DESIGN.md](DESIGN.md#progression).
 
 `stats(player)` resolves derived capability from the player alone. Progression adds
-**environmental modifiers** — contextual effects that apply based on *where the player is* — so
+**environmental modifiers** — contextual effects that apply based on _where the player is_ — so
 capability stops being a pure function of the player and needs the world too.
 
 This is a **shared-ruleset signature change**, so it lands on both sides at once: the client

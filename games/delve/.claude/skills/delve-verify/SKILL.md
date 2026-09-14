@@ -8,7 +8,7 @@ description: How to verify a change in DELVE (games/delve) with the cheap headle
 Verify DELVE changes with the built headless tools before reaching for the browser. Reading
 browser-automation screenshots (especially full-viewport / hi-DPI) is slow and token-heavy; the
 tools below answer almost every question in text or one tiny cropped PNG. **Playwright/MCP is a last
-resort** — and even then read `?debug` overlay *text*, not pictures. If a tool doesn't cover
+resort** — and even then read `?debug` overlay _text_, not pictures. If a tool doesn't cover
 something, **extend the tool** rather than defaulting to Playwright. Full reference:
 [`tools/README.md`](../../../tools/README.md). Run everything from `games/delve/`.
 
@@ -61,6 +61,7 @@ Twinkle / Damage / Tiles** — to isolate a render pass while diagnosing.
 ## 4. Last resort — live feel only (Playwright/MCP)
 
 Only for things a still can't answer: real input feel, real FPS, animation timing. Even then:
+
 - Load `?debug` and read the overlay **text** via `browser_evaluate` — never a full-viewport shot.
 - To inspect pixel detail, draw a **zoom-crop overlay** of the game canvas into the page (drawImage a
   small source region onto a scaled offscreen canvas, `image-rendering: pixelated`) and screenshot

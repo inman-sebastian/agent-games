@@ -23,7 +23,13 @@
         height: 100%;
         background: var(--bg);
         color: var(--ink);
-        font: 12px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font:
+          12px/1.4 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          sans-serif;
       }
       #ui {
         display: flex;
@@ -151,10 +157,16 @@
       </label>
       <label><input type="checkbox" id="lit" /> lamp</label>
       <label
-        >scale <input type="range" id="scale" min="2" max="12" step="1" /><span class="val" id="scalev"></span
+        >scale <input type="range" id="scale" min="2" max="12" step="1" /><span
+          class="val"
+          id="scalev"
+        ></span
       ></label>
       <label
-        >depth <input type="range" id="depth" min="4" max="640" step="2" /><span class="val" id="depthv"></span
+        >depth <input type="range" id="depth" min="4" max="640" step="2" /><span
+          class="val"
+          id="depthv"
+        ></span
       ></label>
       <button id="regen">↻ seed</button>
     </div>

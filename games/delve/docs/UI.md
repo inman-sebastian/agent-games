@@ -19,14 +19,14 @@ lives in [DESIGN.md](DESIGN.md); the world's look lives in [PALETTE.md](PALETTE.
 The UI read as a web page laid _over_ a game rather than part of one. That was measurable, not a
 matter of taste — and the first three rows are now **fixed** ([#43](https://github.com/inman-sebastian/agent-games/issues/43)):
 
-|                                                              | Was  | Now                 |
-| ------------------------------------------------------------ | ---- | ------------------- |
-| Colours the UI stylesheet defines                            | 8    | 9, **all R64**      |
-| Of those, present in the game's authored colours             | 1    | **9**               |
-| Materials the renderer cannot produce (radii, blur, easing)  | 3    | **0**               |
-| Glyph characters standing in as button art (`▣ ✦ ♪ ↺ ◄ ► ⤒`) | 7    | 7 — see [Icons](#icons) |
-| Typefaces that are not pixel type                            | 1    | **0**               |
-| Pixel grids on screen at once                                | 2    | **1**               |
+|                                                              | Was | Now                     |
+| ------------------------------------------------------------ | --- | ----------------------- |
+| Colours the UI stylesheet defines                            | 8   | 9, **all R64**          |
+| Of those, present in the game's authored colours             | 1   | **9**                   |
+| Materials the renderer cannot produce (radii, blur, easing)  | 3   | **0**                   |
+| Glyph characters standing in as button art (`▣ ✦ ♪ ↺ ◄ ► ⤒`) | 7   | 7 — see [Icons](#icons) |
+| Typefaces that are not pixel type                            | 1   | **0**                   |
+| Pixel grids on screen at once                                | 2   | **1**                   |
 
 The one colour that used to overlap was `--ink: #e8eef5`, which happened to be **silver's
 highlight** — coincidence rather than intent. [PALETTE.md](PALETTE.md) opens by stating that _every_
@@ -148,7 +148,7 @@ makes worse. It is a tool, not chrome.
   measured clean. It has **true lowercase**, which is the reason it displaced Silkscreen: Silkscreen
   renders lowercase as small caps, so every material name shouted (`MYTHRIL`, `IRON`). Names now read
   as names.
-- **Jersey 15** carries **prose**: ore descriptions, subtitles, the tagline. Prose is the *only*
+- **Jersey 15** carries **prose**: ore descriptions, subtitles, the tagline. Prose is the _only_
   thing that gets the body face; the split is one grouped rule, so moving a surface between them is
   one line.
 
@@ -182,33 +182,33 @@ the colours are read back out of the stylesheet's own roles.
 
 Three rings and a face:
 
-| Ring | What |
-| --- | --- |
-| 0 | the hard outline — what separates a panel from the rock behind it |
-| 1 | the bevel lip, lit top-left and shaded bottom-right |
-| 2 | **optionally** (`well`) the same lip inverted, turning the content area into a shallow well |
-| middle | the face — **flat**, tiling across the panel |
+| Ring   | What                                                                                        |
+| ------ | ------------------------------------------------------------------------------------------- |
+| 0      | the hard outline — what separates a panel from the rock behind it                           |
+| 1      | the bevel lip, lit top-left and shaded bottom-right                                         |
+| 2      | **optionally** (`well`) the same lip inverted, turning the content area into a shallow well |
+| middle | the face — **flat**, tiling across the panel                                                |
 
 **The well is opt-in, and that is the fix for a real bug.** Applying it to every frame put the lit
-lip at *different depths on opposite sides* — depth 1 where the outer bevel shades, depth 2 where it
+lip at _different depths on opposite sides_ — depth 1 where the outer bevel shades, depth 2 where it
 lights — so the frame drew two L shapes one pixel apart that could never meet. On a large panel that
 reads as a rim, which is why it survived several looks. On a 20-pixel slot it reads as exactly what
 it is: disconnected, unevenly offset lines. **A recess is a single lip, always.**
 
 **Ring 2 is where a panel gets its substance.** A single bevel reads as a raised rectangle; a bevel
-with an opposed inner lip reads as a frame *around* something, which is what a panel is. One pixel,
+with an opposed inner lip reads as a frame _around_ something, which is what a panel is. One pixel,
 no texture. Variants are on the bench in `client/labs/panel-lab.html` — flat-and-outline, single
 bevel, this one, corner rivets, and the rejected textured version as a counter-example.
 
 Learned by looking, each now held by a test:
 
-- **The shade must be darker than the face.** The first version used the mid grey, which is *lighter*
+- **The shade must be darker than the face.** The first version used the mid grey, which is _lighter_
   than the panel, so the bottom and right read as lit too and the plate looked swollen.
 - **The inner lip must oppose the outer bevel**, or the frame just looks thicker.
 - **A control's face is one ramp step lighter** than a panel's, or three pixels of bevel has to do
   all the work of saying "this is a button".
 - **The lit step is two ramp steps above the face, not three.** At three it is the same value as the
-  body text, so the frame competes with what the panel is *for*. A bevel is a lighting cue, and a
+  body text, so the frame competes with what the panel is _for_. A bevel is a lighting cue, and a
   lighting cue that outshines everything else stops being one.
 - **Shade wins where lit and shade meet.** Painting every bevel corner dark looks principled — a
   corner cannot pick a side — and produces a lit top run starting one pixel in from the left and a
@@ -226,7 +226,7 @@ the lit step at one, two and three, and the drop shadow at four, two and none.
 Worth recording, because it was shipped and reverted.
 
 A version gave every surface a uniform hash-noise mottle and dithered the frame's inner ring, on the
-reasoning that the UI should share the rock's *materials* and not merely its palette. It read as a
+reasoning that the UI should share the rock's _materials_ and not merely its palette. It read as a
 mistake — "the small repeating background pattern looks distracting and looks like a mistake, the
 hashing pattern around the edges looks weird too." The research is unanimous about why:
 
@@ -259,12 +259,12 @@ Four answers to "what is a DELVE panel made of", each complete enough to judge �
 an inventory grid and a description row — rendered over the same real cave. Built because refining
 one direction had stopped being the question.
 
-| | Direction | The idea | The trade |
-| --- | --- | --- | --- |
-| A | **Cut stone** | The Stone ramp, bevelled frame with an inner well. The interface is made of the rock the player is looking at. | Panel and world are close in value, so the frame does all the separating. |
-| B | **Riveted iron** | Cooler and flatter, heavier outline, brass accent. The interface is *equipment* rather than geology. | Colder than the game around it; brass carries every highlight alone. |
-| C | **Miner's ledger** | The value structure **inverted** — warm paper, dark ink, on the Clay ramp. Your notebook, not a window. | A bright panel over a dark world is a hole punched in the screen. Wants to be smaller and rarer. |
-| D | **Lamp-lit, no panel** | Almost no chrome: content on a dithered scrim, a lamp-coloured rule under each heading, the world visible behind. | Only the scrim separates content from world, so a busy background can eat it. |
+|     | Direction              | The idea                                                                                                          | The trade                                                                                        |
+| --- | ---------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| A   | **Cut stone**          | The Stone ramp, bevelled frame with an inner well. The interface is made of the rock the player is looking at.    | Panel and world are close in value, so the frame does all the separating.                        |
+| B   | **Riveted iron**       | Cooler and flatter, heavier outline, brass accent. The interface is _equipment_ rather than geology.              | Colder than the game around it; brass carries every highlight alone.                             |
+| C   | **Miner's ledger**     | The value structure **inverted** — warm paper, dark ink, on the Clay ramp. Your notebook, not a window.           | A bright panel over a dark world is a hole punched in the screen. Wants to be smaller and rarer. |
+| D   | **Lamp-lit, no panel** | Almost no chrome: content on a dithered scrim, a lamp-coloured rule under each heading, the world visible behind. | Only the scrim separates content from world, so a busy background can eat it.                    |
 
 What varies, in order of how much it changes: the **value structure** (dark panel with light text, or
 light panel with dark ink), then **what the panel is made of**, then **how much chrome there is**.
@@ -287,14 +287,14 @@ The direction is settled: a cool flat plate, hard outline, bright top rim, brass
 accent. What is not settled is how the plate is **built**, so six constructions, with the palette held
 **constant** across all of them — if the accent moved too, the comparison would answer nothing.
 
-| | Construction | Reads as |
-| --- | --- | --- |
-| B1 | outline, lit rim, flat face | the baseline; only the rim says metal |
-| B2 | B1 + a 3×3 bolt head in each corner | cast and fastened |
-| B3 | outline, lit lip, **dark groove**, second lip | milled rather than cast — the thickest-feeling plate |
-| B4 | corners **chamfered** | cut steel, at the cost of the outline no longer closing at 90° |
-| B5 | **corner brackets only**, empty edge slices | the sparsest; the only one that does not box content in |
-| B6 | B2 + the heading in a **recessed title strip** | a label plate on a machine |
+|     | Construction                                   | Reads as                                                       |
+| --- | ---------------------------------------------- | -------------------------------------------------------------- |
+| B1  | outline, lit rim, flat face                    | the baseline; only the rim says metal                          |
+| B2  | B1 + a 3×3 bolt head in each corner            | cast and fastened                                              |
+| B3  | outline, lit lip, **dark groove**, second lip  | milled rather than cast — the thickest-feeling plate           |
+| B4  | corners **chamfered**                          | cut steel, at the cost of the outline no longer closing at 90° |
+| B5  | **corner brackets only**, empty edge slices    | the sparsest; the only one that does not box content in        |
+| B6  | B2 + the heading in a **recessed title strip** | a label plate on a machine                                     |
 
 **Bolt heads are 3×3, not 2×2.** At two art pixels there is no room for a rivet to have a lit side,
 and a dot with no lighting is a dot rather than a fastener — which is exactly how the 2×2 attempt in
@@ -316,24 +316,24 @@ as `<delve-slot>` (`client/src/ui/slot.ts`), so the other three come nearly free
 
 **A custom element**, per the component decision above — native, no dependency. This is the case
 where **Shadow DOM earns itself** rather than being applied on principle: a slot appears dozens of
-times on a screen, and the boundary makes the palette-via-custom-properties discipline *mandatory*
+times on a screen, and the boundary makes the palette-via-custom-properties discipline _mandatory_
 rather than encouraged. Custom properties are the only styling that pierces a shadow root, so a slot
 is themed by the same `--c-*`, `--px` and `--frame-*` roles as everything else and cannot invent a
 colour even by accident.
 
-| State | Reads as |
-| --- | --- |
-| `empty` | an inset recess with a drawn pip |
-| `filled` | the material, plus a count when it is more than one |
-| `selected` | a **lit gold outline** — the way every inventory since the 16-bit era has said "this one" |
-| `locked` | dimmed; progression has not opened this yet |
-| `unaffordable` | icon dimmed, count in gold; you lack the materials |
+| State          | Reads as                                                                                  |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| `empty`        | an inset recess with a drawn pip                                                          |
+| `filled`       | the material, plus a count when it is more than one                                       |
+| `selected`     | a **lit gold outline** — the way every inventory since the 16-bit era has said "this one" |
+| `locked`       | dimmed; progression has not opened this yet                                               |
+| `unaffordable` | icon dimmed, count in gold; you lack the materials                                        |
 
 `locked` and `unaffordable` are deliberately distinct. Both mean "not right now", but one is answered
 by playing on and the other by going and mining.
 
 **The empty state is a requirement, not polish.** It is what a new player sees most, and an actually
-blank box reads as a rendering failure rather than as a place something goes. So it is *drawn*: the
+blank box reads as a rendering failure rather than as a place something goes. So it is _drawn_: the
 inset frame plus a centred pip.
 
 ### Icons render through the game's own compositor
@@ -358,7 +358,7 @@ Three sizing rules, all learned by looking:
   sizes that keep the pixels square are whole multiples — 16 or 32, nothing between. 32 needs a ~36px
   slot, and six of those do not fit across a panel. So the icon stays 1:1 and the slot tightens
   around it, which is the same result by the only means available.
-- **Sizes are in CSS pixels, and one art pixel is two of them.** This caught *both* the count and the
+- **Sizes are in CSS pixels, and one art pixel is two of them.** This caught _both_ the count and the
   icon, separately, which is what makes it worth writing down. The count was set at Silkscreen's
   native 8px and the icon was asked for at "16" — both look like art-pixel numbers, both mean CSS
   pixels, and both rendered at half the scale of everything else on screen. The icon is now
@@ -366,24 +366,24 @@ Three sizing rules, all learned by looking:
   16px, which is 2× native.
 - **A count is white with a one-pixel text OUTLINE** — eight offset copies, so the dark hugs the
   letterforms rather than fencing a box around them. Eight and not four: four axis-aligned copies
-  leave the *diagonals* open and the outline never closes.
+  leave the _diagonals_ open and the outline never closes.
   **The unit is one GLYPH pixel, which is not always one art pixel.** That is what made every earlier
   attempt read as a box: the offset was two glyph pixels, wide enough to swallow both the gaps
   between digits and the counters inside them. A font's em is not its glyph height, so the ratio has
-  to be *measured* — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
+  to be _measured_ — Silkscreen at 16px renders one glyph pixel per two CSS pixels, at 8px one per
   one; Micro 5's em is twice its glyph height, so it never lands on the art grid at any size.
 - **The count is emboldened by smearing, not by a bold weight.** m5x7 ships one weight and there is
   no bold to switch to. A browser's synthetic bold blurs and thickens unevenly, which is the one
   thing a pixel face exists to avoid. The technique bitmap faces have always used instead is to draw
   the glyph **twice, one pixel apart**, so every stroke goes from one pixel to two — crisp, on the
-  glyph's own grid, and reversible. The dark outline then has to wrap the *thickened* shape, so it
+  glyph's own grid, and reversible. The dark outline then has to wrap the _thickened_ shape, so it
   runs from −1 to +2 rather than −1 to +1. Both variants are tokens (`--count-bold`, `--count-plain`)
   so switching is one line.
-- **The count face is m5x7 at 16px** — Daniel Linssen's pixel face, CC0, *designed at this job's
-  size*: its documentation recommends 16, 32, 48, and at 16 its digits are seven CSS pixels tall with
+- **The count face is m5x7 at 16px** — Daniel Linssen's pixel face, CC0, _designed at this job's
+  size_: its documentation recommends 16, 32, 48, and at 16 its digits are seven CSS pixels tall with
   a one-pixel stroke. Five pixels wide, so a four-character count stays narrow.
   **16 is not a multiple of anything meaningful, and that is the point.** "Whole multiple of the
-  face's design grid" is a *proxy* for clean rendering and it is wrong in both directions — it
+  face's design grid" is a _proxy_ for clean rendering and it is wrong in both directions — it
   rejects Silkscreen at 11px, which renders with every stroke the same width, and would accept 10px,
   which does not. The property that actually matters is whether every vertical stroke in a row of
   zeros comes out the same width; a face at a bad size lands some strokes on one pixel and others on
@@ -404,7 +404,7 @@ and three pixels at every size in range. Eight faces do render cleanly there: **
 Silkscreen 11px, Tiny5 11px, Pixelify Sans 11px, VT323 12px, DotGothic16 9px, Rubik Pixels 10px and
 Doto 10px.
 
-m5x7 is the one that was *designed* for it rather than merely surviving it, which is why it won: the
+m5x7 is the one that was _designed_ for it rather than merely surviving it, which is why it won: the
 sizes its author recommends are exactly the sizes the harness independently found clean.
 
 **m6x11, its larger sibling, was rejected on two counts**: at eleven pixels tall it is the wrong size
@@ -417,12 +417,12 @@ a count. Worth a look if the count ever needs to shrink again — drop the TTF i
 and add it to the harness's family list.
 
 The harness exists because this is not an eye question. At seven pixels tall the defect is one pixel
-of extra stroke on some glyphs and not others, which reads as *vaguely wrong* rather than as anything
+of extra stroke on some glyphs and not others, which reads as _vaguely wrong_ rather than as anything
 nameable — the same category of problem as the frame lips at different depths, and found the same
 way, by printing the pixels instead of looking harder.
 
 - **Large counts are compacted** (`1280` → `1.2k`). Four digits do not fit, and the failure mode was
-  the dangerous kind: `overflow: hidden` clipped the *leading* digit, so a stack of 1280 rendered as
+  the dangerous kind: `overflow: hidden` clipped the _leading_ digit, so a stack of 1280 rendered as
   "280". A wrong number is worse than a truncated one, because nothing about it looks wrong. A screen
   reader still gets the exact count — the compaction is a constraint on the glyphs, not on the
   information.
@@ -431,7 +431,7 @@ way, by printing the pixels instead of looking harder.
   icon's tile is buried with its opening **two rows up** — far enough that nothing erodes it, and the
   lighting is then remapped through the material's own shader (a brightness floor plus some of the
   geometric variation). Remapping rather than filtering matters: the shader still picks every colour
-  from its own ramp, so this can only choose a *lighter band* and can never invent an off-palette
+  from its own ramp, so this can only choose a _lighter band_ and can never invent an off-palette
   colour the way a canvas filter would. It is the one place an icon knowingly departs from the
   in-world look, and it departs in the only dimension that does not touch the art direction.
 - **Every icon samples a different world position.** The compositor's erosion and texture are
@@ -452,4 +452,3 @@ This also retires the last of the glyph characters standing in as art in these p
 `?` for an undiscovered material is now a `locked` slot, which reads as something you have not got
 rather than as missing data. The remaining glyphs are in the top bar and touch controls, and they
 need authored icons rather than this pipeline — a verb has no material to render.
-

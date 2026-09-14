@@ -44,7 +44,7 @@ with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome b
 3. **Overlays (per-frame)** — animated FX drawn over the cached rock: each exposed, lit
    vein's **twinkle**, **mining-damage** cracks on tiles taking hits, the miner, particles,
    then the **lighting pass** ([LIGHTING.md](LIGHTING.md)) last (lamp glow + darkness scrim
-   + vignette). Ore does **not** cast its own light.
+   - vignette). Ore does **not** cast its own light.
 
 Layers 1–2 are drawn by `composeBand` in `cave-render.ts` and cached as chunks (see
 [ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays draw per-frame on
@@ -80,12 +80,12 @@ Two constraints worth knowing before building it, because they shape the impleme
 
 - **Parallax can't live in the chunk cache.** Layers 1–2 are cached as **world-space** chunks, which
   works because a tile's appearance depends only on its world position. A parallax layer moves at a
-  *different rate* than the world, so its appearance depends on the **camera**, not the tile — so it
+  _different rate_ than the world, so its appearance depends on the **camera**, not the tile — so it
   needs its own per-frame pass (or a cache keyed by camera offset), not a place in `composeBand`.
   The same is true of the time-varying sky.
 - **Lamp-only visibility fights background detail underground.** The ambient floor is zero and the
   scrim reaches full on an unlit pixel ([LIGHTING.md](LIGHTING.md)), so anything beyond lamp reach
-  is *black* — including background layers. Underground parallax therefore only reads inside the
+  is _black_ — including background layers. Underground parallax therefore only reads inside the
   lit radius, which is a narrow band. That's a genuine tension with the true-void decision, and it
   resolves one of three ways: accept that underground parallax is close-range detail rather than
   depth cueing; exempt background layers from the scrim (which weakens the void); or lean on

@@ -64,7 +64,10 @@ describe('ore conformance', () => {
     // went wrong was a SHALLOW, PLENTIFUL material claiming the feedback owed to a deep, scarce
     // one. Both halves are asserted, so appending another ore file cannot reintroduce it.
     const top = ores.filter((o) => o.rarity === RARITY_MAX);
-    expect(top.map((o) => o.name), 'the top tier holds exactly one ore').toEqual(['Mythril']);
+    expect(
+      top.map((o) => o.name),
+      'the top tier holds exactly one ore',
+    ).toEqual(['Mythril']);
 
     const SHALLOW = 100; // rows; roughly the first two strata
     const CELEBRATED = Math.ceil(RARITY_MAX * 0.6); // the tier the client gives the big floaty to
@@ -81,7 +84,9 @@ describe('ore conformance', () => {
     // far more plentiful, and stone bricks are shallow but not a prize at all. A rarity that
     // tracked depth would also be built on the placement system, which is being demoted from
     // depth-only anyway (docs/BIOMES.md). So the two orderings must be allowed to disagree.
-    const byRarity = [...ores].sort((a, b) => a.rarity - b.rarity || a.id - b.id).map((o) => o.name);
+    const byRarity = [...ores]
+      .sort((a, b) => a.rarity - b.rarity || a.id - b.id)
+      .map((o) => o.name);
     const byDepth = [...ores].sort((a, b) => a.band[0] - b.band[0]).map((o) => o.name);
     expect(byRarity).not.toEqual(byDepth);
   });
