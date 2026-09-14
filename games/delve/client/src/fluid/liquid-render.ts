@@ -172,7 +172,13 @@ function idleOffset(worldX: number, time: number, speedScale: number): number {
 
 /** The cell grid the picture is drawn from: a visual fill and a falling amount per cell. */
 interface Field {
+  /** The body: resting and moving water that isn't falling. Its outline is the water's outline. */
   readonly fill: Float32Array;
+  /**
+   * Falling water, kept apart from the body and dithered over it. Blended into one field, a fall's cells
+   * flared the pool's outline into a mound wherever it landed.
+   */
+  readonly fallFill: Float32Array;
   readonly falling: Float32Array;
 }
 
@@ -188,6 +194,7 @@ function buildField(frame: LiquidFrame): Field {
   const { width, height, volume, downVelocity } = liquid;
   const fill = new Float32Array(width * height);
   const falling = new Float32Array(width * height);
+  const fallFill = new Float32Array(width * height);
   const resting = new Uint8Array(width * height);
   for (let column = 0; column < width; column++) {
     for (const run of waterRuns(liquid, column, DRAWN_MINIMUM)) {
@@ -226,7 +233,6 @@ function buildField(frame: LiquidFrame): Field {
     let shown = held;
     if (flow >= VISIBLE_FLOW)
       shown = Math.max(shown, Math.min(1, THIN_STREAM_FILL + flow * FILL_PER_FLOW));
-    fill[index] = Math.max(fill[index], shown);
     // shaded as falling only where it falls with something other than water beside it: water moving down
     // inside a surge is part of the body, or its pockets hung under the surface as arrows
     const waterLeft =
@@ -237,19 +243,33 @@ function buildField(frame: LiquidFrame): Field {
     // and only where water comes down from above: a lone drop settling back onto a pool fuzzed its surface
     const fedFromAbove =
       row > 0 && !liquid.isSolid(index - width) && volume[index - width] >= MOVING_MINIMUM;
-    if (Math.max(downIn, downVelocity[index]) > FALLING_SPEED && !inBody && fedFromAbove)
+    if (Math.max(downIn, downVelocity[index]) > FALLING_SPEED && !inBody && fedFromAbove) {
       falling[index] = 1;
+      fallFill[index] = Math.max(fallFill[index], shown);
+    } else {
+      fill[index] = Math.max(fill[index], shown);
+    }
   }
   // a trickle falls as packets with a dry cell between them: drawn wet, or the stream breaks into dashes
   for (let index = width; index < width * (height - 1); index++) {
-    if (fill[index] > 0 || resting[index] || liquid.isSolid(index)) continue;
-    const above = fill[index - width];
-    const below = fill[index + width];
-    if (above <= 0 || below <= 0 || falling[index - width] === 0) continue;
-    fill[index] = Math.min(above, below);
+    if (fallFill[index] > 0 || fill[index] > 0 || resting[index] || liquid.isSolid(index)) continue;
+    const above = fallFill[index - width];
+    const below = Math.max(fallFill[index + width], fill[index + width]);
+    if (above <= 0 || below <= 0) continue;
+    fallFill[index] = Math.min(above, below);
     falling[index] = 1;
   }
-  return { fill, falling };
+  // a pool's surface carries across a cell its water is draining down through (the column over a hole):
+  // drawn by that cell's own fill, the surface dipped into a notch over every drain
+  for (let index = 0; index < width * height; index++) {
+    if (resting[index] || liquid.isSolid(index)) continue;
+    const column = index % width;
+    if (column === 0 || column === width - 1) continue;
+    if (!resting[index - 1] || !resting[index + 1]) continue;
+    const across = Math.min(fill[index - 1], fill[index + 1]);
+    if (across > fill[index]) fill[index] = across;
+  }
+  return { fill, fallFill, falling };
 }
 
 /**
@@ -317,7 +337,8 @@ export function drawLiquid(
   const near = new Uint8Array(liquid.width * liquid.height);
   for (let row = 0; row < liquid.height; row++) {
     for (let column = 0; column < liquid.width; column++) {
-      if (field.fill[row * liquid.width + column] <= 0) continue;
+      const cellIndex = row * liquid.width + column;
+      if (field.fill[cellIndex] <= 0 && field.fallFill[cellIndex] <= 0) continue;
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
           const r = row + dr;
@@ -345,17 +366,17 @@ export function drawLiquid(
         continue;
       const centreX = x + 0.5;
       const centreY = y + 0.5 - idleOffset(originX + x, time, idle);
-      const value = sample(frame, solid, field.fill, centreX, centreY);
-      if (value < FALL_VISIBLE_FROM) continue;
+      const body = sample(frame, solid, field.fill, centreX, centreY);
       const fall = sample(frame, solid, field.falling, centreX, centreY);
-      if (fall >= 0.5) {
-        // falling water has no edge of its own: its density fades out through the threshold
-        fallDensity[index] = Math.min(1, (value - FALL_VISIBLE_FROM) / FALL_DENSITY_RANGE);
+      if (body >= WET_THRESHOLD) {
+        wet[index] = 1;
+        falling[index] = fall;
         continue;
       }
-      if (value < WET_THRESHOLD) continue;
-      wet[index] = 1;
-      falling[index] = fall;
+      const falls = sample(frame, solid, field.fallFill, centreX, centreY);
+      if (falls < FALL_VISIBLE_FROM) continue;
+      // falling water has no edge of its own: its density fades out through the threshold
+      fallDensity[index] = Math.min(1, (falls - FALL_VISIBLE_FROM) / FALL_DENSITY_RANGE);
     }
   }
   const airAt = (x: number, y: number): boolean =>

@@ -132,8 +132,8 @@ compressed by the weight above pushes back.
 
 5. **Surfaces level** (after the pipes, every substep). Each group of connected free surfaces —
    neighbouring columns whose resting water overlaps, not capped by rock — moves volume from columns above
-   the group's mean level to those below it: 2.5% of each difference per substep (most of it closed in a
-   sixth of a second), skipped once a group is within 1/32 of a cell, so still water sleeps. Taken from the
+   the group's mean level to those below it: 5% of each difference per substep (most of it closed in a
+   tenth of a second), skipped once a group is within 1/32 of a cell, so still water sleeps. Taken from the
    top of high columns, given to the top of low ones (past a full cell, held there as pressure). Exact.
    - **Why:** the author wants surfaces almost completely flat. Momentum alone levels a surface no faster
      than a gravity wave crosses it, so a breached reservoir stood as a long slope for seconds, with bulges
@@ -141,8 +141,14 @@ compressed by the weight above pushes back.
      openings, falls and U-bends (whose legs don't share a surface) stay with the pipes.
    - A breach's surface is within 6 art px of flat a second after it opens and within 1 by two seconds
      (76 px at one second without this).
-   - Giving the excess to the open cell above a full top cell stood it up as a peak; held as pressure, it
-     spreads through the pipes.
+   - The rate was swept headlessly: at 5% a breach is within 3 px of flat at one second and under 1 px by
+     1.5 s, and a steady pour into a pool holds a hump of about 2.5 px. At 15–20% the levelling fights the
+     pipes' momentum and the surface sloshes worse than without it. Held as pressure in a full top cell, the
+     added water came straight back out as sloshing; it goes into the open cell above.
+   - **Which water is a surface** (`waterRuns`): a column's run climbs from rock through wet cells and stops
+     only below water pouring into it (a partly full cell falling faster than 6 cells/s). Stopping at the
+     first partly full cell split a thin, layered pool into runs of different heights a few columns apart:
+     they drew as steps and levelled as separate surfaces.
 
 **Parameters (water).** `g = 92` cells/s² (the player's 736 art px/s²), `HZ = 240`, `ε = 0.01`,
 `keep` = 20% retained per second, film threshold 2% of a cell. Stable while `Δt·√(g/ε) ≤ 0.6`.
@@ -193,6 +199,11 @@ differs inside it is shading, blended per pixel.
   0.05 cells a second down shows as a thin stream (a visual fill of 0.53), fuller as more flows. Only
   downward flow counts; boosting water flowing across a surface raised pointed peaks at every lip. A dry
   cell between two falling ones is drawn wet, so a trickle's packets don't break into dashes.
+- **The body and the falls are two fields.** The body's outline comes only from water that isn't falling;
+  falling water is sampled from its own field and dithered over it. Blended into one, a fall's cells flared
+  the pool's outline into a mound where it landed.
+- **A pool's surface carries across a drain:** a cell its water is pouring down through, with resting water
+  on both sides, takes their fill, or the surface dipped into a notch over every hole.
 - **Rock in a sample** takes the value of the water beside it in the same sample (across the row first,
   then up or down, then diagonally), so water meets walls and floors flush and never leaks through one.
 - **Flow is read from cells that hold water.** A face out of an empty cell still carries a speed (gravity
@@ -262,6 +273,8 @@ no dry row between the hole and where it lands.
 - a trickle falls fast, not in slow packets (fails when falling faces are braked by the limiter);
 - a breached reservoir stays nearly flat while it levels: within 6 art px at one second, 1 at two (fails
   without surface levelling: 76 px);
+- a thin, layered pool is one surface however its cells are filled (fails when a run stops at the first
+  partly full cell);
 - a heap levels flat to within a pixel;
 - both legs of a U-bend level (fails without pressure);
 - every gap in a breached wall pours at once (fails when only a surface can spread);

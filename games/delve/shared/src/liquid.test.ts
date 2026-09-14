@@ -285,6 +285,19 @@ describe('the cell-pipe liquid', () => {
     expect(runs[0].surface - runs[0].topRow).toBeLessThan(1);
   });
 
+  it('sees a thin, layered pool as one surface, however its cells happen to be filled', () => {
+    // the same 1.25 cells of water in every column: some a partly full bottom cell with water over it,
+    // some a full bottom cell with a little more on top
+    const { liquid, at } = scene(box(10, 6, () => '.'));
+    for (let column = 1; column < 9; column++) {
+      const layered = column % 2 === 0;
+      liquid.add(at(column, 4), Math.round((layered ? 0.75 : 1) * UNIT));
+      liquid.add(at(column, 3), Math.round((layered ? 0.5 : 0.25) * UNIT));
+    }
+    const surfaces = Array.from({ length: 8 }, (_, index) => surfaceAt(liquid, index + 1));
+    expect(Math.max(...surfaces) - Math.min(...surfaces)).toBeLessThan(1 / 64);
+  });
+
   it("draws a deep pool from its volume, so compression doesn't sink its surface", () => {
     const { liquid } = scene(box(8, 32, (_, row) => (row >= 6 ? '~' : '.')));
     run(liquid, 4);

@@ -35,6 +35,8 @@ export interface LiquidParams {
    * (which runs through full cells) turns to syrup, and so do falls and surges.
    */
   readonly pressureVelocityKept: number;
+  /** How much of a surface column's difference from its connected surface's mean level moves each substep. */
+  readonly levelling: number;
 }
 
 /** Twenty percent of a face's velocity survives a second: a breach surges and settles within seconds. */
@@ -47,6 +49,7 @@ export const WATER_PARAMS: LiquidParams = {
   velocityKept: WATER_VELOCITY_KEPT_PER_SUBSTEP,
   film: 0.02,
   pressureVelocityKept: 0.9,
+  levelling: 0.05,
 };
 
 /** Two percent of a face's velocity survives a second: lava creeps, heaps a little and settles slowly. */
@@ -62,9 +65,11 @@ export const LAVA_PARAMS: LiquidParams = {
 /** Surface levelling: how much of a column's difference from its group's mean level moves each substep
  * (about a sixth of a second to close most of a difference), the difference under which a group counts as
  * flat and is left alone (so still water can sleep), and the least water that counts as a surface. */
-const LEVEL_FRACTION_PER_SUBSTEP = 0.025;
 const LEVEL_DEAD_BAND = 1 / 32;
 const LEVEL_MINIMUM_UNITS = UNIT / 50;
+
+/** Water pouring down through a face faster than this, cells/s, is falling into what's below, not resting on it. */
+const POURING_SPEED = 6;
 
 /** Faces move at most this much of a cell per substep: the explicit step's stability limit. */
 const MAX_CELLS_PER_SUBSTEP = 0.5;
@@ -318,7 +323,7 @@ export function createLiquid(
         const { column, run } = members[index];
         const excess = target - run.surface; // cells above the target
         if (excess <= 0) continue;
-        taken += removeFromTop(column, run, Math.floor(excess * LEVEL_FRACTION_PER_SUBSTEP * UNIT));
+        taken += removeFromTop(column, run, Math.floor(excess * params.levelling * UNIT));
       }
       if (taken === 0) continue;
       // give it to the columns below it, in proportion to how far below; the remainder to the lowest
@@ -353,13 +358,18 @@ export function createLiquid(
     return units - remaining;
   }
 
-  /**
-   * Add `units` to the top of a run. Past a full cell it's held there as pressure, which spreads it
-   * sideways through the pipes: put into the open cell above instead, it stood up as a peak on the surface.
-   */
+  /** Add `units` to the top of a run: its top cell up to full, the rest into the open cell above. */
   function addToTop(column: number, run: WaterRun, units: number): void {
     if (units <= 0) return;
-    volume[run.topRow * width + column] += units;
+    const top = run.topRow * width + column;
+    const into = Math.min(Math.max(0, UNIT - volume[top]), units);
+    volume[top] += into;
+    const rest = units - into;
+    if (rest === 0) return;
+    const above = top - width;
+    // past a full cell, held as pressure it came straight back out as sloshing; the cell above takes it
+    if (run.topRow > 0 && rock[above] === 0) volume[above] += rest;
+    else volume[top] += rest;
   }
 
   function stopFacesAround(index: number): void {
@@ -420,10 +430,11 @@ export interface WaterRun {
 }
 
 /**
- * The resting water in one column: runs of wet cells standing on rock, from the bottom up. A run climbs only
- * through cells held up by a nearly full cell below: the first partly full cell is its top, and water above
- * that (a stream falling into the pool) isn't part of it. Counted in, a stream's thin cells dragged the
- * pool's surface down and the stream vanished from the picture.
+ * The resting water in one column: runs of wet cells standing on rock, from the bottom up. A run stops below
+ * water that's falling into it — a partly full cell pouring down fast (a stream landing in the pool).
+ * Counted in, a stream's thin cells dragged the pool's surface down and the stream vanished from the picture.
+ * It isn't judged by fullness: stopping at the first partly full cell split a thin, layered pool into runs of
+ * different heights a few columns apart, which drew as steps and levelled as separate surfaces.
  */
 export function waterRuns(liquid: Liquid, column: number, minimumUnits = 1): WaterRun[] {
   const runs: WaterRun[] = [];
@@ -437,9 +448,13 @@ export function waterRuns(liquid: Liquid, column: number, minimumUnits = 1): Wat
     while (top >= 0) {
       const cell = top * liquid.width + column;
       if (liquid.isSolid(cell) || liquid.volume[cell] < minimumUnits) break;
+      const pouringIn =
+        top < row &&
+        liquid.volume[cell] < SUPPORT_FROM * UNIT &&
+        liquid.downVelocity[cell] > POURING_SPEED;
+      if (pouringIn) break;
       units += liquid.volume[cell];
       top--;
-      if (liquid.volume[cell] < SUPPORT_FROM * UNIT) break;
     }
     const topRow = top + 1;
     runs.push({ bottomRow: row, topRow, surface: row + 1 - units / UNIT });
