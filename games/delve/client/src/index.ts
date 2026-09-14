@@ -439,6 +439,25 @@ function rebakeChunk(cx: number, cy: number): void {
 // lamp, since ore stopped glowing — then call lighting.render() with the viewport + solidTile.
 const lighting = createLighting();
 
+// ---- per-phase frame timing (debug) -----------------------------------------------------
+// The 2x2 split (#44) quadrupled the cell count behind an unchanged screen, and "the game runs at
+// 34fps" is a symptom, not a diagnosis. The render passes run in sequence, so one timestamp between
+// each is enough for every pass to report its own cost in the debug panel — the expensive one names
+// itself instead of being guessed at. Smoothed with the same EMA as the fps readout so it's legible
+// while playing rather than a flicker of per-frame noise.
+const phaseMs: Record<string, number> = {};
+let phaseMark = 0;
+function beginPhases(): void {
+  phaseMark = performance.now();
+}
+function endPhase(name: string): void {
+  const now = performance.now();
+  const ms = now - phaseMark;
+  phaseMark = now;
+  phaseMs[name] =
+    phaseMs[name] === undefined ? ms : phaseMs[name] + (ms - phaseMs[name]) * FPS_EMA_ALPHA;
+}
+
 // ---- render -----------------------------------------------------------------------------
 // The surface is a heightmap (#44), so everything that used to take the constant row now takes this
 // — one closure over the live seed, so the renderer, the lighting and the compositor agree.
@@ -458,25 +477,6 @@ const motes = Array.from({ length: 10 }, () => ({
   y: Math.random(),
   s: 0.3 + Math.random(),
 }));
-
-// ---- per-phase frame timing (debug) -----------------------------------------------------
-// The 2x2 split (#44) quadrupled the cell count behind an unchanged screen, and "the game runs at
-// 34fps" is a symptom, not a diagnosis. The render passes run in sequence, so one timestamp between
-// each is enough for every pass to report its own cost in the debug panel — the expensive one names
-// itself instead of being guessed at. Smoothed with the same EMA as the fps readout so it's legible
-// while playing rather than a flicker of per-frame noise.
-const phaseMs: Record<string, number> = {};
-let phaseMark = 0;
-function beginPhases(): void {
-  phaseMark = performance.now();
-}
-function endPhase(name: string): void {
-  const now = performance.now();
-  const ms = now - phaseMark;
-  phaseMark = now;
-  phaseMs[name] =
-    phaseMs[name] === undefined ? ms : phaseMs[name] + (ms - phaseMs[name]) * FPS_EMA_ALPHA;
-}
 
 function render(t: number): void {
   beginPhases();
