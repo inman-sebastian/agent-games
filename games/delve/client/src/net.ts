@@ -59,6 +59,11 @@ function post(msg: ClientMessage): void {
   if (isOpen()) socket!.send(JSON.stringify(msg));
 }
 
+/** Gameplay traffic: only once the server has accepted the join — before that it is discarded anyway. */
+function postWhenOnline(msg: ClientMessage): void {
+  if (status === 'online') post(msg);
+}
+
 function scheduleReconnect(): void {
   if (reconnectTimer !== null) return;
   reconnectTimer = window.setTimeout(() => {
@@ -82,7 +87,11 @@ function open(): void {
   socket = ws;
 
   ws.onopen = () => {
-    status = 'online';
+    // Connected, not yet ONLINE: online means the server accepted the join, which the hello says.
+    // This used to be 'online' already, and a server that REJECTS the join (a protocol bump after a
+    // deploy) only replies with an error — so the client sat online forever, streaming inputs nobody
+    // applied and never reconciling.
+    status = 'connecting';
     reconnectDelay = RECONNECT_MIN_MS; // reset backoff on a good connection
     post({
       t: 'join',
@@ -100,12 +109,18 @@ function open(): void {
       return;
     }
     if (msg.t === 'hello') {
+      status = 'online';
       handlers!.onHello(msg.snapshot, msg.fresh);
     } else if (msg.t === 'state') {
       lastAckSeq = msg.ackSeq;
       handlers!.onState(msg);
+    } else if (msg.t === 'error') {
+      // Non-fatal — the game keeps running on its local prediction — but never silent. Before the
+      // join is accepted, an error means it WASN'T, so this client is offline and must not predict
+      // against a server that will never answer.
+      console.warn(`[delve] server: ${msg.message}`);
+      if (status !== 'online') status = 'offline';
     }
-    // 'error' messages are non-fatal here; the client keeps running on its local prediction.
   };
 
   ws.onclose = () => {
@@ -124,17 +139,17 @@ export function connect(h: NetHandlers): void {
   open();
 }
 
-/** Stream one tick of input to the server. No-op while offline (the client predicts locally). */
+/** Stream one tick of input to the server. No-op until online (the client predicts locally). */
 export function sendInput(seq: number, input: Input): void {
-  post({ t: 'input', seq, input });
+  postWhenOnline({ t: 'input', seq, input });
 }
 
-/** Send a discrete command (buy / sell / new game) for the server to apply authoritatively. */
+/** Send a discrete command (today only `newGame`) for the server to apply authoritatively. */
 export function sendCommand(command: ClientCommand): void {
-  post({ t: 'command', command });
+  postWhenOnline({ t: 'command', command });
 }
 
-/** True once the connection is established (so the game knows whether to predict-and-reconcile). */
+/** True once the server has ACCEPTED the join (a hello arrived), so the game predicts-and-reconciles. */
 export const isOnline = (): boolean => status === 'online';
 
 /** Current connection status + last acknowledged input seq, for the debug overlay. */

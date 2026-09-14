@@ -8,7 +8,7 @@
 // note rather than atomised into dozens of names that would obscure the pipeline.
 import { vnoise, mulberry, hashXY } from '@delve/shared';
 import type { StrataResource } from '@delve/shared';
-import { T, TEX, clamp01, hexRgb, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
+import { T, TEX, clamp01, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
 import type { Rgb, RockColors } from './palette';
 import type { Material, ShadeCtx } from './materials/types';
 
@@ -203,6 +203,26 @@ const lerpRgb = (a: Rgb, b: Rgb, t: number): Rgb => [
   a[2] + (b[2] - a[2]) * t,
 ];
 
+// How far the baked geometric light carries from an opening, in ABSOLUTE pixels — deliberately not
+// in cells, so the lit band stays the same physical width whatever the grid is (~1.4 blocks). These
+// are the radius of a dig's INFLUENCE on the shading: open a cell and every pixel within this much
+// of it re-shades. Anything that repaints a region of rock has to cover it — see SHADE_INFLUENCE_PX.
+// Rows of solid rock above a pixel before it counts as "deep, no top light". This is also how far
+// DOWN a dig changes the baked shading: `topDist` seeds from the nearest opening above and walks
+// downward, so opening a cell re-shades everything beneath it for this many cells. Anything that
+// re-renders part of the rock has to account for that — the influence of a dig is not a disc.
+export const TOP_LIGHT_ROWS = 12;
+const SHADE_RANGE_TOP_PX = 22.0; // where the top light reaches: a broad, softly fading band
+const SHADE_RANGE_SIDE_PX = 15.0; // a side/underside face, which the top light doesn't favour
+
+/**
+ * The radius, in CELLS, over which opening one cell changes the baked shading of its neighbours.
+ * A partial re-render (a dig patch) must repaint at least this far around the change AND give those
+ * pixels this much context, or the rock keeps stale shading at the seam — which reads as the light
+ * "sticking" to the one cell that did get repainted.
+ */
+export const SHADE_INFLUENCE_CELLS = Math.ceil(SHADE_RANGE_TOP_PX / T);
+
 /** Foreground rock → a canvas (alpha layer): top-lit, dark-bodied, organic edges. Where `materialAt`
  * assigns a tile a material, that material's own shader colours the pixel (through this same top-lit
  * geometry), and the rock↔material boundary is feathered by world noise so it blends seamlessly. */
@@ -224,7 +244,7 @@ function shadeRock(
   const edgeDist = distField((i) => mask[i] === 0, width, height, DIST_INF);
 
   // Distance-from-the-top-surface (px), so up-facing surfaces read brightest (top-light bias).
-  const MAX_OVERHEAD = 12; // rows of solid rock above before a pixel counts as "deep, no top light"
+  const MAX_OVERHEAD = TOP_LIGHT_ROWS;
   const topDist = new Float32Array(width * height);
   for (let x = 0; x < width; x++) {
     const column = bandLeft + ((x / T) | 0);
@@ -369,7 +389,7 @@ function shadeRock(
       // texture/palette on top. The range spans ~1–1.5 tiles so exposed rock reads as a broad, softly
       // fading band (like SteamWorld/Core Keeper) — a bigger lit surface for texture + damage FX —
       // rather than a thin bright rim snapping to black.
-      const range = topDist[i] <= edgeDist[i] + 0.8 ? 22.0 : 15.0;
+      const range = topDist[i] <= edgeDist[i] + 0.8 ? SHADE_RANGE_TOP_PX : SHADE_RANGE_SIDE_PX;
       const rawBrightness = 1 - edgeDist[i] / range;
 
       // which material(s) colour this PIXEL — blended across the nearest boundary for a soft transition
@@ -415,11 +435,6 @@ const BG_SILHOUETTE_FREQ_Y = 0.06;
 const BG_SILHOUETTE_THRESHOLD = 0.42;
 
 /**
- * Compose background + rock + sky + stalactites for a world rectangle into 2D context `g`
- * (destination top-left, colsW×rowsH tiles). `W` is legacy (the world is unbounded); solidTile
- * handles any column.
- */
-/**
  * "No sky in this crop" — every row is underground.
  *
  * The dev labs render isolated rock samples with no surface in view, and passing this says so,
@@ -431,6 +446,12 @@ export const NO_SKY = (): number => -1;
 const columnsOf = (bandLeft: number, colsW: number): number[] =>
   Array.from({ length: colsW }, (_, i) => bandLeft + i);
 
+/**
+ * Compose background + rock + sky + stalactites for a world rectangle into 2D context `g`, with the
+ * destination's top-left at `(bandLeft, bandTop)` and `colsW` x `rowsH` CELLS. The world is unbounded,
+ * so `isSolid` answers for any column. (A seventh "world width" argument used to sit here, ignored
+ * since the world stopped having edges; seventeen callers passed five different values for it.)
+ */
 export function composeBand(
   g: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   isSolid: SolidTile,
@@ -438,7 +459,6 @@ export function composeBand(
   bandTop: number,
   colsW: number,
   rowsH: number,
-  _legacyWidth: number,
   /**
    * The surface row at a column. A FUNCTION, not a number: the surface is a heightmap (#44), so the
    * sky boundary follows the terrain instead of cutting straight across the band.

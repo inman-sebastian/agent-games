@@ -16,7 +16,12 @@ page="${3:-labs/render.html}"
 getp() { echo "$q" | grep -oE "(^|&)$1=[0-9]+" | grep -oE '[0-9]+$' | tail -1; }
 w=$(getp w); h=$(getp h); s=$(getp scale)
 w=${w:-18}; h=${h:-14}; s=${s:-3}
-ww=$((w * 16 * s)); wh=$((h * 16 * s))
+# A cell is CELL_PX art pixels, and the labs draw `w`x`h` cells at `scale` art-pixel zoom — so the
+# window has to be w*CELL_PX*scale for the crop to fill it exactly. This said 16 and was right until
+# the 2x2 split (#44) halved the cell to 8, after which every lab capture filled a quarter of its
+# window and left dead space that read like a rendering bug.
+CELL_PX="${CELL_PX:-8}"
+ww=$((w * CELL_PX * s)); wh=$((h * CELL_PX * s))
 dir="$(cd "$(dirname "$0")/.." && pwd)"
 for CHROME in \
   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \

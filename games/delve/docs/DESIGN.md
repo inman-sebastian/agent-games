@@ -39,12 +39,19 @@ how much you've dug. See [The decided design](#inventory-capacity-limits-variety
 Smooth 2D-platformer movement with a **separate aim/mine action** — mining is decoupled
 from movement, so you can mine while running, jumping, or standing still:
 
-- **Move:** A/D or ←/→ to run, W / ↑ / Space to jump.
+- **Move:** A/D or ←/→ to run, W / ↑ / Space to jump. **Movement is also the only thing that turns
+  the miner** — see below.
 - **Mine (mouse):** aim with the cursor and **hold to mine** the targeted tile (within
-  reach); a reticle shows what you're aiming at.
+  reach); a reticle shows what you're aiming at. Aiming does **not** turn the miner.
 - **Mine (keyboard):** hold **J/K** to mine in the aim direction — S/↓ aims down, A/D or
   ←/→ aim to that side, otherwise the way you're facing.
 - **Touch:** on-screen ◄ ► / jump buttons to move; tap or hold a tile to mine it.
+- **Facing** is a property of movement and of nothing else, and the rule lives in exactly one place
+  (`physicsStep`). The cursor used to turn the miner as well, which meant sweeping the cursor past a
+  standing miner spun them back and forth — and it could never be right anyway: `facing` is part of
+  the authoritative `PlayerState` the server replaces on every snapshot, while the cursor position
+  is not part of `Input`, so a mouse-derived facing had no way to reach the server to be agreed on.
+  You aim where you like; you face where you walk.
 - **Start / pause:** the game opens on a **title screen** (Descend to play); **Esc** pauses and
   opens the pause menu (Esc again resumes). Opening Inventory / Collection pauses too — the whole
   screen flow is a small state machine (see [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)).
@@ -596,11 +603,11 @@ ore veins and rock texture pixel-identical.
 
 **Why it was worth doing**, and it is a gameplay change more than a visual one:
 
-| | Before | After |
-| --- | --- | --- |
-| Smallest step the world can express | 1 block | **half a block** |
-| That step as % of body height | 55% | **27%** |
-| Worst natural hill riser | 1 block per column | **1 cell per column** |
+|                                     | Before             | After                 |
+| ----------------------------------- | ------------------ | --------------------- |
+| Smallest step the world can express | 1 block            | **half a block**      |
+| That step as % of body height       | 55%                | **27%**               |
+| Worst natural hill riser            | 1 block per column | **1 cell per column** |
 
 Terraria's figure is 38%, so the split lands finer than the thing that prompted it. A mined staircase
 now has half-block risers and the step-up assist walks them, which is the whole point.
@@ -630,7 +637,87 @@ now has half-block risers and the step-up assist walks them, which is the whole 
 3. The playtest's shaft fixture dug only the body's two edge columns, leaving a pillar under the
    middle one. The player stood on it and never descended.
 
-### Also queued### Also queued### Also queued### Also queued
+**And it cost 34fps, which is the interesting part.** Four times the cells behind an unchanged
+screen, so every per-cell pass in the frame quadrupled. The fix was not to make those passes faster;
+it was to notice that **three of them were already throwing away almost everything they computed**,
+and to stop computing it:
+
+| Pass              | Was   | Now   | Why                                                                                 |
+| ----------------- | ----- | ----- | ----------------------------------------------------------------------------------- |
+| Twinkle edge scan | 9.3ms | 0.3ms | scanned all 19k viewport cells, then rejected everything outside the lamp           |
+| Darkness scrim    | 8.8ms | 1.5ms | every pixel the lamp can't reach resolves to one constant — a memset, not a loop    |
+| Light propagation | 8.2ms | 0.4ms | swept the whole screen when the field is provably under the floor a dozen cells out |
+
+Frame time went 25.8ms → 2.7ms at the same 160×120 view; the whole render is now cheaper than the
+lighting alone used to be, and it **no longer scales with screen area** — it scales with the lamp.
+Note the direction of the lesson: the split didn't make the renderer slow, it made an existing
+sloppiness expensive enough to find. See [LIGHTING.md](LIGHTING.md#cost) for the bounds and their
+derivations.
+
+**Three more lengths were left in block units** by the migration. Note how they were found: two
+while measuring, one only by a human playing the game. The grid change was verified as
+world-generation and collision, and every one of these is presentation — the tests were never going
+to catch them.
+
+- `BASE_LAMP`/`LANTERN_LAMP_BONUS` — the lamp is a distance, so leaving it at 3.4 halved how far the
+  miner could see, with no change to a line of lighting code. Now `* SUB`, with a test that states
+  the reach in blocks so a future re-scale can't shrink it again.
+- `MIN_VIEW_TILES`/`MAX_VIEW_TILES` — counted in cells now, so the cap bound at half the world area
+  it used to and a wide window's canvas stopped filling the viewport entirely.
+- `OPEN_ATTEN`/`ROCK_ATTEN`/`DIAGONAL_ATTEN` — the lighting's **per-step** conduction, tuned when a
+  step was a block. A step is half a block now, so light decayed twice as fast per unit of world
+  distance: the lamp lit the cells the miner stood on and a carved tunnel went black a block or two
+  out, while a fresh window looked perfect because the surface is lit by daylight, not by
+  propagation. They're authored per block and rooted to the per-cell step now
+  (`perBlock ** (1 / SUB)`), so `SUB` cell-steps decay exactly as one block-step did — a restoration,
+  not a re-tune. `lampReachBlocks` is exported purely so a test can assert the reach in blocks;
+  [LIGHTING.md](LIGHTING.md#cost) has the derivation.
+
+And two in the RENDERER's own units, both reported by playing, not by measuring — the symptom was
+light appearing to stick to the single cell next to a freshly mined tunnel, while anything dug
+before the last reload looked perfect:
+
+- **A dig repainted a 3x3-cell window** instead of re-baking. The window has to cover how far the
+  dig moved the shading, and that region is not a disc: the top-light seeds from the nearest opening
+  above and walks DOWNWARD, so opening a cell re-shades everything beneath it for `TOP_LIGHT_ROWS`.
+  A 3x3 window of the old, twice-as-big cells had slack; the split took it away. Digs now **re-bake
+  the affected chunks** — exact by construction, since a chunk bake reads live world state and takes
+  its own context — synchronously for the chunk under the pick, off-thread for the rest.
+- **`MARGIN`**, a chunk's context in cells, was 1. Measured in `labs/patch-lab`: at `MARGIN 1` the
+  worst pixel of a chunk-assembled render is off by **207** (of 1020 across four channels) from the
+  same region baked in one piece; at the shading's influence radius it is off by **5**.
+
+**And five more, found by the maintenance run** that went looking for this class deliberately — so
+the list stops being "what someone happened to notice":
+
+- `RUN_ACCEL` / `AIR_ACCEL` / `FRICTION` — lengths per second squared. Speed and gravity were scaled
+  but these weren't, so reaching top speed took 0.15s instead of 0.07, the skid after letting go ran
+  0.55 blocks instead of 0.30, and air control halved. Tests now state movement in **seconds and
+  blocks**.
+- `MOVE_EPSILON` — a speed threshold, so the run animation lingered until a quarter of the intended
+  speed on every stop.
+- `unstick`'s search range — six cells, i.e. three blocks where it meant six, so rescues that used
+  to succeed fell through to a fresh spawn.
+- The lamp falloff's core and ease distances in `index.ts` — "full brightness within 1" became one
+  cell.
+- **Depth shown to the player** — the HUD, the codex's "deepest" and the debug panel printed a cell
+  row as metres, doubling every reading. A metre is a block: the miner is 1.82 blocks tall.
+
+**The one that can't be fixed after the fact: saves.** The split halved the unit of every saved
+position and dug-cell key, and there was no migration — so a pre-split save loads at half its real
+coordinates with its tunnels shrunk and shifted. Saves carried no format version, which makes a
+pre-split save indistinguishable from one written since, so it cannot be migrated retroactively.
+They carry `SAVE_FORMAT` now, so the next change of meaning can be.
+
+The lesson for the next grid change: **grep for every constant whose unit is a length, a speed, an
+acceleration or a per-step rate**, not just the ones the simulation reads — a rate per step is a length
+in disguise, and so is a count of cells used as a margin. **Bump `SAVE_FORMAT` and migrate.** And
+state feel in units a player perceives: **none** of these was caught by a test that existed
+beforehand — every test that guards one now was written after it was found. They needed a person
+playing, a measurement, or a purpose-built check like [patch-lab](../tools/README.md) that renders a
+region two ways and diffs them.
+
+### Also queued
 
 - **Unify strata and ore into one material system.** Strata (`type:'strata'`) and ores
   (`type:'ore'`) are separate shapes; the direction is **one material shape for everything
@@ -640,5 +727,9 @@ now has half-block risers and the step-up assist walks them, which is the whole 
 - **Placement beyond depth.** Superseded in principle by [BIOMES.md](BIOMES.md): biome resolves from
   several signals, then decides contents. `strata.top` and per-material `band` ranges become
   obsolete.
-- **Rendering perf** — bake ore blocks / cheaper lighting for deep, fully-lit scenes.
-- **Miner sprite** — redraw + animate for the finer 32px grid.
+- **Rendering perf** — the per-frame passes are done (above); what's left is the chunk BAKE rate.
+  Chunks are still `CHUNK_COLS`×`CHUNK_ROWS` in cells, so they cover a quarter of the world area they used to and
+  the worker bakes four times as many while you move. `MARGIN` also went from 1 to 3 cells for
+  correctness, which roughly doubles each bake's area. It keeps up (bakes are off-thread, the blits
+  cost 0.4ms), so this is a queued tidy, not a problem: doubling them restores the old world
+  area per chunk and makes the fixed margin a smaller share of every bake.

@@ -8,7 +8,7 @@ description: Import a layered pixel-art entity (player, enemy, NPC, prop) into D
 Add one entity's animations end to end: read the layered `.aseprite` files, emit committed
 index-mapped frames, then decide every colour here on the Resurrect-64 palette.
 
-Read [`docs/SPRITES.md`](../../../docs/SPRITES.md) first — it owns the format, the pipeline and the
+Read [`docs/SPRITES.md`](../../../games/delve/docs/SPRITES.md) first — it owns the format, the pipeline and the
 reasoning. This skill is the procedure. All paths are under `games/delve/`.
 
 **The core idea, and the reason this is not just "load a sprite sheet":** an imported pixel does not
@@ -110,11 +110,11 @@ export const MY_ARMOUR: SpriteSkin = {
 };
 ```
 
-Use `armourSurface` / `plateArmourSurface` from `skin.ts`, **not** `clothSurface` / `plateSurface`
-from `limb.ts`. The latter were tuned against a 16px tile; pointed at a 3-5px imported limb their
-noise swings across most of the band ladder and the figure comes out as speckle with its silhouette
-dissolved. Same lesson the procedural rig learned about edge erosion: a treatment sized for a tile is
-most of a small part.
+Use `armourSurface` / `plateArmourSurface` from `skin.ts`. They exist because the surfaces written for
+the old procedural rig (`clothSurface` / `plateSurface`, deleted with it) were tuned against a 16-px
+block; pointed at a 3-5px imported limb their noise swung across most of the band ladder and the figure
+came out as speckle with its silhouette dissolved. The lesson outlived the files: a treatment sized for
+a block is most of a small part, so size any new surface to the part it lands on.
 
 Materials are lit by a **position** in sprite-local pixels — `PLAYER_LAMP` for a carried lamp,
 `lampFrom(dx, dy)` for an entity lit from outside, `OVERHEAD` for a fixed light. Distance flattens
@@ -130,7 +130,7 @@ that frame's own silhouette.
 A re-skin cannot add pixels the body does not already occupy, so a backpack, cape or sheathed sword
 is a different kind of thing: an **attachment**, with its own art, anchored to a part and free to
 extend past the silhouette. See `client/src/render/entity/attach.ts` and the equipment section of
-[`docs/SPRITES.md`](../../../docs/SPRITES.md) for the three kinds and the rules.
+[`docs/SPRITES.md`](../../../games/delve/docs/SPRITES.md) for the three kinds and the rules.
 
 The short version: anchor by **surface coordinate**, never by frame; declare the paint order; and make
 the art clear the silhouette, because anything sitting inside the body's footprint gets occluded by a

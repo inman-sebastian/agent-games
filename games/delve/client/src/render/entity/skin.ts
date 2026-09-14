@@ -164,9 +164,6 @@ export const HANA_RAMPS: SkinRamps = { ...MINER_RAMPS, base: HANA_CLOTH };
 
 export const HANA_SKIN: SpriteSkin = { ...buildSkin(HANA_RAMPS), outline: OUTLINE };
 
-/** The miner with the pack's baked damage flash suppressed — DELVE renders its own hit feedback. */
-export const MINER_SKIN_NO_FLASH: SpriteSkin = { ...MINER_SKIN, hide: ['fx.damage'] };
-
 // ---- equipment as PROCEDURAL MATERIAL -----------------------------------------------------------
 //
 // The other half of the pipeline, and the reason the surface coordinates exist. A colour table can

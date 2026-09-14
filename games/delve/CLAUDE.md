@@ -38,34 +38,20 @@ just the DELVE-specific working rules.
 - **Update the docs _first_** when a rule or the art direction changes, then the code —
   the docs are the source of truth others read.
 
-## Verifying your work — cheap tools first; Playwright is a LAST RESORT
+## Testing and verifying — load the `delve-testing` skill first
 
-Reading MCP/Playwright screenshots (especially full-viewport / hi-DPI) is slow and burns
-tokens. **Always** verify with the built headless tools, in this order — only reach for
-Playwright when a question is genuinely impossible headlessly, and even then read text,
-not images:
+**Before you test, verify, debug, reproduce a bug, measure performance or drive the game, load the
+[`delve-testing`](../../.claude/skills/delve-testing/SKILL.md) skill.** It picks the cheapest tool for the
+question you are actually asking.
 
-1. **Logic / world-gen / protocol** → `pnpm test` (Vitest — the gate). Property/fuzz tests over
-   the sim + world-gen, the real client↔server protocol e2e (spawns the server), and the client
-   save/DOM under happy-dom; see [docs/TESTING.md](docs/TESTING.md). Favor an **invariant/property**
-   over a curated case. For interactive inspection (not gating), `tools/sim.ts` (`state` / `map` /
-   `probe` / scripted `play`) — pure Node, no browser.
-2. **How something looks** → `tools/shot.sh 'QUERY' out.png [page]` — one tight cropped PNG
-   via headless Chrome (no MCP), against a running `pnpm dev` server (set `SHOT_BASE`). The
-   `page` is a path under the Vite root (`src/`): `labs/render.html` (world crops, the
-   default), `labs/style-lab.html`, `labs/light-lab.html`, or `index.html` (the game). Keep
-   `w`/`h`/`scale` small so the image is tiny; then `Read` it.
-3. **Only if neither can answer it** (live input feel, real FPS) → Playwright with `?debug`,
-   and read the **debug-overlay text** via `browser_evaluate` — never a full-viewport / 4K
-   screenshot when a small `shot.sh` crop would do.
+The one rule that holds without it: **Playwright and every other browser MCP are the last resort.**
+Before any such call, state one line as a shell call —
+`echo 'Browser MCP because: rung N cannot answer Q, because R'` — and if you can't fill it in, don't
+make the call. A hook enforces this: browser MCP calls are denied until that `echo` has run in the
+turn. A question about a rule is answered by a failing
+test on the rule; a number from the running game by `pnpm probe`; a look by `tools/shot.sh`.
 
-If no cheap tool covers what you need, **build or extend one** (that's why `shot.sh` takes a
-`page` arg and `labs/light-lab.html` exists) rather than defaulting to Playwright. See
-[tools/README.md](tools/README.md).
-
-- After any logic / world-gen / resource change, run **`pnpm test`** (and add/extend a test for it).
-- Follow the **testing policy** — [docs/TESTING.md](docs/TESTING.md#policy): logic is tested / feel is
-  eyeballed, red-before-green (see a new invariant fail first), invariants over cases, and every bug
-  gets a regression test. It's the default for your own work here, not just the human's.
+After any logic, world-gen or resource change: a test that you watched fail first, then `pnpm test`.
+Policy: [docs/TESTING.md](docs/TESTING.md#policy).
 
 Direction & roadmap live in [docs/DESIGN.md](docs/DESIGN.md#direction--roadmap).

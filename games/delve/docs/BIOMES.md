@@ -89,15 +89,15 @@ indestructible bedrock floor (see [DESIGN.md](DESIGN.md)).
 
 Guaranteed to exist, but found rather than reached.
 
-| Biome                       | Hazard                              | Wants                          | Role                                                |
-| --------------------------- | ----------------------------------- | ------------------------------ | --------------------------------------------------- |
-| **Glowing Mushroom Cavern** | Low — a haven                       | —                              | **Reward.** Visible _through rock_ by its own light |
-| **Flooded Warren**          | Drowning                            | Underwater gear, or a fluid tool | Makes a fluid tool matter                         |
-| **Rime Hollow**             | Slipping; ice floors that break     | Careful traversal              | Hazard is **movement**, not damage                  |
-| **Deadfall**                | Cave-ins, load-bearing rock         | A structural / shoring tool    | Makes structural gear matter                        |
-| **The Works**               | Enemies, traps                      | The tool that breaks the shell | Ruins at scale. Home for **Stone Bricks**           |
-| **Crystal Vault**           | None — **sealed**                   | The tool that breaks the shell | **The jackpot.** Gems in abundance                  |
-| **Nullshade**               | **Absorbs the player's lamp light** | A light source worth a slot    | Makes light-as-equipment matter                     |
+| Biome                       | Hazard                              | Wants                            | Role                                                |
+| --------------------------- | ----------------------------------- | -------------------------------- | --------------------------------------------------- |
+| **Glowing Mushroom Cavern** | Low — a haven                       | —                                | **Reward.** Visible _through rock_ by its own light |
+| **Flooded Warren**          | Drowning                            | Underwater gear, or a fluid tool | Makes a fluid tool matter                           |
+| **Rime Hollow**             | Slipping; ice floors that break     | Careful traversal                | Hazard is **movement**, not damage                  |
+| **Deadfall**                | Cave-ins, load-bearing rock         | A structural / shoring tool      | Makes structural gear matter                        |
+| **The Works**               | Enemies, traps                      | The tool that breaks the shell   | Ruins at scale. Home for **Stone Bricks**           |
+| **Crystal Vault**           | None — **sealed**                   | The tool that breaks the shell   | **The jackpot.** Gems in abundance                  |
+| **Nullshade**               | **Absorbs the player's lamp light** | A light source worth a slot      | Makes light-as-equipment matter                     |
 
 **Six of the seven exist to give an equipment _need_ a reason to be packed.** A fluid tool is dead
 weight until the Flooded Warren exists, a structural tool is pointless without Deadfall, and light is
@@ -136,7 +136,7 @@ The point is that **every preset feels the same to play**: nobody's world is spa
 stripped bare in an hour. Size becomes a neutral preference (intimate and dense vs. sprawling and
 social) rather than a difficulty setting.
 
-For pockets specifically: a Large world gets **more of each** pocket, not more *kinds* — the roster
+For pockets specifically: a Large world gets **more of each** pocket, not more _kinds_ — the roster
 is fixed across presets. Unique pockets don't scale at all, which is why they're
 [placed by rule](#placement).
 

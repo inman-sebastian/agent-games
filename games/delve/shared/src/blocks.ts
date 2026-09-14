@@ -62,12 +62,46 @@ const SURFACE_OCTAVES: readonly { readonly amplitude: number; readonly frequency
 const SURFACE_SALT = 0x5a17; // decorrelates the heightmap from the ore and damage fields
 
 /**
+ * A direct-mapped cache for `surfaceAt`, which is the hottest function in the world model.
+ *
+ * It is a pure `f(seed, column)`, so caching it cannot change an answer — and it is recomputed
+ * relentlessly: once per `solidAt`, again inside `oreAt`, and again inside `blockAt`, for every cell
+ * of every column of every frame. After the 2x2 split that is four times as many calls as before,
+ * and two value-noise octaves each. Measured at 4.5ms for one viewport's worth before this.
+ *
+ * Direct-mapped on the column's low bits rather than a `Map`, so a hit is two array reads and no
+ * allocation. A different seed resets it, so it is correct whatever the caller does. It is only FAST
+ * for one seed at a time: that holds for a client, but the server steps every connected player in
+ * turn, so players on different worlds thrash it down to no cache (never to a wrong answer). If the
+ * server's world generation ever shows up in a profile, key the cache by seed.
+ */
+const SURFACE_CACHE_SIZE = 1 << 12;
+const SURFACE_CACHE_MASK = SURFACE_CACHE_SIZE - 1;
+const NO_COLUMN = 0x7fffffff;
+const surfaceColumns = new Int32Array(SURFACE_CACHE_SIZE).fill(NO_COLUMN);
+const surfaceRows = new Int32Array(SURFACE_CACHE_SIZE);
+let surfaceCacheSeed = -1;
+
+/**
  * The surface row at `column`: rows AT OR ABOVE it are open sky, rows below it are solid rock.
  *
- * Pure `f(seed, column)` like everything else in this file — nothing is stored, and two clients
+ * Pure `f(seed, column)` like everything else in this file — nothing is stored (the cache above is invisible to callers), and two clients
  * given the same seed agree without exchanging a heightmap.
  */
 export function surfaceAt(seed: number, column: number): number {
+  if (seed !== surfaceCacheSeed) {
+    surfaceCacheSeed = seed;
+    surfaceColumns.fill(NO_COLUMN);
+  }
+  const slot = column & SURFACE_CACHE_MASK;
+  if (surfaceColumns[slot] === column) return surfaceRows[slot];
+  const row = computeSurfaceAt(seed, column);
+  surfaceColumns[slot] = column;
+  surfaceRows[slot] = row;
+  return row;
+}
+
+function computeSurfaceAt(seed: number, column: number): number {
   // Sampled at CELL resolution, with the frequency divided and the amplitude multiplied by SUB — so
   // the hill keeps exactly the wavelength and height it had in blocks, but is quantised to cells.
   //
@@ -79,12 +113,12 @@ export function surfaceAt(seed: number, column: number): number {
   let height = 0;
   for (const [i, octave] of SURFACE_OCTAVES.entries()) {
     // Centred on zero, so the octaves cancel rather than all pushing the terrain one way.
-    const n = vnoise(column * (octave.frequency / SUB), i * 31.7, (seed ^ SURFACE_SALT) >>> 0) - 0.5;
+    const n =
+      vnoise(column * (octave.frequency / SUB), i * 31.7, (seed ^ SURFACE_SALT) >>> 0) - 0.5;
     height += n * (octave.amplitude * SUB);
   }
   return SURFACE_BASE * SUB + Math.round(height);
 }
-
 
 // Entity definitions come from the resource registry (resources/*.ts). This file owns only
 // the world-generation logic; the data lives with the resources, sorted for us by the registry.
@@ -94,7 +128,6 @@ export const ORE_BY_ID: Record<number, OreResource> = Object.fromEntries(
   ORES.map((ore) => [ore.id, ore]),
 );
 
-/** Rarity/tier of an ore = its index in the surface→deep ordering. */
 /** The top of the rarity scale, so the client can normalise without knowing how many ores exist. */
 export const RARITY_MAX = 6;
 
@@ -132,10 +165,20 @@ export function oreAt(seed: number, column: number, row: number): number {
   // pockets keep their size. Sampling the noise per cell instead would quarter every vein.
   const bc = blockOf(column);
   const br = blockOf(row);
-  const eligible = ORES.filter((ore) => br >= ore.band[0] && br <= ore.band[1]);
-  if (eligible.length === 0) return 0;
+  // Two allocation-free passes over ORES instead of `filter` + `reduce`. This is called for every
+  // cell of every frame, so the array it used to build was six thousand short-lived allocations a
+  // frame — pure garbage-collector pressure for a list that never escapes the function.
+  let totalWeight = 0;
+  for (const ore of ORES) {
+    if (br >= ore.band[0] && br <= ore.band[1]) totalWeight += ore.weight;
+  }
+  if (totalWeight === 0) return 0;
 
-  const noise = vnoise(bc * CLUSTER_FREQUENCY, br * CLUSTER_FREQUENCY, (seed ^ ORE_NOISE_SALT) >>> 0);
+  const noise = vnoise(
+    bc * CLUSTER_FREQUENCY,
+    br * CLUSTER_FREQUENCY,
+    (seed ^ ORE_NOISE_SALT) >>> 0,
+  );
   const coverage = BASE_ORE_COVERAGE + Math.min(DEEP_COVERAGE_BONUS, br * COVERAGE_PER_ROW);
   if (noise < 1 - coverage) return 0; // outside a pocket → plain rock
 
@@ -143,13 +186,15 @@ export function oreAt(seed: number, column: number, row: number): number {
   // shares a type.
   const regionX = Math.floor(bc / REGION_SIZE);
   const regionY = Math.floor(br / REGION_SIZE);
-  const totalWeight = eligible.reduce((sum, ore) => sum + ore.weight, 0);
   let roll = tileRand((seed ^ ORE_TYPE_SALT) >>> 0, regionX, regionY) * totalWeight;
-  for (const ore of eligible) {
+  let last = 0;
+  for (const ore of ORES) {
+    if (br < ore.band[0] || br > ore.band[1]) continue;
+    last = ore.id;
     roll -= ore.weight;
     if (roll < 0) return ore.id;
   }
-  return eligible[eligible.length - 1].id;
+  return last; // float rounding only; the weights are exhausted above
 }
 
 // Base rock hp from depth — grows so deep rock needs an upgraded pick.

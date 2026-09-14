@@ -6,14 +6,14 @@ description: Add a new mineable ore/material to DELVE (games/delve) — the full
 # DELVE — add a material
 
 Author one new mineable ore end to end: gameplay data + a procedural material shader that shares
-the rock's visual language. Read [`docs/MATERIALS.md`](../../../docs/MATERIALS.md) (the system spec)
-and [`docs/PALETTE.md`](../../../docs/PALETTE.md) (Resurrect-64 + ramps) first — this skill is the
+the rock's visual language. Read [`docs/MATERIALS.md`](../../../games/delve/docs/MATERIALS.md) (the system spec)
+and [`docs/PALETTE.md`](../../../games/delve/docs/PALETTE.md) (Resurrect-64 + ramps) first — this skill is the
 procedure; those own the rules. All paths below are under `games/delve/`.
 
 Core idea: the **compositor** owns geometry; your material owns **colour only** via
 `shade(ctx) => Rgb`, built on one of the shared **surface-class primitives** (`stoneSurface` /
 `metalSurface` / `facetSurface` / `glassSurface`) so it reads as "the same world, made of X." The
-texture is the material's *class* — pick it by what the material physically is, don't invent one.
+texture is the material's _class_ — pick it by what the material physically is, don't invent one.
 Ore is **baked** into the rock chunks (no overlay), so once you register the material there is **no
 extra render wiring** — the game, worker, and labs all pick it up by ore id.
 
@@ -33,11 +33,11 @@ register({
   type: 'ore',
   id: 10,
   name: 'Cobalt',
-  band: [200, 340],        // [minRow, maxRow] depth range it spawns in
-  weight: 6,               // spawn share within the band (rarer = smaller)
-  hp: 7,                   // toughness ON TOP of rock hp (deeper/rarer = higher)
-  rarity: 4,               // reward TIER, 0..RARITY_MAX — see below; ties are fine
-  color: '#4d65b4',        // single colour for particles / HUD floaties
+  band: [200, 340], // [minRow, maxRow] depth range it spawns in
+  weight: 6, // spawn share within the band (rarer = smaller)
+  hp: 7, // toughness ON TOP of rock hp (deeper/rarer = higher)
+  rarity: 4, // reward TIER, 0..RARITY_MAX — see below; ties are fine
+  color: '#4d65b4', // single colour for particles / HUD floaties
   desc: 'A cold blue metal from the deep stone.',
   art: { shape: 'nugget', c: ['#26305a', '#4d65b4', '#8fd3ff'] }, // icon shape + [dark,mid,hi] triad
 } satisfies OreResource);
@@ -49,8 +49,8 @@ register({
   resource files). Rarer + deeper ⇒ higher hp + lower weight.
 - ⚠️ **`band` is on its way out.** Depth-only placement is prototype leftover; placement is moving
   to **biomes declaring their contents**
-  ([BIOMES.md](../../../docs/BIOMES.md), [MATERIALS.md](../../../docs/MATERIALS.md#placement-moves-to-biomes)).
-  When that lands, this step becomes *"pick the biomes this material belongs to"* and `weight`
+  ([BIOMES.md](../../../games/delve/docs/BIOMES.md), [MATERIALS.md](../../../games/delve/docs/MATERIALS.md#placement-moves-to-biomes)).
+  When that lands, this step becomes _"pick the biomes this material belongs to"_ and `weight`
   narrows to abundance **within a biome**. Until then, keep using `band` — just don't treat depth as
   the intended long-term answer for where something lives.
 - A `dim: true` ore (like dirt) renders as plain rock — **skip steps 2–3** for it (no material).
@@ -58,7 +58,7 @@ register({
 ## Step 2 — the material shader (`client/src/render/materials/<name>.ts`)
 
 Build a 6-stop **Resurrect-64** ramp (shadow→rim) via `colorsFor`, then `shade` on top of the
-**surface-class primitive** that matches what the material *is* (see MATERIALS.md for all four):
+**surface-class primitive** that matches what the material _is_ (see MATERIALS.md for all four):
 `metalSurface` for metals, `facetSurface` for gems/crystals, `glassSurface` for glass,
 `stoneSurface` for ore-in-rock. Register with the **same id** as the resource. Pick the template:
 
@@ -121,12 +121,13 @@ For **glass**, swap in `glassSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx
 Then **register it**: add `import './<name>';` to `client/src/render/materials/index.ts`.
 
 Rules that keep it cohesive (see MATERIALS.md):
+
 - **Pick a surface-class primitive** in a `colorsFor([...])` ramp — never hand-roll a surface.
   Seed any noise with `ctx.worldX/worldY` (not px/py) so texture is stable + seamless.
 - **Palette**: all six ramp stops from Resurrect-64 (or a `mix()`/`desat()` of them). Dark shadow
   → bright rim. `GLINT`/`SHEEN` are near-white tinted toward the material.
-**Choosing `rarity`.** It is the one input to every reward cue — break pitch, particle count, screen
-shake, whether the pickup gets the big floaty — and it is *authored*, not derived. Two rules:
+  **Choosing `rarity`.** It is the one input to every reward cue — break pitch, particle count, screen
+  shake, whether the pickup gets the big floaty — and it is _authored_, not derived. Two rules:
 
 - **Do not derive it from depth.** Depth says where a material is, not how special it is: quartz is
   deeper than gold and far more plentiful. Ask "how should breaking this FEEL?", then place it.
@@ -142,7 +143,7 @@ will not compile without it.
 - `feather` (px bleed into neighbours) ~2.0 for crisp gems, ~2.6–3.2 for softer metals.
 - Damage cracks come **free** (shared `fx.drawDamage`) — only add a `damage(ctx)` for a bespoke break.
 
-## Step 3 — verify (cheap tools first; see [`tools/README.md`](../../../tools/README.md))
+## Step 3 — verify (cheap tools first; see [`tools/README.md`](../../../games/delve/tools/README.md))
 
 Run from `games/delve/`. Assumes `pnpm dev` is running for shots (`SHOT_BASE=http://localhost:5173`).
 
@@ -153,8 +154,8 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
 `view=surface|cave|both`, `depth=<row>`, `scale`, `lit=0|1`, `seed`, `w`/`h`.
 
 1. `pnpm test` — the gate; run it because you changed gameplay data (band/weight/hp). The resource
-   + world-gen suites check conformance and that the ore is discoverable within its band; if you
-   added a placement/mechanic rule, add a co-located `*.test.ts` for it (see docs/TESTING.md).
+   - world-gen suites check conformance and that the ore is discoverable within its band; if you
+     added a placement/mechanic rule, add a co-located `*.test.ts` for it (see docs/TESTING.md).
 2. `pnpm --filter @delve/client typecheck` and `pnpm build` — must be green.
 3. **Surface** (the top-lit block, in isolation):
    `SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=surface&ui=0&mat=<slug>&w=8&h=6&scale=4' /tmp/mat.png labs/material-lab.html` → `Read /tmp/mat.png`.
@@ -171,7 +172,7 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
 - **Icons are separate.** Inventory/codex icons use the authored `art.shape` + triad from step 1
   (via `ore-art.ts`), not the material shader — set both.
 - **No render wiring.** Ore bakes into chunks by id (game, worker, labs) once registered; don't
-  touch `index.ts`/`chunk-worker.ts`.
+  touch `index.ts`, `render/chunks.ts` or `chunk-worker.ts`.
 - **Strata** (a depth stratum, not an ore) is the simpler sibling: just a 6-stop ramp + `top` row
   as a `type: 'strata'` resource — no shader. Same palette rules.
 - Commit gameplay data (`@delve/shared`) and the shader (`@delve/client`) together; scope the

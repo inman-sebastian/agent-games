@@ -12,7 +12,13 @@ import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { newSession, physicsStep, TICK_DT, PHYS } from '@delve/shared';
 import { PROTOCOL_VERSION, WS_PATH } from '@delve/shared';
-import type { ClientMessage, ServerMessage, StateMessage, HelloMessage, Input } from '@delve/shared';
+import type {
+  ClientMessage,
+  ServerMessage,
+  StateMessage,
+  HelloMessage,
+  Input,
+} from '@delve/shared';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PORT = 8799; // isolated from the dev server's 8787
@@ -250,8 +256,83 @@ describe('the server owns the tick', () => {
     await delay(300); // ~18 ticks of wall-clock, whatever the client asked for
     const moved = (lastState(conn)?.player.x ?? startX) - startX;
     const ifUnbounded = BURST * PHYS.RUN_SPEED * TICK_DT;
-    expect(moved, 'a burst of inputs did not buy a burst of movement').toBeLessThan(ifUnbounded / 4);
+    expect(moved, 'a burst of inputs did not buy a burst of movement').toBeLessThan(
+      ifUnbounded / 4,
+    );
     expect(moved, 'but the ticks that did elapse were spent').toBeGreaterThan(0);
     conn.ws.close();
   }, 20000);
+});
+
+// The server is a trust boundary, and a throw anywhere in a ws listener or the clock is an uncaught
+// exception in Node — which takes the whole PROCESS down, dropping every connected player. Found in
+// the maintenance run: a single literal `null` message did exactly that.
+describe('the server survives what it is sent', () => {
+  const healthy = async (): Promise<boolean> => {
+    try {
+      return (await fetch(`http://localhost:${PORT}/healthz`)).ok;
+    } catch {
+      return false;
+    }
+  };
+
+  it('does not crash on malformed messages, and still serves the next client', async () => {
+    const hostile = await connect();
+    const payloads = [
+      'null', // valid JSON, not an object — `msg.t` threw
+      '[]',
+      '42',
+      '"a string"',
+      '{"t":"command"}', // no `command` — `command.kind` threw
+      '{"t":"command","command":null}',
+      '{"t":"join"}', // no protocol / playerId
+      `{"t":"join","protocol":${PROTOCOL_VERSION}}`, // right protocol, no playerId — safeId(undefined)
+      `{"t":"join","protocol":${PROTOCOL_VERSION},"playerId":12345}`, // a number has no .replace
+    ];
+    for (const payload of payloads) hostile.ws.send(payload);
+    // a real join, then inputs with garbage sequence numbers
+    sendMsg(hostile, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'hostile', seed: 3 });
+    await waitUntil(() => hostile.hello !== null, 4000, 'hello after garbage');
+    hostile.ws.send('{"t":"input","seq":"not-a-number","input":{"right":true}}');
+    hostile.ws.send('{"t":"input","seq":{"x":1},"input":null}');
+    hostile.ws.send('{"t":"command","command":{"kind":"newGame","seed":"banana"}}');
+    await delay(400);
+
+    expect(await healthy()).toBe(true);
+    const next = await connect();
+    sendMsg(next, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'after-hostile', seed: 4 });
+    await waitUntil(() => next.hello !== null, 4000, 'a later client still gets a hello');
+    hostile.ws.close();
+    next.ws.close();
+  });
+
+  it('loads a save from before later fields existed, and can mine in it', async () => {
+    // Written the way an old build wrote it: no `tech`, no `log`. The server used to simulate the
+    // raw JSON, so the first dig called stats() → `player.tech.lantern` → the clock threw.
+    const { writeFileSync } = await import('node:fs');
+    const old = newSession(11);
+    const raw = JSON.parse(JSON.stringify(old));
+    delete raw.player.tech;
+    delete raw.player.log;
+    writeFileSync(join(dataDir, 'old-save.json'), JSON.stringify(raw));
+
+    const conn = await connect();
+    sendMsg(conn, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'old-save', seed: 11 });
+    await waitUntil(() => conn.hello !== null, 4000, 'hello for an old save');
+    expect(conn.hello!.fresh).toBe(false);
+    expect(conn.hello!.snapshot.player.tech).toBeDefined(); // filled in, not left undefined
+
+    const p = conn.hello!.snapshot.player;
+    const below = { column: Math.floor(p.x), row: Math.floor(p.y + PHYS.HH + 0.01) };
+    for (let seq = 1; seq <= 40; seq++) {
+      sendMsg(conn, {
+        t: 'input',
+        seq,
+        input: { left: false, right: false, jump: false, mine: below },
+      });
+    }
+    await waitForAck(conn, 40);
+    expect(await healthy()).toBe(true);
+    conn.ws.close();
+  });
 });

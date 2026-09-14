@@ -78,17 +78,18 @@ function cmdState(): void {
 function cmdProbe(): void {
   const column = num(options.c, 0);
   const row = num(options.r, 1);
-  const info = engine.tileInfo(seed, column, row);
-  const ore = info.ore ? engine.ORE_BY_ID[info.ore] : null;
+  const block = engine.blockAt(seed, column, row);
+  const ore = block.ore ? engine.ORE_BY_ID[block.ore] : null;
   console.log(
     JSON.stringify(
       {
         column,
         row,
-        ore: info.ore ?? 0,
+        block: engine.blockOf(row), // generator row: strata and ore bands are declared in blocks
+        ore: block.ore,
         oreName: ore ? ore.name : null,
-        maxHp: info.maxHp,
-        empty: !!info.empty,
+        maxHp: block.hp,
+        empty: !block.solid,
       },
       null,
       2,

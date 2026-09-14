@@ -37,11 +37,9 @@ export interface SpriteEntity {
    *
    * Overrides key on the slot name, so a chest piece that fits the idle has to fit the walk too —
    * and this pack calls one body part "Back Arm", "Back Hand" and "Left Arm" in three files.
-   */
-  /**
-   * Match against a layer's PATH (`side/body`), not just its name — see `layerPaths`.
    *
-   * For flat art the path is the name, so a pattern like `/^torso$/` still works.
+   * Patterns match a layer's PATH (`side/body`), not just its name — see `layerPaths`. For flat art
+   * the path is the name, so a pattern like `/^torso$/` still works.
    */
   readonly slots: readonly (readonly [RegExp, string])[];
   /**

@@ -292,11 +292,24 @@ function drawGround(): void {
   canvas.style.width = `${cols * T * UPSCALE}px`;
   canvas.style.height = `${rows * T * UPSCALE}px`;
   g.imageSmoothingEnabled = false;
-  composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, (c) => surfaceAt(SEED, c), (c, r) =>
-    oreMaterial(oreAt(SEED, c, r)),
+  composeBand(
+    g,
+    solidTile,
+    bandLeft,
+    bandTop,
+    cols,
+    rows,
+    (c) => surfaceAt(SEED, c),
+    (c, r) => oreMaterial(oreAt(SEED, c, r)),
   );
   const lighting = createLighting();
-  lighting.addLight((bandLeft + (cols >> 1)) * T + T / 2, CENTER_ROW * T + T / 2, 0, LAMP_COLOR, 2.6);
+  lighting.addLight(
+    (bandLeft + (cols >> 1)) * T + T / 2,
+    CENTER_ROW * T + T / 2,
+    0,
+    LAMP_COLOR,
+    2.6,
+  );
   lighting.render({
     g,
     LW: canvas.width,

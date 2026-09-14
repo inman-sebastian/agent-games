@@ -1,9 +1,9 @@
 # DELVE dev tools
 
-Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Use these
-(and the tests) first — Playwright / MCP is a last resort.** Reading browser-automation
-screenshots (especially full-viewport or hi-DPI) is slow and burns tokens; these answer almost
-every question in text or a tiny cropped PNG.
+Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Which one to
+reach for is decided by the [`delve-testing`](../../../.claude/skills/delve-testing/SKILL.md) skill** —
+this file is the reference for how each one works. Playwright / browser MCP is the last resort
+there, behind a written reason; these answer almost every question in text or a tiny cropped PNG.
 
 > **Automated testing is separate.** The gate is `pnpm test` (Vitest — sim/world-gen fuzz,
 > the client↔server protocol e2e, and DOM). See [`docs/TESTING.md`](../docs/TESTING.md). The
@@ -44,7 +44,7 @@ Runs the SAME pure engine the game uses (`shared/src/engine.ts`), so any logic /
 
 ```sh
 node tools/sim.ts state  [--seed N] [--from save.json]      # raw state as JSON
-node tools/sim.ts probe  --seed N --c C --r R               # tileInfo at one cell
+node tools/sim.ts probe  --seed N --c C --r R               # the block descriptor at one cell
 node tools/sim.ts map    --seed N [--c C --r R --w W --h H] # ASCII ore/cluster map
 node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 ```
@@ -61,6 +61,64 @@ node tools/sim.ts play   --seed N --do "d600 r120" [--from save.json]
 The authoritative-server roundtrip that used to live here (`server-check.ts`) is now the
 `server/src/protocol.e2e.test.ts` Vitest suite (run by `pnpm test`).
 
+## The debug overlay's frame breakdown — where a frame actually goes
+
+`?debug` (or F3) prints a **per-pass cost breakdown**, which is the tool to reach for before
+optimising anything in the renderer:
+
+```
+fps   120.0   frame 2.72ms
+phase chunks 0.4  damage 0.0  twinkle 0.3  entities 0.0  lighting 2.3
+light field 0.4ms  scrim 1.5ms
+bakes 408  1606.8ms round trip  inflight 0  chunk 12x6 cells
+```
+
+The render passes run in sequence, so one timestamp between each is enough. `light field` / `scrim`
+split the lighting pass, because the two scale with completely different things (cells vs pixels) and
+the split is the only way to tell which one a change actually hit. `bakes` covers the chunk worker:
+the **rate** is what matters, not the round trip, since a queue of 400 at startup inflates the
+latency while costing the main thread nothing.
+
+Alongside it are per-pass toggles (`lighting`, `fog`, `twinkle`, `damage`) to isolate a pass by
+switching it off.
+
+**"The game feels slow" is not a diagnosis.** A frame budget read off this panel at the window size
+that actually hurts is — the 2×2 split's regression turned out to be three passes computing things
+they immediately discarded, which no amount of reading the code had suggested. Note that headless
+Chrome caps rAF at ~30fps regardless of load, so read `frame`, not `fps`, unless you're on real
+hardware.
+
+## `probe.ts` — the running game, as text (no MCP)
+
+`pnpm probe <page> [flags]` runs a page in headless Chrome, drives it with **trusted** input over the
+DevTools protocol, and prints JSON. It fills the gap between `shot.sh` (pixels) and a browser MCP
+session: before it, any question that needed a number from the live game — frame time, net status,
+where the player ends up after holding a key, a lab's verdict — could only be answered with
+Playwright, which is why "Playwright is a last resort" kept being broken. Needs `pnpm dev`
+(`PROBE_BASE` to point elsewhere; `CHROME` to pick the binary).
+
+```sh
+pnpm probe index.html --play --grep "^(fps|phase|light field)"
+pnpm probe index.html --size 3400x1900 --play --wait 4000 --grep "^(fps|phase)"
+pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
+pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"
+pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"
+```
+
+| Flag                      |                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--play`                  | skip the title screen (`?play=1`)                                                                                                                            |
+| `--debug`                 | open the debug panel (implied by `--overlay`, `--grep` and `aim:` steps)                                                                                     |
+| `--size WxH`              | viewport in CSS px, default 1280x800                                                                                                                         |
+| `--wait ms`               | settle after load, before steps (default 2500)                                                                                                               |
+| `--do "steps"`            | `key:<code>:<ms>` · `tap:<code>` · `click:<selector>` · `mouse:<x>,<y>:<ms>` · `aim:<dc>,<dr>:<ms>` (pointer on a cell relative to the player) · `wait:<ms>` |
+| `--overlay` / `--grep re` | the debug overlay's lines, all or matching                                                                                                                   |
+| `--eval js`               | an expression evaluated in the page (repeatable); its JSON value is printed                                                                                  |
+
+Each run is a fresh browser profile, so a fresh player id and therefore a fresh world. Page errors
+thrown during the run are reported as `pageErrors`. If it can't express something you need, extend
+it — that is the point of having it.
+
 ## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
 `client/labs/render.html` draws EXACTLY one world region through the shared render modules
@@ -74,7 +132,7 @@ SHOT_BASE=http://localhost:5199 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'r=150&w=14&h=10&scale=3&cave=none&lamp=0' out.png  # raw ore-block art
 ```
 
-Query params (all optional): `seed`, `c`,`r` (centre tile), `w`,`h` (region in tiles),
+Query params (all optional): `seed`, `c`,`r` (centre cell), `w`,`h` (region in CELLS — 8 art px each since the 2x2 split, so `shot.sh` sizes the window as `w × 8 × scale`; override with `CELL_PX`),
 `scale` (px per art px), `cave` (`shaft`|`none`), `lamp` (1 apply lighting / 0 raw art),
 `miner` (0/1), `lamp` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
@@ -86,8 +144,40 @@ the game headlessly:
 ```sh
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html  # a material in a cave
-SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html             # the game itself
+SHOT_BASE=http://localhost:5199 tools/shot.sh 'play=1&w=30&h=18&scale=2' /tmp/game.png index.html      # the game itself (play=1 skips the title)
 ```
+
+### Shooting the real game
+
+`index.html` boots to the title screen, so a capture of it used to show the title panel and nothing
+else — which is why a screenshot of the actual game meant reaching for Playwright. Pass **`play=1`**
+to skip straight into the mine:
+
+```
+SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&w=34&h=20&scale=1' /tmp/game.png index.html
+```
+
+Headless Chrome starts on a fresh profile, so this is always a new world at the surface — good for
+checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
+audio; that needs a real user gesture.
+
+## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
+
+The gate already runs this (`client/src/render/chunks.test.ts`, through a software canvas). The lab
+runs the identical check through **Chrome's own 2D canvas**, with a picture, so a canvas difference
+can't hide behind the test double: every chunk in a carved region is baked with the game's
+`bakeChunk`, and again with more context than anything reads, and the two must match **exactly**.
+Text verdict (also the page `<title>`), so a headless check never reads pixels:
+
+```
+PASS every chunk matches unlimited context exactly (margin 3 vs 16)
+differing pixels 0
+```
+
+Exact is possible because a chunk's band centre doesn't move with its margin, so both bakes share a
+strata ramp (the per-band ramp difference, #54, never enters). `?margin=1` reproduces the #44 seam bug
+(443 differing pixels); `?cx`, `?cy`, `?nx`, `?ny`, `?seed` move the region — keep `cy` below the
+surface, since the sky gradient is normalised per band.
 
 ## `client/labs/material-lab.html` — per-material inspector
 
@@ -109,6 +199,6 @@ flood-fill), how occluders shadow, and how the additive cap reads. Open it in a 
 or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
 · **O** toggle occluders.
 
-**Rule of thumb:** run `pnpm test` and reach for `sim.ts` first (free, text); render a crop only
-when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
-resort.
+**Rule of thumb:** a question about a rule is a failing test; about the world, `sim`; about a look,
+a small `shot.sh` crop; about the running game, `probe`. A browser MCP session only after writing why
+none of those can answer it — the full ladder is the `delve-testing` skill.

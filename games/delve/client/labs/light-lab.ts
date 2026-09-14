@@ -123,7 +123,7 @@ addEventListener('keydown', (e: KeyboardEvent) => {
 
 function frame(now: number): void {
   const t = (paused ? pauseT : (pauseT = now)) / 1000;
-  composeBand(g, solidTile, 0, 0, COLS, ROWS, Infinity, NO_SKY); // rock chamber backdrop
+  composeBand(g, solidTile, 0, 0, COLS, ROWS, NO_SKY); // rock chamber backdrop
   for (const L of LIGHTS) {
     const x = (L.bx + Math.cos(t * 0.6 + L.ph) * L.orbit) * T + T / 2;
     const y = (L.by + Math.sin(t * 0.6 + L.ph) * L.orbit) * T + T / 2;

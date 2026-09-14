@@ -56,12 +56,7 @@ export function buildInventoryGrid(
   return grid;
 }
 
-function slot(spec: {
-  ore?: number;
-  count?: number;
-  state: SlotState;
-  title?: string;
-}): DelveSlot {
+function slot(spec: { ore?: number; count?: number; state: SlotState; title?: string }): DelveSlot {
   const el = document.createElement('delve-slot') as DelveSlot;
   el.setAttribute('state', spec.state);
   el.setAttribute('role', 'listitem');

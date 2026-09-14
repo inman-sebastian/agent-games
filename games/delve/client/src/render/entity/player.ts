@@ -166,11 +166,6 @@ function bake(
   return made;
 }
 
-/** Drop every cached frame. Call this after changing a skin's ramps, or the old art keeps showing. */
-export function clearPlayerCache(): void {
-  baked.clear();
-}
-
 export interface DrawPlayerOptions {
   readonly scale?: number;
   readonly facing?: 'left' | 'right';

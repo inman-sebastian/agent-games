@@ -6,10 +6,11 @@ impact, break, reward), not to steady state.
 
 ## Miner
 
-Small sprite (`drawMiner` in `client/src/render/sprites.ts`) with a dark cool outline: orange
-helmet + lamp, visor, blue overalls, boots, and a pickaxe over the shoulder. Sits
-smaller inside the tile so the scene breathes. _A dedicated miner pass (redraw at the
-finer grid, animation) is queued for later._
+The player is an **imported, layered sprite** coloured on the Resurrect-64 palette — drawn by
+`drawPlayer` in `client/src/render/entity/player.ts`, with its animation picked from the miner state
+and the distance actually walked. The art, the pipeline and the reasoning live in
+[SPRITES.md](SPRITES.md); this file owns only the feedback around it. (It replaced a hand-drawn
+placeholder — orange helmet, pickaxe over the shoulder — that some older notes still describe.)
 
 ## Motion & juice (game layer)
 

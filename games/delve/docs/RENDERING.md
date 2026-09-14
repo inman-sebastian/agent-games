@@ -19,15 +19,17 @@ Dig**, **Super Motherload**, Quintino "Deep Cave", BigManJD. Hard-won principles
 
 ## Resolution & pixel density
 
-Art is authored at what _looks like_ 16×16 tiles. The scene renders to a **logical**
-buffer at that art resolution and is displayed at an **integer scale** (currently
-2×, i.e. 32 on-screen px per tile), with `image-rendering: pixelated` handling the
-device's own pixel density. Do **not** render the whole scene at the device scale —
+The world grid is **cells** of 8×8 art px, and four cells make a **block** of 16×16 — the unit the
+materials were authored at and the one the world is generated on ([DESIGN.md](DESIGN.md#block-granularity--the-22-split-done)).
+The scene renders to a **logical** buffer at art resolution and is displayed at an **integer scale**
+(`UPSCALE` = 2: 16 on-screen px per cell, 32 per block), with `image-rendering: pixelated` handling
+the device's own pixel density. Do **not** render the whole scene at the device scale —
 that would multiply the (per-pixel) lighting cost for no visual gain.
 
-The canvas **fills the whole viewport edge-to-edge**: its logical width is the full
-field width and its logical height matches the window aspect, so tiles stay square
-with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome bar.
+The canvas **fills the viewport edge-to-edge**: `fit()` sizes it to the window in whole cells (plus
+one of overscan), centred, so cells stay square with no letterboxing. The world is unbounded, so the
+canvas is a camera window onto it, not a view of a fixed field; its size is capped
+(`MAX_VIEW_TILES`, in cells) only so a huge window can't ask for an unbounded canvas. The HUD floats as an **overlay** on top, not in a chrome bar.
 
 ## Layers (composited bottom-to-top)
 
@@ -44,7 +46,7 @@ with no letterboxing. The HUD floats as an **overlay** on top, not in a chrome b
 3. **Overlays (per-frame)** — animated FX drawn over the cached rock: each exposed, lit
    vein's **twinkle**, **mining-damage** cracks on tiles taking hits, the miner, particles,
    then the **lighting pass** ([LIGHTING.md](LIGHTING.md)) last (lamp glow + darkness scrim
-   + vignette). Ore does **not** cast its own light.
+   - vignette). Ore does **not** cast its own light.
 
 Layers 1–2 are drawn by `composeBand` in `cave-render.ts` and cached as chunks (see
 [ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays draw per-frame on
@@ -64,7 +66,7 @@ horizon colour. It's the only part of the frame that isn't tile-driven.
 - **The gradient is smooth, not dithered.** Every other surface here quantises and Bayer-dithers to
   hold the pixel-art grain — rock, the darkness scrim, the vignette. The sky interpolates per
   scanline, so it's the single continuous-tone element in the game and reads as from a different
-  renderer up close. It wants the same `DSTEP`-style ordered dither as the scrim.
+  renderer up close. It wants the same `DITHER_STEPS`-style ordered dither as the scrim.
 
 **It will also stop being static.** With a [day/night cycle](DESIGN.md#the-world) the two stops
 become a function of time, interpolated between phase keyframes — which means the sky can no longer
@@ -80,12 +82,12 @@ Two constraints worth knowing before building it, because they shape the impleme
 
 - **Parallax can't live in the chunk cache.** Layers 1–2 are cached as **world-space** chunks, which
   works because a tile's appearance depends only on its world position. A parallax layer moves at a
-  *different rate* than the world, so its appearance depends on the **camera**, not the tile — so it
+  _different rate_ than the world, so its appearance depends on the **camera**, not the tile — so it
   needs its own per-frame pass (or a cache keyed by camera offset), not a place in `composeBand`.
   The same is true of the time-varying sky.
 - **Lamp-only visibility fights background detail underground.** The ambient floor is zero and the
   scrim reaches full on an unlit pixel ([LIGHTING.md](LIGHTING.md)), so anything beyond lamp reach
-  is *black* — including background layers. Underground parallax therefore only reads inside the
+  is _black_ — including background layers. Underground parallax therefore only reads inside the
   lit radius, which is a narrow band. That's a genuine tension with the true-void decision, and it
   resolves one of three ways: accept that underground parallax is close-range detail rather than
   depth cueing; exempt background layers from the scrim (which weakens the void); or lean on

@@ -51,27 +51,44 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 
 ### Shared ruleset — `@delve/shared` (`shared/src/`)
 
-| Module        | Key exports                                                        | Responsibility                                                                                                                                                                                                                                                                              |
-| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types.ts`    | domain types                                                       | Shared type definitions incl. WorldState / PlayerState / Session (the shared-world + per-player split), resources, and the sim + wire I/O. Pure types.                                                                                                                                      |
-| `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                         | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                                         |
-| `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                          | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.)                 |
-| `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`                    | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                                            |
-| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount`       | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                     |
-| `fsm.ts`      | `StateMachine`                                                     | A tiny, generic, table-driven **finite state machine** — the reusable primitive under DELVE's state machines (see [State machines](#state-machines)). `send(event)` for constrained flows (rejects illegal transitions), `set(state)` for derived ones; both fire enter/exit hooks. No DOM. |
-| `miner.ts`    | `MinerState`, `desiredMinerState`, `newMinerMachine`, `driveMiner` | The **miner's animation/behaviour state** (idle/run/jump/fall/mine) as a state machine over the physics — a pure derivation each tick, `set()` into a `StateMachine` so the client can hook transition juice (landing squash, etc.).                                                        |
-| `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types                       | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                                          |
-| `index.ts`    | (barrel)                                                           | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                                 |
+| Module        | Key exports                                                        | Responsibility                                                                                                                                                                                                                                                                                                                             |
+| ------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `types.ts`    | domain types                                                       | Shared type definitions incl. WorldState / PlayerState / Session (the shared-world + per-player split), resources, and the sim + wire I/O. Pure types.                                                                                                                                                                                     |
+| `rng.ts`      | `tileRand`, `vnoise`, `mulberry`, `hashXY`                         | Deterministic PRNG + value-noise helpers, seeded by world coordinate so texture is stable per cell.                                                                                                                                                                                                                                        |
+| `registry.ts` | `register`, `all(type)`, `byId`, `shapes`                          | **Entity registry** — plus the shared procedural art **shapes** (nugget/gem/prism/shard/cluster). Each entity self-registers from its own file under `resources/*.ts`; this module just collects them. (Named `registry.ts` so it doesn't clash with the `resources/` dir.)                                                                |
+| `blocks.ts`   | `blockAt`, `solidAt`, `oreAt`, `STRATA`, `ORES`                    | **World definition** — world-gen logic and the canonical queries. Sources its block types from the registry; owns generation (`oreAt`, `strataIndexAt`, `rockHp`). Pure `f(seed,c,r)`. _Static only_ — dug/damage live in the shared WorldState.                                                                                           |
+| `engine.ts`   | `newSession`, `physicsStep`, `mineTile`, `stats`, `invCount`       | The pure **sim** — player physics, dig resolution, material collection, upgrade-derived stats — layered over `blocks`. Re-exports the world query (`export * from './blocks'`). No DOM.                                                                                                                                                    |
+| `fsm.ts`      | `StateMachine`                                                     | A tiny, generic, table-driven **finite state machine** — the reusable primitive under DELVE's state machines (see [State machines](#state-machines)). `send(event)` for constrained flows (rejects illegal transitions), `set(state)` for derived ones; both fire enter/exit hooks. No DOM.                                                |
+| `miner.ts`    | `MinerState`, `desiredMinerState`, `newMinerMachine`, `driveMiner` | The **miner's animation/behaviour state** (idle/run/jump/fall/mine) as a state machine over the physics — a pure derivation each tick, `set()` into a `StateMachine` so the client can hook transition juice (landing squash, etc.).                                                                                                       |
+| `hydrate.ts`  | `hydrate`, `toSave`, `SAVE_FORMAT`                                 | **Restoring a save** into a valid Session: fills fields added since it was written, resets transient physics, rescues a body wedged in rock. A shared RULE — the client applies it to its cache and the server to its save of record. It lived only in the client until the maintenance run, so the authoritative side simulated raw JSON. |
+| `protocol.ts` | `PROTOCOL_VERSION`, `WS_PATH`, message types                       | The typed **client/server wire protocol** (see [the boundary](#client--server-boundary-p3--authoritative-server)).                                                                                                                                                                                                                         |
+| `index.ts`    | (barrel)                                                           | The package's **public API** — re-exports all of the above.                                                                                                                                                                                                                                                                                |
 
-### Client renderers — `@delve/client` (`client/src/render/`)
+### Client — `@delve/client` (`client/src/`)
 
-| Module            | Key exports                                      | Responsibility                                                                                                                           |
-| ----------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `cave-render.ts`  | `composeBand`, `setStrata`, colour/noise helpers | The **rock renderer**. Reads the depth `STRATA` ramps via `setStrata`. Used by the main thread, the Worker, and the labs.                |
-| `ore-art.ts`      | `drawOreBlock`, `ORE_ART`, `SHAPES`              | Ore-**block** renderer (cluster-aware full-cell) + a thin facade over the registry's art.                                                |
-| `sprites.ts`      | `drawMiner`                                      | The **miner** sprite (and future entities).                                                                                              |
-| `lighting.ts`     | `create`, `LAMP_COLOR`                           | The geometry-aware **lighting system**: `create()` → push emitters via `addLight()`, then `render(cfg)`. See [LIGHTING.md](LIGHTING.md). |
-| `chunk-worker.ts` | (module worker)                                  | Off-thread rock-chunk generator; imports `composeBand`/`setStrata` from `cave-render`. See [the pipeline](#the-rock-chunk-pipeline).     |
+Generated from the actual exports rather than from memory, which is how the previous version of this
+table came to list a `sprites.ts` / `drawMiner` that had not existed for a while.
+
+| Module                                  | Key exports                                                                         | Responsibility                                                                                                                                                                                                              |
+| --------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `render/palette.ts`                     | `T`, `UPSCALE`, `TEX`, `R64`, colour helpers                                        | The art grid (`T` = 8 art px per **cell**, a block is 2x2 cells) and the Resurrect-64 palette.                                                                                                                              |
+| `render/cave-render.ts`                 | `composeBand`, `setStrata`, `NO_SKY`, `SHADE_INFLUENCE_CELLS`, `TOP_LIGHT_ROWS`     | The **rock renderer**. Reads the depth `STRATA` ramps via `setStrata`. Used by the main thread, the Worker, and the labs. Also owns how far a dig changes the baked shading — see [the pipeline](#the-rock-chunk-pipeline). |
+| `render/chunks.ts`                      | `createChunkCache`, `bakeChunk`, `chunksReading`, `chunkReadRegion`, `CHUNK_MARGIN` | The **rock chunk pipeline**: geometry, the one bake every caller uses, what a dig invalidates, and the live cache with its Worker protocol. Tested in the gate (`chunks.test.ts`).                                          |
+| `render/chunk-worker.ts`                | (module worker)                                                                     | Off-thread rock-chunk baker; calls `bakeChunk` and imports the geometry from `chunks.ts`.                                                                                                                                   |
+| `render/materials/`                     | `oreMaterial`, `collectTwinkleEdges`, `drawDamage`                                  | One procedural **material shader** per ore, plus the shared FX (twinkle, damage). See [MATERIALS.md](MATERIALS.md).                                                                                                         |
+| `render/ore-art.ts`                     | `drawOreBlock`, `ORE_ART`                                                           | Ore-**block** art (cluster-aware) over the registry's shapes.                                                                                                                                                               |
+| `render/lighting.ts`                    | `create`, `LAMP_COLOR`, `lampReachBlocks`                                           | The geometry-aware **lighting system**: `create()` → `addLight()` → `render(cfg)`. See [LIGHTING.md](LIGHTING.md).                                                                                                          |
+| `render/entity/player.ts`               | `drawPlayer`, `poseFor`, `stepLift`                                                 | The **player**: picks the animation from the miner state and distance walked, draws it, carries a step-up lift. See [SPRITES.md](SPRITES.md).                                                                               |
+| `render/entity/sprite.ts`               | `drawSprite`, `frameAt`, `spriteMask`                                               | Index-mapped sprite frames → pixels through a skin.                                                                                                                                                                         |
+| `render/entity/skin.ts`                 | `buildSkin`, `MINER_SKIN`, `MINER_RAMPS`, `HANA_SKIN`                               | Skins: the colour and material ramps imported frames are painted with.                                                                                                                                                      |
+| `render/entity/surface.ts`, `attach.ts` | `surfaceOf`, `partCtx` / `anchorPixel`, `BACKPACK`                                  | Per-part surface normals and lighting for sprite materials; equipment anchoring.                                                                                                                                            |
+| `render/entity/sprites/`                | (generated)                                                                         | Committed frames written by `tools/import-aseprite.ts`. Not hand-edited, not formatted (`.prettierignore`).                                                                                                                 |
+| `net.ts`                                | `connect`, `sendInput`, `sendCommand`, `isOnline`                                   | The client side of the authoritative boundary. **Online means the server accepted the join** (a hello arrived), not that a socket opened.                                                                                   |
+| `prediction.ts`                         | `createPrediction`                                                                  | **Client prediction + reconciliation**: buffer inputs, adopt a snapshot, replay the un-acked, smooth the residual. Tested.                                                                                                  |
+| `audio.ts`                              | `unlockAudio`, `sfx`, `toggleMute`                                                  | The synthesized sound: one lazily-unlocked AudioContext, a master gain, the SFX bank.                                                                                                                                       |
+| `save.ts`                               | `load`, `save`, `fresh`                                                             | The localStorage **cache** — I/O only. Restoring a save is `hydrate`, in the shared ruleset.                                                                                                                                |
+| `ui/`                                   | `defineSlot`, `installSurfaces`, `materialIcon`, `buildInventoryGrid`               | The DOM chrome: the `<delve-slot>` element, nine-slice frames, item icons, the inventory grid. See [UI.md](UI.md).                                                                                                          |
+| `index.ts`                              | (entry)                                                                             | The game: glue and the frame loop — see [Who composes what](#who-composes-what).                                                                                                                                            |
 
 ## State machines
 
@@ -88,7 +105,7 @@ two stateful flows through it, so the pattern is shared, not re-invented:
   snapshot each tick (`desiredMinerState`) and `set()` into a machine — locomotion is freely
   interruptible, so a transition table would be busywork, but the machine still earns its keep: the
   client hooks its `onEnter` to fire landing juice on the air→ground edge. The client reads `.state`
-  to pick the walk/idle bob. Tested against real `physicsStep` playthroughs (`miner.test.ts`).
+  to pick the animation (`poseFor` in `render/entity/player.ts`). Tested against real `physicsStep` playthroughs (`miner.test.ts`).
 - **App / screen flow (client `index.ts`).** `title → playing ⇄ paused`, a `send()`-driven machine
   and the single source of truth for "is the sim running" — it ticks only in `playing`. There is
   deliberately **no blocking `loading` state**: the client renders from `localStorage` instantly and
@@ -117,30 +134,61 @@ validate the schema and that the index matches the directory (no drift).
 
 ## Who composes what
 
-- **`client/src/index.ts`** (the game, loaded by `client/index.html`) keeps only _glue_: input, HUD,
-  save, audio, camera, the `requestAnimationFrame` loop — and composes the frame from the modules.
+- **`client/src/index.ts`** (the game, loaded by `client/index.html`) is the glue: input, HUD and
+  menus, camera, juice, the `requestAnimationFrame` loop — and composes the frame from the modules.
+  The subsystems that grew inside it moved out in #55 once they had a reason to be tested on their
+  own: the chunk cache (`render/chunks.ts`), prediction (`prediction.ts`) and the synth (`audio.ts`).
 - **`client/labs/`** — the browser dev sandboxes, each rendering **through the same modules the
-  game uses** so they can't drift: `style-lab.ts` (art tuning over a sample cave),
-  `render.ts` (the one-region render harness `shot.sh` captures), `light-lab.ts` (coloured-
-  light blending). Iterate a module and the game and the labs move together.
+  game uses** so they can't drift. Iterate a module and the game and the labs move together. The
+  ones that answer a verification question are listed with their queries in
+  [`tools/README.md`](../tools/README.md): `render` (the one-region harness `shot.sh` captures),
+  `material-lab`, `light-lab`, `style-lab`, `sprite-lab`, `char-lab` (characters against real
+  collision), `patch-lab` (the chunk-context check through a real canvas), plus the UI and font benches
+  (`ui-lab`, `panel-lab`, `ui-concepts`, `ui-iron`, `font-lab`, `font-metrics`).
 - **`tools/`** — the interactive CLI dev tools (`sim.ts`, `shot.sh`) read the same modules
   for cheap headless inspection — see [`tools/README.md`](../tools/README.md). Automated testing
   lives in the co-located Vitest suites — see [`docs/TESTING.md`](TESTING.md).
 
 ## The rock chunk pipeline
 
-The rock field is expensive, so it's cached as world-anchored **chunks** (a `CW×CH` tile
-block on a 2D grid, since the world is unbounded in both axes). Each chunk is rendered once,
+The rock field is expensive, so it's cached as world-anchored **chunks** (`CHUNK_COLS`×`CHUNK_ROWS`
+cells on a 2D grid, since the world is unbounded in both axes). All of it lives in
+`client/src/render/chunks.ts`: the geometry, the one `bakeChunk` that the main thread, the Worker and
+the lab all call, the rule for what a dig invalidates, and the cache itself (`createChunkCache`).
+Before that module the geometry was written three times, and the lab that "checked" it was checking a
+copy. Each chunk is rendered once,
 the first time it scrolls into view, and kept — so scrolling back over explored ground is a
 cheap blit. Chunk generation runs **off the main thread** in a module Web Worker
-(`chunk-worker.ts`, created with `new Worker(new URL('./render/chunk-worker.ts',
-import.meta.url), { type: 'module' })` so Vite bundles it): it renders into an
+(`chunk-worker.ts`, created in `index.ts` with `new Worker(new URL('./render/chunk-worker.ts',
+import.meta.url), { type: 'module' })` — that expression has to stay there for Vite to bundle it): it renders into an
 `OffscreenCanvas` and ships the result back as a transferable `ImageBitmap`, so descending
 into fresh depth never stalls the loop (a not-yet-arrived chunk shows a flat-bg placeholder
 for a frame or two). If Workers/OffscreenCanvas are unavailable, it falls back to a
-synchronous main-thread render. **Digging** re-renders only a small window around the
-changed tile and patches it into the affected chunk(s) — synchronously on the main thread
-(cheap, no dig latency).
+synchronous main-thread render. **Digging re-bakes every cached chunk whose bake reads the dug cell**
+(`chunksReading`, derived from `chunkReadRegion`) — the chunk under the pick synchronously, so mining
+stays instant, and the rest off-thread. A chunk still being baked is marked stale and bakes once more
+when it lands.
+
+**Every request carries an epoch.** A world reset (new game, server hello) bumps it, and a result from
+an earlier epoch is dropped. Clearing the cache alone wasn't enough: bakes already queued in the
+Worker landed afterwards and were stored as current, and since a chunk that exists is never re-baked,
+old-world rock stayed on screen in the new world.
+
+It used to repaint a small window around the dug cell instead, and that was wrong in a way worth
+remembering: a patch window has to predict how far the dig moved the shading, and that region is
+**not a disc**. The baked top-light seeds from the nearest opening above and walks _downward_, so
+opening a cell re-shades everything beneath it for `TOP_LIGHT_ROWS` cells. A 3x3 window covered it
+while a cell was a whole block; after the 2x2 split it left a ring of stale rock around every fresh
+tunnel, which read as the lamp light sticking to the one cell that got redrawn. A chunk bake is exact
+by construction, so digs use one.
+
+That makes the chunk's own context load-bearing: `CHUNK_MARGIN` must be at least the shading's
+influence radius (`SHADE_INFLUENCE_CELLS`), or a chunk disagrees with its neighbours at the seam.
+**This is in `pnpm test`** (`chunks.test.ts`, through a small software canvas): every chunk, baked the
+way the Worker bakes it, must match the same chunk baked with unlimited context **exactly**, and a
+run of digs re-baking only what `chunksReading` names must leave nothing stale. Both fail on the
+configurations that shipped the #44 bugs. `client/labs/patch-lab.html` runs the same check through
+Chrome's real canvas, and agrees.
 
 Because the renderer lives in `cave-render.ts`, imported by _both_ the main thread and the
 Worker, the look can never drift between them, and all world-space noise is anchored to
@@ -164,11 +212,19 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
   enforces mining reach.
 - **The server is the single source of truth, and it owns time.** It owns each connection's
   `Session` (its shared world + player), **queues** received inputs and spends them on its own
-  fixed tick (WebSocket is ordered/reliable, so they apply in order), validates commands (can't
-  afford → no-op), and persists to `server/data/` (a sanitized-id JSON per player). It broadcasts
+  fixed tick (WebSocket is ordered/reliable, so they apply in order), and persists to
+  `server/data/` (a sanitized-id JSON per player, restored through the shared `hydrate`). It broadcasts
   authoritative `state` deltas at 20 Hz: the full `PlayerState` + newly-dug tiles + tile damage +
   `ackSeq` (the last input it applied).
-- **The client predicts + reconciles.** It runs the sim locally each fixed `TICK_DT` for instant
+- **The server survives what it is sent.** Every frame goes through `parseClientMessage`, which
+  returns a well-formed message or null — object not array, a known `t`, a string `playerId`, a
+  non-negative integer `seq`, a finite seed. That is the whole structural trust boundary; reach
+  and solidity stay the sim's job. It exists because a throw in a ws listener or a timer is an
+  uncaught exception in Node, which ends the **process**: before it, the one-message payload `null`
+  took the server down (`msg.t` of null), and so did a save from before `tech` existed, on the
+  first dig. As a backstop, each client's share of the tick, broadcast and persist timers runs
+  through `isolated()`, which logs and drops that one client instead.
+- **The client predicts + reconciles** (`client/src/prediction.ts`, tested in `prediction.test.ts`). It runs the sim locally each fixed `TICK_DT` for instant
   feel (movement + optimistic mining), buffering un-acked inputs. On each `state` it adopts the
   authoritative player, applies the world deltas, drops acked inputs, and **replays** the rest —
   re-predicting "now". Any residual difference is absorbed into a decaying render offset so
@@ -205,25 +261,29 @@ per input, so the authority gate's determinism scenario takes seconds rather tha
 step count is chosen against the clock rather than against how much digging is interesting.
 
 **Dev:** `pnpm dev` runs Vite + the server (`tsx watch`,
-WS-only) via `concurrently`; Vite proxies `/ws`. **Prod:** `pnpm build` → dist, then `pnpm start`
+WS-only) via `concurrently`; Vite proxies `/ws`. **If port 8787 is taken, the server exits with a
+loud message** — before it did, `tsx watch` kept the crashed process alive, `concurrently` never
+noticed, and the client silently connected to whatever old server held the port, running old code. **Prod:** `pnpm build` → dist, then `pnpm start`
 serves the built client (`sirv`) + the WebSocket from one process. `server/src/protocol.e2e.test.ts`
 is the authority gate — it spawns the real server and proves its state equals the client's
-prediction for a scripted input stream, that out-of-reach mining is rejected, and that reconnect
-hydrates the persisted world.
+prediction for a scripted input stream, that out-of-reach mining is rejected, that reconnect
+hydrates the persisted world, that malformed messages cannot crash it, and that a save from an
+older build loads and plays. `server/src/store.test.ts` covers the save store's path-traversal
+guard.
 
 ### What real multiplayer needs (decided shape)
 
 The port was deliberately thin — a single-player game in multiplayer-shaped plumbing, kept
-malleable. The *architecture* is right and the hardest call (server authority) is already made; the
+malleable. The _architecture_ is right and the hardest call (server authority) is already made; the
 **feature set** is unbuilt. The gap is concrete:
 
-| Needed | Why |
-| --- | --- |
-| **World lifetime decoupled from connection lifetime** | Today each connection owns its **own private world** (`server/src/index.ts` holds one `Session` per socket). Many players must join *one* world, and worlds must outlive their creators. |
-| **Player roster + join/leave** | The `state` message carries **one** player and no roster — there is no representation of a second player anywhere in the protocol. |
-| **Entity replication** | Enemies, NPCs, dropped loot and projectiles are all server-owned entities. **The protocol has no entity concept at all** — the wire model is tiles plus one player. |
-| **Interest management** | The client currently receives the world's **entire** dug-tile set, which doesn't scale with world size or player count. |
-| **Three-scope persistence** | See below. A single JSON per player can't hold a shared world. |
+| Needed                                                | Why                                                                                                                                                                                      |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **World lifetime decoupled from connection lifetime** | Today each connection owns its **own private world** (`server/src/index.ts` holds one `Session` per socket). Many players must join _one_ world, and worlds must outlive their creators. |
+| **Player roster + join/leave**                        | The `state` message carries **one** player and no roster — there is no representation of a second player anywhere in the protocol.                                                       |
+| **Entity replication**                                | Enemies, NPCs, dropped loot and projectiles are all server-owned entities. **The protocol has no entity concept at all** — the wire model is tiles plus one player.                      |
+| **Interest management**                               | The client currently receives the world's **entire** dug-tile set, which doesn't scale with world size or player count.                                                                  |
+| **Three-scope persistence**                           | See below. A single JSON per player can't hold a shared world.                                                                                                                           |
 
 **Keep replication area-of-interest-shaped from the start**, even behind a naive radius check. What
 forecloses scale isn't a naive implementation — it's baking **send-everything-to-everyone** into the
@@ -240,11 +300,11 @@ itself sits in [#29](https://github.com/inman-sebastian/agent-games/issues/29).
 travel into any world you join, and starting a fresh character is easy. That splits saved state into
 **three scopes with different owners and lifetimes**:
 
-| Scope | Holds | Lifetime |
-| --- | --- | --- |
-| **Account** | The discovery codex, settings | Forever; shared across *all* of a player's characters |
-| **Character** | Attributes, equipment, inventory, unlocks | Per character; travels between worlds |
-| **World** | Terrain mutations (`dug`/`dmg`), fluid, entities, NPCs, time of day | Per world; outlives whoever made it |
+| Scope         | Holds                                                               | Lifetime                                              |
+| ------------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Account**   | The discovery codex, settings                                       | Forever; shared across _all_ of a player's characters |
+| **Character** | Attributes, equipment, inventory, unlocks                           | Per character; travels between worlds                 |
+| **World**     | Terrain mutations (`dug`/`dmg`), fluid, entities, NPCs, time of day | Per world; outlives whoever made it                   |
 
 **What exists today:** one whole-file JSON per `playerId` under `server/data/`
 (`server/src/store.ts`, which says so itself — fine for single-player, a real store is a later
@@ -266,7 +326,7 @@ and that hosting model is planned-around rather than committed. Recorded so the 
 so it's assumed:
 
 - **Hibernation** — a world with nobody in it stops ticking entirely. It's the lever that keeps cost
-  proportional to *active* worlds rather than *created* ones. Fluid mid-flow **runs to completion on
+  proportional to _active_ worlds rather than _created_ ones. Fluid mid-flow **runs to completion on
   resume**, treating downtime as owing time rather than having stopped; resuming from the paused
   state would make logging out a way to freeze a disaster.
 - **Retention** — created worlds accumulate forever unless something evicts them.
@@ -279,7 +339,7 @@ nobody connected, so what remains is unloading the sessions rather than inventin
 > **Decided, not built.** See [DESIGN.md](DESIGN.md#progression).
 
 `stats(player)` resolves derived capability from the player alone. Progression adds
-**environmental modifiers** — contextual effects that apply based on *where the player is* — so
+**environmental modifiers** — contextual effects that apply based on _where the player is_ — so
 capability stops being a pure function of the player and needs the world too.
 
 This is a **shared-ruleset signature change**, so it lands on both sides at once: the client

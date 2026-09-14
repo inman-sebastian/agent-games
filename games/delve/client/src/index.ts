@@ -4,58 +4,47 @@
 // shake), the HUD/inventory/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
-import type {
-  Session,
-  Input,
-  TileCoord,
-  SimEvent,
-  StateMessage,
-  ClientCommand,
-} from '@delve/shared';
-import { T, setStrata as setRenderStrata, composeBand, mix, hashXY } from './render/cave-render';
+import type { Session, Input, TileCoord, SimEvent, StateMessage } from '@delve/shared';
+import { T, setStrata as setRenderStrata, mix, hashXY } from './render/cave-render';
+import {
+  CHUNK_COLS,
+  CHUNK_ROWS,
+  chunkX,
+  chunkY,
+  createChunkCache,
+  type ChunkWorker,
+} from './render/chunks';
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
-import type { Pen } from '@delve/shared';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
-import { hydrate, load, save, fresh } from './save';
+import { load, save, fresh } from './save';
+import { createPrediction } from './prediction';
+import { unlockAudio, sfx, toggleMute, audioStatus } from './audio';
 import { buildInventoryGrid } from './ui/inventory';
 import { defineSlot, type DelveSlot } from './ui/slot';
 import { installSurfaces } from './ui/surface';
 
 // ---- display + world-view geometry ------------------------------------------------------
-// Art is authored at T=16 logical px per tile (a fine, Terraria-ish grid). It renders at logical
-// resolution, then DISPLAYS at TILE_PX CSS px per tile with image-rendering:pixelated — so a tile
-// "looks like" TILE_PX on screen while the art stays 16px. 32px is a clean 2× integer scale.
-const TILE_PX = T * UPSCALE; // on-screen size of a tile (CSS px) — the art grid, shared with the UI
+// The world grid is CELLS of T=8 art px; four cells make a 16-art-px block (#44). The scene renders at
+// that logical resolution and DISPLAYS at UPSCALE with image-rendering:pixelated, so a cell is
+// TILE_PX = 16 CSS px on screen and a block is 32 — a clean 2x integer scale.
+const TILE_PX = T * UPSCALE; // on-screen size of one CELL (CSS px) — the art grid, shared with the UI
 // The world is unbounded in every direction, so the canvas is a VIEWPORT onto it: a 2-axis camera
 // keeps the miner centred and we render only the visible tile window. Sized by fit().
 let VIEW_COLS = 21;
 let VIEW_ROWS = 15;
 let LW = VIEW_COLS * T;
 let LH = VIEW_ROWS * T;
-// Cached rock CHUNK size (tiles) + a shading-context margin so chunk seams are invisible.
-const CW = 12;
-const CH = 6;
-const MARGIN = 1;
 const CAMERA_LERP = 0.16; // per-frame fraction the camera closes on its target (smooth follow)
-const CHUNK_CACHE_LIMIT = 400; // start evicting far chunks once the cache grows past this
-const CHUNK_EVICT_MARGIN = 12; // keep chunks within this many chunk-cells of the view
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 
-// Scratch buffer: renders one chunk (+margin) at a time when baking rock; also reused for the
-// small per-dig patch window (always ≤ a chunk, so it fits).
-const fieldBuf = document.createElement('canvas');
-fieldBuf.width = (CW + 2 * MARGIN) * T;
-fieldBuf.height = (CH + 2 * MARGIN) * T;
-const lb = fieldBuf.getContext('2d')!;
-lb.imageSmoothingEnabled = false;
-
 // ---- state / persistence ----------------------------------------------------------------
-// hydrate/load/save + save-format migration live in ./save (extracted so they're testable
+// load/save (the localStorage cache) live in ./save; turning a save back into a Session is
+// engine.hydrate in @delve/shared, shared with the server (extracted so they're testable
 // without the game loop). `save(s)` takes the current session since it's no longer a closure.
 const SAVE_INTERVAL_MS = 2500;
 
@@ -73,96 +62,6 @@ function snapCam(): void {
   camX = s.player.x * T - LW / 2 + T / 2;
   camY = s.player.y * T - LH / 2 + T / 2;
 }
-
-// ---- audio (synth) ----------------------------------------------------------------------
-// One AudioContext, unlocked lazily on the first gesture (browsers keep it suspended until
-// then). Everything routes through a single master gain so mute is instant and total. Timbres
-// follow the design convention: rising pitch = good, noise = friction, low body = heavy.
-const MASTER_VOLUME = 0.5;
-let AC: AudioContext | null = null;
-let muted = false;
-let master: GainNode | null = null;
-
-function audio(): AudioContext | null {
-  if (AC) return AC;
-  try {
-    const Ctor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    AC = new Ctor();
-    master = AC.createGain();
-    master.gain.value = muted ? 0 : MASTER_VOLUME;
-    master.connect(AC.destination);
-  } catch {
-    AC = null;
-  }
-  return AC;
-}
-// A short attack→decay envelope: silence → peak over `attack`, then exponential fall over `decay`.
-function env(node: GainNode, gain: number, attack: number, decay: number): void {
-  const now = AC!.currentTime;
-  node.gain.setValueAtTime(0, now);
-  node.gain.linearRampToValueAtTime(gain, now + attack);
-  node.gain.exponentialRampToValueAtTime(0.0001, now + attack + decay);
-}
-function tone(
-  freq: number,
-  attack: number,
-  decay: number,
-  type: OscillatorType = 'square',
-  gain = 0.3,
-): void {
-  if (!audio() || muted) return;
-  const osc = AC!.createOscillator();
-  const gainNode = AC!.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  osc.connect(gainNode);
-  gainNode.connect(master!);
-  env(gainNode, gain, attack, decay);
-  osc.start();
-  osc.stop(AC!.currentTime + attack + decay + 0.02);
-}
-function noise(duration: number, cutoff: number, gain = 0.4): void {
-  if (!audio() || muted) return;
-  const source = AC!.createBufferSource();
-  const buffer = AC!.createBuffer(1, AC!.sampleRate * duration, AC!.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1; // white noise
-  source.buffer = buffer;
-  const filter = AC!.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = cutoff;
-  const gainNode = AC!.createGain();
-  source.connect(filter);
-  filter.connect(gainNode);
-  gainNode.connect(master!);
-  env(gainNode, gain, 0.002, duration);
-  source.start();
-}
-// SFX bank — the frequencies/durations below are a synth coefficient family, tuned by ear.
-const sfx = {
-  dig(depth: number): void {
-    noise(0.06, 800 - Math.min(600, depth * 2), 0.18); // deeper rock reads as duller/lower
-  },
-  chip(): void {
-    noise(0.04, 1200, 0.12);
-  },
-  // `prize` is NORMALISED rarity, 0 (worthless) .. 1 (the rarest thing in the game) — not a tier
-  // index. The tier count is a content decision that changes whenever an ore is added, and reward
-  // pitch should not move when it does (#46).
-  break(prize: number): void {
-    noise(0.12, 500 + prize * 960, 0.4);
-  },
-  ore(prize: number): void {
-    const base = 520 + prize * 720;
-    tone(base, 0.005, 0.14, 'triangle', 0.28);
-    setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
-  },
-  land(impact: number): void {
-    noise(0.09, 300 - impact * 130, 0.18 + impact * 0.26); // heavier fall → lower, louder thud
-  },
-};
 
 // ---- juice (particles / floaties / shake) -----------------------------------------------
 interface Particle {
@@ -214,211 +113,74 @@ function floaty(x: number, y: number, text: string, col: string, big = false): v
   floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big });
 }
 
-// ---- layered pixel-art cave renderer ----------------------------------------------------
-// The rock (a per-pixel top-lit field, see cave-render) is cached as world-anchored CW×CH tile
-// CHUNKS on a 2D grid (the world is unbounded in both axes). A chunk is generated once the first
-// time it scrolls into view — OFF THE MAIN THREAD via a Worker so moving into fresh world never
-// stalls — and kept, so scrolling back is a cheap blit. Digging re-renders only a small window
-// around the changed tile (synchronously; cheap, no dig latency) and patches it into the affected
-// chunk(s). Chunks render with a MARGIN of context so seams are invisible; fieldBuf is the
-// main-thread scratch for patches / the sync fallback.
-interface Chunk {
-  cv: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-}
-const chunks = new Map<string, Chunk>();
-const chunkX = (column: number): number => Math.floor(column / CW);
-const chunkY = (row: number): number => Math.floor(row / CH);
-const ckey = (cx: number, cy: number): string => cx + ',' + cy;
+// ---- rock chunks ------------------------------------------------------------------------
+// The rock is cached as world-anchored chunks, baked off-thread as they come into view and re-baked
+// when a dig makes them stale. The cache, its Worker protocol and the rules for what a dig invalidates
+// live in render/chunks.ts, where they are tested; this is only what the game plugs into it.
 
-// A tile is solid rock when it's below the surface and not yet dug. The world is unbounded — every
+// A cell is solid rock when it's below the surface and not yet dug. The world is unbounded — every
 // column below the surface is rock until you dig it (no side walls).
 const solidTile = (column: number, row: number): boolean =>
   engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
-// a tile's ore material (if it sits in an ore pocket), baked into the rock band by composeBand so
-// veins feather into the strata. Same lookup the worker uses; null → the tile renders as plain rock.
+// a cell's ore material (if it sits in an ore pocket), baked into the rock by composeBand so veins
+// feather into the strata. The same lookup the Worker uses; null → the cell renders as plain rock.
 const materialAt = (column: number, row: number) =>
   oreMaterial(engine.oreAt(s.world.seed, column, row));
 
-function newChunkCanvas(): Chunk {
-  const cv = document.createElement('canvas');
-  cv.width = CW * T;
-  cv.height = CH * T;
-  return { cv, ctx: cv.getContext('2d')! };
-}
-
-// draw an ore's authored crystal/nugget art into a small canvas — used as its item icon in the
-// inventory and the collection codex (so ores read as distinct collectibles).
-
-// ---- off-thread chunk generation (Worker) with a synchronous fallback -------------------
-interface ChunkResult {
-  cx: number;
-  cy: number;
-  bmp: ImageBitmap;
-}
-let worker: Worker | null = null;
-const pending = new Map<string, Array<[number, number]> | null>(); // key -> dig patches queued while generating
-let rebuildCount = 0;
-let lastRebuildMs = 0;
-
-const canOffloadChunks =
-  typeof Worker !== 'undefined' &&
-  typeof OffscreenCanvas !== 'undefined' &&
-  !!OffscreenCanvas.prototype.transferToImageBitmap;
-if (canOffloadChunks) {
+/** The off-thread baker, where the browser can transfer an OffscreenCanvas back; otherwise null. */
+function chunkWorker(): ChunkWorker | null {
+  const canOffload =
+    typeof Worker !== 'undefined' &&
+    typeof OffscreenCanvas !== 'undefined' &&
+    !!OffscreenCanvas.prototype.transferToImageBitmap;
+  if (!canOffload) return null;
   try {
-    worker = new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
-    worker.postMessage({
-      type: 'init',
-      cfg: { T, CW, CH, MARGIN, strata: engine.STRATA },
-    });
-    worker.postMessage({ type: 'world', seed: s.world.seed }); // seed to bake ore into chunks
-    worker.onmessage = (e: MessageEvent<ChunkResult>) => {
-      const { cx, cy, bmp } = e.data;
-      const key = ckey(cx, cy);
-      const queued = pending.get(key);
-      pending.delete(key);
-      const chunk = chunks.get(key) || newChunkCanvas();
-      chunk.ctx.clearRect(0, 0, CW * T, CH * T);
-      chunk.ctx.drawImage(bmp, 0, 0);
-      bmp.close();
-      chunks.set(key, chunk);
-      if (queued) for (const [c, r] of queued) patchDig(c, r); // re-apply digs that landed mid-flight
-    };
-    worker.onerror = () => {
-      worker = null; // fall back to sync on failure
-    };
+    // `new URL(..., import.meta.url)` has to stay in this file for Vite to bundle the Worker.
+    return new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
   } catch {
-    worker = null;
-  }
-}
-
-// dug tiles overlapping a chunk's render region — extended 12 rows up so the Worker has the
-// openings that feed top-light seeding (usually empty for fresh depth).
-const TOP_LIGHT_LOOKUP_ROWS = 12;
-function dugInRegion(cx: number, cy: number): string[] {
-  const left = cx * CW - MARGIN;
-  const right = cx * CW + CW - 1 + MARGIN;
-  const top = cy * CH - MARGIN - TOP_LIGHT_LOOKUP_ROWS;
-  const bottom = cy * CH + CH - 1 + MARGIN;
-  const out: string[] = [];
-  for (const k in s.world.dug) {
-    const comma = k.indexOf(',');
-    const c = +k.slice(0, comma);
-    const r = +k.slice(comma + 1);
-    if (c >= left && c <= right && r >= top && r <= bottom) out.push(k);
-  }
-  return out;
-}
-function requestChunk(cx: number, cy: number): void {
-  const key = ckey(cx, cy);
-  if (chunks.has(key) || pending.has(key)) return;
-  pending.set(key, null);
-  worker!.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
-}
-
-// Re-post the world seed to the Worker so it bakes ore with the current seed. Call whenever the
-// world changes (new game / server hello) — right where the chunk cache is cleared.
-function syncWorkerWorld(): void {
-  worker?.postMessage({ type: 'world', seed: s.world.seed });
-}
-
-// Synchronous chunk render (fallback when no Worker) — uses the shared renderer.
-function renderChunkSync(cx: number, cy: number): Chunk {
-  const start = performance.now();
-  composeBand(
-    lb,
-    solidTile,
-    cx * CW - MARGIN,
-    cy * CH - MARGIN,
-    CW + 2 * MARGIN,
-    CH + 2 * MARGIN,
-    Infinity,
-    surfaceOf,
-    materialAt,
-  );
-  const key = ckey(cx, cy);
-  const chunk = chunks.get(key) || newChunkCanvas();
-  chunk.ctx.clearRect(0, 0, CW * T, CH * T);
-  chunk.ctx.drawImage(fieldBuf, MARGIN * T, MARGIN * T, CW * T, CH * T, 0, 0, CW * T, CH * T);
-  chunks.set(key, chunk);
-  lastRebuildMs = performance.now() - start;
-  rebuildCount++;
-  return chunk;
-}
-// Get a chunk for blitting, or null while it's being generated off-thread.
-function getChunk(cx: number, cy: number): Chunk | null {
-  const chunk = chunks.get(ckey(cx, cy));
-  if (chunk) return chunk;
-  if (worker) {
-    requestChunk(cx, cy);
     return null;
   }
-  return renderChunkSync(cx, cy);
 }
 
-// A dig changes one tile → re-render only a small window around it (a few ms, on the main thread —
-// no latency on digs) and patch it into the cached chunk(s) it overlaps. If a chunk is still being
-// generated, queue the patch to re-apply when it arrives.
-function patchDig(c: number, r: number): void {
-  const start = performance.now();
-  const coreL = c - 1;
-  const coreR = c + 1;
-  const coreT = r - 1;
-  const coreB = r + 1;
-  const bandLeft = coreL - MARGIN;
-  const bandTop = coreT - MARGIN;
-  composeBand(
-    lb,
-    solidTile,
-    bandLeft,
-    bandTop,
-    coreR - coreL + 1 + 2 * MARGIN,
-    coreB - coreT + 1 + 2 * MARGIN,
-    Infinity,
-    surfaceOf,
-    materialAt,
-  );
-  // copy each overlapping chunk's slice of the re-rendered core out of fieldBuf
-  for (let cy = chunkY(coreT); cy <= chunkY(coreB); cy++) {
-    for (let cx = chunkX(coreL); cx <= chunkX(coreR); cx++) {
-      const key = ckey(cx, cy);
-      const chunk = chunks.get(key);
-      if (!chunk) {
-        if (pending.has(key)) {
-          const queued = pending.get(key) || [];
-          queued.push([c, r]);
-          pending.set(key, queued);
-        }
-        continue;
-      }
-      const wl = Math.max(coreL, cx * CW); // world-tile intersection of the core and this chunk
-      const wr = Math.min(coreR, cx * CW + CW - 1);
-      const wt = Math.max(coreT, cy * CH);
-      const wb = Math.min(coreB, cy * CH + CH - 1);
-      chunk.ctx.drawImage(
-        fieldBuf,
-        (wl - bandLeft) * T,
-        (wt - bandTop) * T,
-        (wr - wl + 1) * T,
-        (wb - wt + 1) * T,
-        (wl - cx * CW) * T,
-        (wt - cy * CH) * T,
-        (wr - wl + 1) * T,
-        (wb - wt + 1) * T,
-      );
-    }
-  }
-  lastRebuildMs = performance.now() - start;
-  rebuildCount++;
-}
+const chunkCache = createChunkCache({
+  sources: () => ({ solid: solidTile, surfaceAt: surfaceOf, materialAt }),
+  dugKeys: () => Object.keys(s.world.dug),
+  worker: chunkWorker(),
+  seed: () => s.world.seed,
+  strata: engine.STRATA,
+  makeCanvas: (width, height) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return { canvas, ctx: canvas.getContext('2d')! };
+  },
+});
 
 // ---- lighting ---------------------------------------------------------------------------
 // The geometry-aware lighting system lives in render/lighting (shared with the labs, so they
-// light identically). We keep one instance; each frame we push emitters — the miner's lamp +
-// glowing ore veins — then call lighting.render() with the viewport + this game's solidTile.
+// light identically). We keep one instance; each frame we push the emitters — today only the miner's
+// lamp, since ore stopped glowing — then call lighting.render() with the viewport + solidTile.
 const lighting = createLighting();
+
+// ---- per-phase frame timing (debug) -----------------------------------------------------
+// The 2x2 split (#44) quadrupled the cell count behind an unchanged screen, and "the game runs at
+// 34fps" is a symptom, not a diagnosis. The render passes run in sequence, so one timestamp between
+// each is enough for every pass to report its own cost in the debug panel — the expensive one names
+// itself instead of being guessed at. Smoothed with the same EMA as the fps readout so it's legible
+// while playing rather than a flicker of per-frame noise.
+const phaseMs: Record<string, number> = {};
+let phaseMark = 0;
+function beginPhases(): void {
+  phaseMark = performance.now();
+}
+function endPhase(name: string): void {
+  const now = performance.now();
+  const ms = now - phaseMark;
+  phaseMark = now;
+  phaseMs[name] =
+    phaseMs[name] === undefined ? ms : phaseMs[name] + (ms - phaseMs[name]) * FPS_EMA_ALPHA;
+}
 
 // ---- render -----------------------------------------------------------------------------
 // The surface is a heightmap (#44), so everything that used to take the constant row now takes this
@@ -426,7 +188,12 @@ const lighting = createLighting();
 const surfaceOf = (column: number): number => engine.surfaceAt(s.world.seed, column);
 
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
-const LAMP_REACH_GAIN = 0.16; // added lamp brightness per tile of lamp reach (Deep Lantern reaches further)
+const LAMP_CORE_CELLS = 1 * engine.SUB; // full brightness within a block of the lamp
+const LAMP_EASE_CELLS = 0.5 * engine.SUB; // extra distance the falloff eases over, past the lamp's reach
+// Brightness per BLOCK of lamp reach. `lamp` is a distance in cells since the 2x2 split (#44), and
+// this is the one place it's read as a brightness rather than a distance — multiplying the cell
+// count would inflate the seed and over-light the scene, so it converts back to blocks first.
+const LAMP_REACH_GAIN = 0.16; // added lamp brightness per block of lamp reach (Deep Lantern reaches further)
 
 // idle dust motes that drift near the lamp (positions are seeded once, animated by time)
 const motes = Array.from({ length: 10 }, () => ({
@@ -436,9 +203,10 @@ const motes = Array.from({ length: 10 }, () => ({
 }));
 
 function render(t: number): void {
+  beginPhases();
   ctx.clearRect(0, 0, LW, LH);
-  const px = s.player.x + correctionX; // continuous player centre (tile units) + reconciliation smoothing
-  const py = s.player.y + correctionY;
+  const px = s.player.x + prediction.offsetX; // player centre (cells) + reconciliation smoothing
+  const py = s.player.y + prediction.offsetY;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
   const targetCamX = px * T - LW / 2 + T / 2;
   const targetCamY = py * T - LH / 2 + T / 2;
@@ -456,62 +224,16 @@ function render(t: number): void {
   const colR = Math.floor(camX / T) + VIEW_COLS + 2;
   const rowT = Math.floor(camY / T) - 2;
   const rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
-  // blit the cached rock chunks spanning the view; a not-yet-generated chunk (Worker in flight)
-  // shows a flat bg placeholder for the frame or two until it arrives.
-  const cx0 = chunkX(colL);
-  const cx1 = chunkX(colR);
-  const cy0 = chunkY(rowT);
-  const cy1 = chunkY(rowB);
-  for (let cy = cy0; cy <= cy1; cy++) {
-    for (let cx = cx0; cx <= cx1; cx++) {
-      const chunk = getChunk(cx, cy);
-      if (chunk) {
-        ctx.drawImage(chunk.cv, cx * CW * T, cy * CH * T);
-      } else {
-        ctx.fillStyle = '#0b0e13';
-        ctx.fillRect(cx * CW * T, cy * CH * T, CW * T, CH * T);
-      }
-    }
-  }
-  // prefetch a ring of chunks around the view so they're ready before they scroll in
-  if (worker) {
-    for (let cy = cy0 - 1; cy <= cy1 + 1; cy++)
-      for (let cx = cx0 - 1; cx <= cx1 + 1; cx++) requestChunk(cx, cy);
-  } else {
-    // sync fallback: bake at most one missing chunk per frame so a resize/teleport can't hitch
-    for (let cy = cy0; cy <= cy1; cy++) {
-      let baked = false;
-      for (let cx = cx0; cx <= cx1; cx++) {
-        if (!chunks.has(ckey(cx, cy))) {
-          renderChunkSync(cx, cy);
-          baked = true;
-          break;
-        }
-      }
-      if (baked) break;
-    }
-  }
-  // bound memory: drop chunks well outside the view (both axes)
-  if (chunks.size > CHUNK_CACHE_LIMIT) {
-    for (const key of [...chunks.keys()]) {
-      const comma = key.indexOf(',');
-      const kx = +key.slice(0, comma);
-      const ky = +key.slice(comma + 1);
-      if (
-        kx < cx0 - CHUNK_EVICT_MARGIN ||
-        kx > cx1 + CHUNK_EVICT_MARGIN ||
-        ky < cy0 - CHUNK_EVICT_MARGIN ||
-        ky > cy1 + CHUNK_EVICT_MARGIN
-      ) {
-        chunks.delete(key);
-      }
-    }
-  }
+  // the cached rock chunks spanning the view (placeholders while a bake is in flight), plus prefetch
+  // and eviction around it
+  chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
+  endPhase('chunks');
 
-  // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the lamp's reach
+  // Distances in CELLS: full brightness within one block of the lamp, easing out over its reach. Both
+  // were bare tile counts (1 and 0.5) that the 2x2 split halved in world terms.
   const lightAt = (c: number, r: number): number => {
     const dist = Math.hypot(c - px, r - py);
-    return Math.max(0.14, 1 - Math.max(0, dist - 1) / (st.lamp + 0.5));
+    return Math.max(0.14, 1 - Math.max(0, dist - LAMP_CORE_CELLS) / (st.lamp + LAMP_EASE_CELLS));
   };
 
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
@@ -553,15 +275,29 @@ function render(t: number): void {
       (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
     }
 
+  endPhase('damage');
+
   // animated cluster-edge twinkle: adjacent same-material tiles sharing a lit, exposed face flash as
   // ONE edge — a single glint hops along the whole run. Gated by lamp reach, so only ore you can
   // actually see twinkles. Drawn additively, before the lighting scrim (so lit glints survive it).
   if (debugFlags.twinkle) {
+    // Scanned over the LAMP's box, not the viewport's. Every cell the scan visits costs a solidAt
+    // plus an oreAt on all four faces, and `lit` already rejects everything past the lamp anyway —
+    // so the old full-screen band paid for ~19k cells to keep a couple of hundred. The 2x2 split
+    // (#44) made that the second-biggest cost in the frame (9.3ms of a 25ms frame at 160x120).
+    // `lightAt` floors at LAMP_MIN_LIT, so beyond this radius no cell can clear `minLit`.
+    // lightAt falls to its floor by LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS, so nothing past that
+    // can clear minLit; one extra cell of slack for the floor/ceil at the edges.
+    const twinkleReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
+    const tL = Math.max(colL, Math.floor(px) - twinkleReach);
+    const tR = Math.min(colR, Math.floor(px) + twinkleReach);
+    const tT = Math.max(rowT, Math.floor(py) - twinkleReach);
+    const tB = Math.min(rowB, Math.floor(py) + twinkleReach);
     const twinkleEdges = collectTwinkleEdges({
-      bandLeft: colL,
-      bandTop: rowT,
-      cols: colR - colL + 1,
-      rows: rowB - rowT + 1,
+      bandLeft: tL,
+      bandTop: tT,
+      cols: tR - tL + 1,
+      rows: tB - tT + 1,
       solid: solidTile,
       materialAt,
       lit: lightAt,
@@ -571,8 +307,8 @@ function render(t: number): void {
     if (twinkleEdges.length) {
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      const offX = colL * T;
-      const offY = rowT * T;
+      const offX = tL * T;
+      const offY = tT * T;
       for (const edge of twinkleEdges) {
         edge.material.twinkle!({
           g: ctx,
@@ -589,6 +325,8 @@ function render(t: number): void {
       ctx.restore();
     }
   }
+
+  endPhase('twinkle');
 
   // idle dust motes drifting near the lamp
   ctx.fillStyle = '#fff';
@@ -621,7 +359,7 @@ function render(t: number): void {
     facing: s.player.facing,
   }); // lamp bloom is part of the lighting pass
 
-  // coin floaties
+  // floaties: the "+2 Gold" text that rises off a broken ore cell
   ctx.textAlign = 'center';
   for (const f of floaties) {
     const a = Math.max(0, 1 - f.t / f.life);
@@ -634,19 +372,20 @@ function render(t: number): void {
   }
   ctx.globalAlpha = 1;
 
-  // mining reticle — the tile being aimed at (bright if solid & within reach, dim otherwise)
+  // mining reticle — the cell being aimed at, bright exactly when the sim would mine it. Reach is the
+  // sim's own rule (engine.withinReach, from the body's span) read against the sim's player — not the
+  // smoothed display position, and not a centre-cell approximation, which is what this used to be and
+  // why it dimmed cells the miner could reach.
   if (curTarget) {
     const { column, row } = curTarget;
-    const withinReach =
-      Math.abs(column - Math.floor(px)) <= engine.PHYS.REACH &&
-      Math.abs(row - Math.floor(py)) <= engine.PHYS.REACH;
-    const ok = engine.solidCell(s.world, column, row) && withinReach;
+    const ok = engine.solidCell(s.world, column, row) && engine.withinReach(s.player, column, row);
     ctx.globalAlpha = ok ? 0.85 : 0.22;
     ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
     ctx.strokeRect(column * T + 0.5, row * T + 0.5, T - 1, T - 1);
     ctx.globalAlpha = 1;
   }
   ctx.restore();
+  endPhase('entities');
 
   // lighting: push the miner's lamp emitter (seed brightness scales with lamp reach, so the Deep
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
@@ -658,7 +397,7 @@ function render(t: number): void {
       (py - 0.1) * T,
       0,
       LAMP_COLOR,
-      LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * st.lamp,
+      LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
     );
     lighting.render({
       g: ctx,
@@ -672,12 +411,14 @@ function render(t: number): void {
       scrim: debugFlags.fog,
     });
   }
+  endPhase('lighting');
 }
 
 // ---- input ------------------------------------------------------------------------------
 // Decoupled controls (#3): move with A/D or ←/→, jump with W/↑/Space. MINING is its own action —
 // aim at a tile and hold to mine it (within reach), independent of moving:
-//   • mouse / touch: the tile under the cursor, held down to mine (a reticle shows it)
+//   • mouse / touch: the tile under the cursor, held down to mine (a reticle shows it) — aiming
+//     does not turn the miner; only moving does
 //   • keyboard: hold J/K to mine in the aim direction (S/↓ aims down, else held side / facing)
 type HeldKey = 'left' | 'right' | 'jump' | 'down' | 'mine';
 const held: Record<HeldKey, boolean> = {
@@ -687,12 +428,11 @@ const held: Record<HeldKey, boolean> = {
   down: false,
   mine: false,
 };
-let moving = false;
 let curTarget: TileCoord | null = null;
 
 // The miner's animation/behaviour state (idle/run/jump/fall/mine) as a state machine over the pure
-// physics — see @delve/shared miner.ts. Driven once per fixed tick; `.state` selects the walk/idle
-// bob (below), and the enter hook hangs landing juice on the air→ground transition (a soft thud +
+// physics — see @delve/shared miner.ts. Driven once per fixed tick; `.state` picks the animation
+// (poseFor in render/entity/player), and the enter hook hangs landing juice on the air→ground transition (a soft thud +
 // dust + a nudge of shake) — impact feedback the game didn't have before. `lastFallSpeed` is the
 // descent speed captured just before the step, since the physics zeroes vy on contact.
 let lastFallSpeed = 0;
@@ -761,7 +501,7 @@ addEventListener('keydown', (e: KeyboardEvent) => {
   if (!key) return;
   e.preventDefault();
   held[key] = true;
-  audio();
+  unlockAudio();
 });
 addEventListener('keyup', (e: KeyboardEvent) => {
   const key = KEYMAP[e.code];
@@ -769,7 +509,8 @@ addEventListener('keyup', (e: KeyboardEvent) => {
 });
 
 // pointer: a reticle ALWAYS follows the cursor (aim.has once it's moved over the canvas); holding
-// the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons.
+// the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons — and so is
+// FACING: the cursor aims, it never turns the miner (see sampleInput).
 const aim = { cx: 0, cy: 0, has: false, down: false };
 function setAim(e: PointerEvent): void {
   aim.cx = e.clientX;
@@ -779,7 +520,7 @@ function setAim(e: PointerEvent): void {
 canvas.addEventListener('pointerdown', (e) => {
   if (!simRunning()) return;
   e.preventDefault();
-  audio();
+  unlockAudio();
   setAim(e);
   aim.down = true;
 });
@@ -795,15 +536,25 @@ function pointerTile(): TileCoord | null {
   const wy = ((aim.cy - rect.top) / rect.height) * LH + camY;
   return { column: Math.floor(wx / T), row: Math.floor(wy / T) };
 }
-// keyboard aim: the neighbour tile in the held/facing direction (S/↓ down, else side/facing)
+// keyboard aim: the neighbour cell in the held/facing direction (S/↓ down, else side/facing).
+// Aiming DOWN is relative to the FEET, not the centre. `player.y` is the body's centre and the body
+// is 2*HH tall — 3.64 cells since the 2x2 split (#44) — so the old `floor(y) + 1` addressed a cell
+// INSIDE the player. It always hit open space, which is not solid, so mining down with the keyboard
+// silently did nothing at all. (Sideways is unaffected: the column is outside the body either way.)
 function keyboardAimTile(): TileCoord {
+  if (held.down) {
+    // the cell the feet are standing on. y + HH lands exactly on the boundary when grounded, so
+    // nudge inside it before flooring rather than trusting the float to fall the right way.
+    return {
+      column: Math.floor(s.player.x),
+      row: Math.floor(s.player.y + engine.PHYS.HH + 0.01),
+    };
+  }
   let dx = 0;
-  let dy = 0;
-  if (held.down) dy = 1;
-  else if (held.left) dx = -1;
+  if (held.left) dx = -1;
   else if (held.right) dx = 1;
   else dx = s.player.facing === 'left' ? -1 : 1;
-  return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) + dy };
+  return { column: Math.floor(s.player.x) + dx, row: Math.floor(s.player.y) };
 }
 
 // ---- game loop (fixed-tick sim + client prediction) -------------------------------------
@@ -820,17 +571,14 @@ const FPS_EMA_ALPHA = 0.1; // smoothing for the debug fps / frame-time readouts
 const TICK_DT = engine.TICK_DT;
 
 // ---- client prediction / reconciliation state ----
-let inputSeq = 0; // monotonic input counter; the server echoes the last-applied one as ackSeq
-const pendingInputs: { seq: number; input: Input }[] = []; // un-acked inputs, replayed after each snapshot
-let correctionX = 0; // reconciliation error, absorbed into the render offset and decayed to 0
-let correctionY = 0;
+// Predict locally, reconcile against the server without the avatar popping — see prediction.ts.
+const prediction = createPrediction();
 // Ground covered, in tiles. The walk cycle is phase-locked to this rather than to the clock, so the
 // feet turn over with the floor instead of skating across it (see STRIDE_TILES).
 let walked = 0;
 // A step-up the sim has already resolved, being carried up visually. `tiles` is how far it rose.
 let stepTiles = 0;
 let stepAge = 0;
-const CORRECTION_RETAIN = 0.0025; // fraction of the correction kept per second (fast; invisible on LAN)
 
 // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and the
 // cached-chunk patch when a tile breaks.
@@ -851,7 +599,7 @@ function onEvent(ev: SimEvent): void {
     return;
   }
   if (ev.type !== 'break') return;
-  patchDig(ev.c, ev.r); // tile became open → patch the cached chunk(s)
+  chunkCache.dig(ev.c, ev.r); // the cell opened → re-bake the chunks that read it
   // Every reward cue scales by NORMALISED rarity rather than by the tier number, so adding an ore
   // never re-tunes the feedback for the ores already there — which is the mistake this whole thing
   // came from (#46). The coefficients are chosen so the top tier lands exactly where mythril landed
@@ -864,15 +612,22 @@ function onEvent(ev: SimEvent): void {
   chips(cx, cy, 5 + Math.round(prize * 8), ev.ore ? engine.ORE_BY_ID[ev.ore].color : '#6b5a45', 45);
   shake = Math.min(7, shake + 1.2 + prize * 4 + (ev.rich ? 2 : 0));
   if (ev.ore) {
-    // ore collected into the inventory (sold later)
+    // ore collected into the inventory (there is no selling — collection is the reward)
     sfx.ore(Math.min(1, prize + (ev.rich ? RICH_BONUS : 0)));
     const col = ev.rich ? '#f2c14e' : engine.ORE_BY_ID[ev.ore].color;
     const name = engine.ORE_BY_ID[ev.ore].name;
     // The big floaty is the celebration, so it belongs to the top two tiers and a rich vein of
     // anything. Narrower than before, when it reached down to emerald — but before, it also reached
     // stone bricks.
-    floaty(cx, cy - 4, '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''), col, prize >= 0.6 || ev.rich);
-    for (let i = 0; i < 4 + Math.round(prize * 8) + (ev.rich ? 8 : 0); i++) chips(cx, cy, 1, col, 55);
+    floaty(
+      cx,
+      cy - 4,
+      '+' + ev.qty + ' ' + name + (ev.rich ? '!' : ''),
+      col,
+      prize >= 0.6 || ev.rich,
+    );
+    for (let i = 0; i < 4 + Math.round(prize * 8) + (ev.rich ? 8 : 0); i++)
+      chips(cx, cy, 1, col, 55);
   }
 }
 
@@ -885,14 +640,11 @@ function sampleInput(): Input {
   const hover = pointerTile();
   const mineNow = aim.down ? hover : held.mine ? keyboardAimTile() : null;
   curTarget = hover || (held.mine ? keyboardAimTile() : null); // reticle follows the cursor
-  if (aim.down && hover) {
-    s.player.facing =
-      hover.column < Math.floor(s.player.x)
-        ? 'left'
-        : hover.column > Math.floor(s.player.x)
-          ? 'right'
-          : s.player.facing;
-  }
+  // Facing is NOT set here. It belongs to the movement rule in engine.physicsStep and nowhere else:
+  // aiming across the miner used to turn them, which fought the walk direction and flickered on
+  // every snapshot — `facing` lives in PlayerState, which the server owns and replaces wholesale,
+  // and it is not part of Input, so a mouse-derived facing could never reach the server to be
+  // agreed on. You aim independently of where you're facing; the reticle shows where you're aiming.
   return { left: held.left, right: held.right, jump: held.jump, mine: mineNow };
 }
 
@@ -901,17 +653,13 @@ function sampleInput(): Input {
 function tick(): void {
   const input = sampleInput();
   if (net.isOnline()) {
-    inputSeq++;
-    net.sendInput(inputSeq, input);
-    pendingInputs.push({ seq: inputSeq, input });
-    if (pendingInputs.length > 256) pendingInputs.shift(); // safety bound against an unresponsive server
+    net.sendInput(prediction.record(input), input);
   }
   lastFallSpeed = s.player.vy; // pre-step descent speed (vy>0 = falling); the landing hook reads it
   const res = engine.physicsStep(s, input, TICK_DT);
   // Only while actually on the ground: a cycle advanced by airborne drift would land mid-stride.
   if (s.player.grounded) walked += Math.abs(s.player.vx) * TICK_DT;
   for (const ev of res.events) onEvent(ev);
-  moving = Math.abs(s.player.vx) > engine.MOVE_EPSILON;
   engine.driveMiner(miner, s.player, s.player.digKey !== null); // may fire the landing hook above
 }
 
@@ -919,27 +667,10 @@ function tick(): void {
 // apply the world deltas, then replay inputs the server hasn't acked yet to re-predict "now".
 // Any residual difference is absorbed into a decaying render offset so corrections never pop.
 function reconcile(msg: StateMessage): void {
-  const shownX = s.player.x + correctionX; // where the avatar currently appears (pre-reconcile)
-  const shownY = s.player.y + correctionY;
-
-  s.player = msg.player; // server is the source of truth for the player
-
-  // world deltas: newly-dug tiles (patch the rock the first time we hear of them) + tile damage
-  for (const cellKey of msg.dugAdded) {
-    if (!s.world.dug[cellKey]) {
-      s.world.dug[cellKey] = true;
-      const comma = cellKey.indexOf(',');
-      patchDig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1));
-    }
+  for (const cellKey of prediction.reconcile(s, msg)) {
+    const comma = cellKey.indexOf(',');
+    chunkCache.dig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1)); // a dig the server saw first
   }
-  s.world.dmg = msg.dmg;
-
-  // drop acked inputs, replay the rest (silently — their juice already played when first predicted)
-  while (pendingInputs.length && pendingInputs[0].seq <= msg.ackSeq) pendingInputs.shift();
-  for (const p of pendingInputs) engine.physicsStep(s, p.input, TICK_DT);
-
-  correctionX = shownX - s.player.x; // absorb the correction; the frame loop decays it to 0
-  correctionY = shownY - s.player.y;
   if (!simRunning()) updateHUD(); // no tick loop while paused/title → refresh HUD for command results
 }
 
@@ -954,7 +685,6 @@ function frame(now: number): void {
 
   // advance the sim in fixed ticks (only while playing — title/paused don't bank ticks)
   if (!simRunning()) {
-    moving = false;
     curTarget = null;
     accumulator = 0;
   } else {
@@ -975,10 +705,7 @@ function frame(now: number): void {
   }
 
   // decay the reconciliation correction toward 0 (framerate-independent)
-  correctionX *= Math.pow(CORRECTION_RETAIN, dt);
-  correctionY *= Math.pow(CORRECTION_RETAIN, dt);
-  if (Math.abs(correctionX) < 1e-3) correctionX = 0;
-  if (Math.abs(correctionY) < 1e-3) correctionY = 0;
+  prediction.decay(dt);
 
   // update particles / floaties / shake
   for (const p of particles) {
@@ -1032,6 +759,7 @@ for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
 }
 
 function updateDebug(): void {
+  const chunkStats = chunkCache.stats();
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const netInfo = net.netStatus();
@@ -1039,20 +767,30 @@ function updateDebug(): void {
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
     `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
-    `depth ${s.player.depth}m\n` +
+    `depth ${metres(s.player.depth)}m (cell row ${s.player.depth})\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
-    `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
+    `phase ${Object.entries(phaseMs)
+      .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
+      .join('  ')}\n` +
+    `light field ${lighting.fieldMs.toFixed(1)}ms  scrim ${lighting.scrimMs.toFixed(1)}ms\n` +
+    `bakes ${chunkStats.bakes}  ${chunkStats.bakeMs.toFixed(1)}ms round trip  inflight ${chunkStats.inflight}  chunk ${CHUNK_COLS}x${CHUNK_ROWS} cells\n` +
+    `chunks cached ${chunkStats.cached}  sync bakes ${chunkStats.syncBakes}  last ${chunkStats.lastSyncBakeMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
     `held  ${engine.invCount(s.player)} materials\n` +
     `stats interval ${st.interval.toFixed(0)}ms  lamp ${st.lamp.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
     `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · fortune ${s.player.up.fortune}   tech ${s.player.tech.lantern ? 'lantern' : '—'}\n` +
-    `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
-    `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;
+    `audio ${audioStatus()}\n` +
+    `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${prediction.pendingCount}  seq ${prediction.seq}`;
 }
 
 // ---- HUD / inventory --------------------------------------------------------------------
+// Depth is shown in METRES, and a metre is a BLOCK: the miner is 1.82 blocks tall, a person-sized
+// 1.82m. The sim records depth as a cell row, so every readout converts — without this the 2x2
+// split (#44) doubled every depth the player saw (the HUD, the codex's "deepest", the debug panel)
+// with no change in how deep anything actually was.
+const metres = (row: number): number => engine.blockOf(row);
 const el = (id: string): HTMLElement => document.getElementById(id)!;
 const overlay = el('overlay');
 const codexOverlay = el('codexOverlay');
@@ -1066,7 +804,7 @@ function closeMenus(): void {
   pauseOverlay.classList.remove('on');
 }
 function openMenu(node: HTMLElement): void {
-  audio();
+  unlockAudio();
   closeMenus();
   node.classList.add('on');
   app.send('pause'); // no-op if already paused
@@ -1077,7 +815,7 @@ function resume(): void {
 }
 
 function updateHUD(): void {
-  el('depth').textContent = String(s.player.depth);
+  el('depth').textContent = String(metres(s.player.depth));
   el('held').textContent = engine.invCount(s.player).toLocaleString();
 }
 
@@ -1119,7 +857,7 @@ function renderCodex(): void {
     info.className = 'info';
     info.innerHTML = found
       ? `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>` +
-        `<div class="ds" style="color:var(--c-gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
+        `<div class="ds" style="color:var(--c-gold)">mined ${entry.mined.toLocaleString()} · deepest ${metres(entry.deepest)}m</div>`
       : `<div class="nm" style="color:var(--c-dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
     row.appendChild(slot);
     row.appendChild(info);
@@ -1138,8 +876,7 @@ codexOverlay.addEventListener('click', (e) => {
 
 const muteBtn = el('muteBtn');
 muteBtn.onclick = () => {
-  muted = !muted;
-  if (master) master.gain.value = muted ? 0 : MASTER_VOLUME;
+  const muted = toggleMute();
   muteBtn.textContent = muted ? '♪̸' : '♪';
   muteBtn.style.opacity = muted ? '0.5' : '1';
 };
@@ -1147,12 +884,9 @@ function newGame(): void {
   if (!confirm('Start a new mine? Your current progress is lost.')) return;
   s = fresh();
   net.sendCommand({ kind: 'newGame', seed: s.world.seed }); // server resets its world too (→ hello)
-  pendingInputs.length = 0;
-  inputSeq = 0;
+  prediction.reset();
   snapCam();
-  chunks.clear();
-  pending.clear();
-  syncWorkerWorld();
+  chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
   save(s);
   refreshInventory();
   resume(); // close any open menu and hand control back to the mine
@@ -1161,9 +895,13 @@ el('newBtn').onclick = newGame;
 
 // ---- title / pause screens --------------------------------------------------------------
 el('startBtn').onclick = () => {
-  audio(); // first user gesture unlocks the AudioContext
+  unlockAudio(); // first user gesture unlocks the AudioContext
   app.send('start');
 };
+// `?play` skips the title screen, so `shot.sh index.html` can capture the actual game instead of
+// the title panel — the reason a real-game screenshot used to need Playwright. It deliberately does
+// NOT unlock audio: that needs a genuine user gesture, and a headless capture has none.
+if (/(\?|&)play\b/.test(location.search)) app.send('start');
 el('resumeBtn').onclick = resume;
 el('pauseNewBtn').onclick = newGame;
 // Escape toggles the pause menu while playing, and backs out of any open menu while paused.
@@ -1185,13 +923,17 @@ addEventListener(
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 // ---- responsive sizing ------------------------------------------------------------------
-// Tiles render at a FIXED "looks-like-16px" size: 1 art px = 1 CSS px, so a 16px tile is 16 CSS px
-// and image-rendering:pixelated upscales it crisply to device pixels (32px on a 2× display) for
-// free — no per-DPR render path needed. The camera centres the miner and the canvas is centred in
-// the viewport.
+// Cells render at a FIXED on-screen size: one art px is UPSCALE (2) CSS px, so an 8-art-px cell is
+// 16 CSS px, and image-rendering:pixelated takes it on to device pixels crisply for free — no per-DPR
+// render path needed. The camera centres the miner and the canvas is centred in the viewport.
 // ponytail: fixed 1:1 for now; revisit fit + true fill when we tackle viewport framing.
-const MIN_VIEW_TILES = 9;
-const MAX_VIEW_TILES = 160;
+// Both bounds are in CELLS, so the 2x2 split (#44) scales them — they were left behind, which
+// capped a wide window at half the world it used to show and stopped the canvas filling the
+// viewport at all. The cap only exists to stop a huge window asking for an unbounded canvas; the
+// lighting no longer scales with screen area (it tracks the lamp's reach), so the old world-area
+// limit is still the right one to express.
+const MIN_VIEW_TILES = 9 * engine.SUB;
+const MAX_VIEW_TILES = 160 * engine.SUB;
 function fit(): void {
   VIEW_COLS = Math.max(
     MIN_VIEW_TILES,
@@ -1225,7 +967,7 @@ if (matchMedia('(pointer: coarse)').matches) {
     const on = (e: Event): void => {
       e.preventDefault();
       held[key] = true;
-      audio();
+      unlockAudio();
     };
     const off = (e: Event): void => {
       e.preventDefault();
@@ -1254,14 +996,9 @@ requestAnimationFrame(frame);
 net.connect({
   getSeed: () => s.world.seed,
   onHello: (snapshot) => {
-    s = hydrate(snapshot);
-    pendingInputs.length = 0;
-    inputSeq = 0;
-    correctionX = 0;
-    correctionY = 0;
-    chunks.clear();
-    pending.clear(); // chunk-generation queue
-    syncWorkerWorld();
+    s = engine.hydrate(snapshot);
+    prediction.reset();
+    chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
     snapCam();
     refreshInventory();
     updateHUD();

@@ -1,101 +1,57 @@
-// chunk-worker.ts — generates rectangular rock chunks off the main thread so moving through
-// fresh world never stalls the game loop. Uses the SAME renderer as the main thread
-// (cave-render) into an OffscreenCanvas, and ships the finished chunk back as a transferable
-// ImageBitmap (zero-copy). A chunk is a CW×CH tile block addressed by (cx, cy); rock shape
-// depends only on dug state, so each request carries the dug tiles overlapping its region. Ore
-// is baked INTO the chunk (via each ore's material shader) so veins feather into the rock exactly
-// as they do everywhere else — so the Worker also carries the world seed + the material registry.
-import { composeBand, setStrata } from './cave-render';
-import { oreAt, surfaceAt } from '@delve/shared';
+// chunk-worker.ts — bakes rock chunks off the main thread, so moving through fresh world never stalls
+// the game loop. It renders with the SAME `bakeChunk` the main thread uses (chunks.ts), into an
+// OffscreenCanvas, and ships the result back as a transferable ImageBitmap.
+//
+// The rock depends on dug state, so each request carries the dug cells inside the chunk's read region
+// (chunkReadRegion). Ore is baked INTO the chunk through each ore's material shader, so the Worker also
+// holds the world seed. Chunk geometry is imported, not sent: it used to arrive as an `init` config,
+// restating the main thread's arithmetic, with a fallback of `T: 16, MARGIN: 1` that no longer matched
+// anything.
+import { setStrata, T } from './cave-render';
+import { oreAt, solidAt, surfaceAt } from '@delve/shared';
 import { oreMaterial } from './materials';
-import type { Material } from './materials';
-import type { StrataResource } from '@delve/shared';
-
-interface WorkerConfig {
-  T: number;
-  CW: number;
-  CH: number;
-  MARGIN: number;
-  strata?: readonly StrataResource[];
-}
-type IncomingMessage =
-  | { type: 'init'; cfg: WorkerConfig }
-  | { type: 'world'; seed: number }
-  | { type: 'chunk'; cx: number; cy: number; dug: Set<string> };
+import {
+  CHUNK_COLS,
+  CHUNK_ROWS,
+  bakeChunk,
+  scratchSize,
+  type ChunkResult,
+  type ChunkSources,
+  type ChunkWorkerMessage,
+} from './chunks';
 
 const worker = self as unknown as DedicatedWorkerGlobalScope;
 
-let cfg: WorkerConfig = { T: 16, CW: 12, CH: 6, MARGIN: 1 };
-let worldSeed: number | null = null; // set by the 'world' message; ore is baked once it's known
-let scratch: OffscreenCanvas | null = null;
-let scratchCtx: OffscreenCanvasRenderingContext2D | null = null;
-let core: OffscreenCanvas | null = null;
-let coreCtx: OffscreenCanvasRenderingContext2D | null = null;
+let worldSeed: number | null = null; // set by the 'world' message; nothing is baked before it
+const size = scratchSize();
+const scratch = new OffscreenCanvas(size.width, size.height).getContext('2d')!;
+scratch.imageSmoothingEnabled = false;
+const core = new OffscreenCanvas(CHUNK_COLS * T, CHUNK_ROWS * T);
+const coreCtx = core.getContext('2d')!;
+coreCtx.imageSmoothingEnabled = false;
 
-worker.onmessage = (event: MessageEvent<IncomingMessage>): void => {
+worker.onmessage = (event: MessageEvent<ChunkWorkerMessage>): void => {
   const message = event.data;
   if (message.type === 'init') {
-    cfg = message.cfg;
-    setStrata(cfg.strata ?? []);
+    setStrata(message.strata);
     return;
   }
   if (message.type === 'world') {
     worldSeed = message.seed;
     return;
   }
-  if (message.type !== 'chunk') return;
-
-  const { T, CW, CH, MARGIN } = cfg;
-  const paddedWidth = (CW + 2 * MARGIN) * T;
-  const paddedHeight = (CH + 2 * MARGIN) * T;
-  const coreWidth = CW * T;
-  const coreHeight = CH * T;
-  if (!scratch || scratch.width !== paddedWidth || scratch.height !== paddedHeight) {
-    scratch = new OffscreenCanvas(paddedWidth, paddedHeight);
-    scratchCtx = scratch.getContext('2d')!;
-    scratchCtx.imageSmoothingEnabled = false;
-    core = new OffscreenCanvas(coreWidth, coreHeight);
-    coreCtx = core.getContext('2d')!;
-    coreCtx.imageSmoothingEnabled = false;
-  }
-
-  const dug = message.dug; // Set of "column,row" keys dug within this chunk's region
-  // The surface is a heightmap, so the worker computes it from the seed rather than being handed a
-  // row — a function cannot cross a postMessage boundary.
   const seed = worldSeed;
-  const surface = (column: number): number => (seed === null ? 0 : surfaceAt(seed, column));
-  const solidTile = (column: number, row: number): boolean =>
-    row > surface(column) && !dug.has(`${column},${row}`);
+  if (seed === null) return; // the cache always sends the world first; never bake a guessed one
 
-  // each solid tile's ore (if any) → its material, baked into the band so it feathers into the rock
-  const materialAt: ((column: number, row: number) => Material | null) | undefined =
-    seed === null ? undefined : (column, row) => oreMaterial(oreAt(seed, column, row));
-
-  const bandLeft = message.cx * CW - MARGIN;
-  const bandTop = message.cy * CH - MARGIN;
-  composeBand(
-    scratchCtx!,
-    solidTile,
-    bandLeft,
-    bandTop,
-    CW + 2 * MARGIN,
-    CH + 2 * MARGIN,
-    Infinity,
-    surface,
-    materialAt,
-  );
-  coreCtx!.clearRect(0, 0, coreWidth, coreHeight);
-  coreCtx!.drawImage(
-    scratch!,
-    MARGIN * T,
-    MARGIN * T,
-    coreWidth,
-    coreHeight,
-    0,
-    0,
-    coreWidth,
-    coreHeight,
-  ); // drop the margin
-  const bmp = core!.transferToImageBitmap();
-  worker.postMessage({ cx: message.cx, cy: message.cy, bmp }, [bmp]);
+  const dug = message.dug;
+  // The same solidity rule the main thread uses (engine.solidCell), over the dug cells it was sent.
+  const sources: ChunkSources = {
+    solid: (column, row) => solidAt(seed, column, row) && !dug.has(`${column},${row}`),
+    surfaceAt: (column) => surfaceAt(seed, column),
+    materialAt: (column, row) => oreMaterial(oreAt(seed, column, row)),
+  };
+  bakeChunk(scratch, coreCtx, message.cx, message.cy, sources);
+  const bmp = core.transferToImageBitmap();
+  const result: ChunkResult = { cx: message.cx, cy: message.cy, epoch: message.epoch, bmp };
+  worker.postMessage(result, [bmp]);
 };

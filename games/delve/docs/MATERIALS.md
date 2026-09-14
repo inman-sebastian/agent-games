@@ -33,10 +33,10 @@ This doc is the reference it (and you) build against.
 
 ```ts
 interface Material {
-  shade(ctx: ShadeCtx): Rgb;        // REQUIRED — per-pixel colour of the baked surface
-  feather?: number;                 // px this material bleeds into neighbours (default 3.2)
-  twinkle?: (ctx: TwinkleCtx) => void;   // animated glint on exposed, lit cluster edges
-  damage?: (ctx: DamageCtx) => void;     // bespoke break FX (else the shared crack FX is used)
+  shade(ctx: ShadeCtx): Rgb; // REQUIRED — per-pixel colour of the baked surface
+  feather?: number; // px this material bleeds into neighbours (default 3.2)
+  twinkle?: (ctx: TwinkleCtx) => void; // animated glint on exposed, lit cluster edges
+  damage?: (ctx: DamageCtx) => void; // bespoke break FX (else the shared crack FX is used)
 }
 ```
 
@@ -81,7 +81,7 @@ decision about where it lives instead of letting it leak everywhere by default.
 > **Decided, not built.** See [BIOMES.md](BIOMES.md).
 
 The compositor **always feathers** across a material boundary. That's exactly right for most of the
-world, and exactly wrong where crossing into a biome is supposed to be a *moment* — breaking into
+world, and exactly wrong where crossing into a biome is supposed to be a _moment_ — breaking into
 the Crystal Vault or reaching the Molten Core should read as one block over and unmistakably
 different, not as a soft fade.
 
@@ -91,30 +91,30 @@ boundary is _hard_, skip the feather.**
 Three things make this cheaper and less invasive than it sounds:
 
 - **The no-blend path already exists.** `shadeRock` bails out with `if (bestDist === Infinity)
-  return` when a pixel has no differing neighbour. A hard boundary is the *same outcome for a
-  different reason*, so suppression reuses the existing early-out rather than adding a branch to the
+return` when a pixel has no differing neighbour. A hard boundary is the _same outcome for a
+  different reason_, so suppression reuses the existing early-out rather than adding a branch to the
   blend maths.
 - **Hardness is a property of the _biome pair_, not the material.** It does **not** belong on the
   `Material` contract — two tiles of the same pair of materials should feather inside a biome and
   not feather across a hard biome edge. The compositor needs a biome lookup per tile, which it does
   not have today; that's the actual work.
-- **Sealed pockets get their hard edge for free.** A tool-gated shell *is* a hard boundary, so The
+- **Sealed pockets get their hard edge for free.** A tool-gated shell _is_ a hard boundary, so The
   Works and the Crystal Vault need nothing special here.
 
 > **`feather: 0` does not produce a hard edge — don't reach for it.** The blend half-width is
 > `w = Math.max(2, (wa + wb) * 0.5 * BLEND_WIDTH)`, so that floor of 2px survives any material
-> declaring zero. Suppression has to happen *before* the blend is computed, which is the early-out
+> declaring zero. Suppression has to happen _before_ the blend is computed, which is the early-out
 > above.
 
 **Readability requirement:** a hard boundary must change **texture or shape**, not only palette —
 never rely on colour alone. The surface classes below are the mechanism: a hard edge between two
-materials of *different classes* (say `stoneSurface` against `facetSurface`) already reads
+materials of _different classes_ (say `stoneSurface` against `facetSurface`) already reads
 structurally, not just chromatically.
 
 ## Shared visual language — surface classes (non-negotiable)
 
 Every material's `shade` builds on **one of the shared surface primitives** in `palette.ts`,
-picked by what the material physically *is* — the texture is the material's class, not a per-ore
+picked by what the material physically _is_ — the texture is the material's class, not a per-ore
 invention. Each takes the same `(worldX, worldY, px, py, brightness, colors, …)` shape and returns
 a quantised, Bayer-dithered colour; `colors` always comes from **`colorsFor([6 hex stops,
 shadow→rim])`** on the [Resurrect-64](PALETTE.md) palette. Never hand-roll a surface — pick the
@@ -129,7 +129,7 @@ class primitive and layer FX _on top_. The classes:
 - **`glassSurface(wx, wy, px, py, b, colors)`** — smooth dark glossy, brightness pulled down so it
   reads as glass even when lit. Obsidian.
 
-A material may also compose a *structured* surface on top of a class (e.g. `stonebricks.ts` lays a
+A material may also compose a _structured_ surface on top of a class (e.g. `stonebricks.ts` lays a
 running-bond brick pattern over `stoneSurface`) — still Resurrect-64, still world-anchored.
 
 The through-line is unchanged: seed all noise with `worldX/worldY` (stable + seamless), quantise to

@@ -31,6 +31,7 @@ export default defineConfig({
         panelLab: resolve(__dirname, 'labs/panel-lab.html'),
         fontMetrics: resolve(__dirname, 'labs/font-metrics.html'),
         uiConcepts: resolve(__dirname, 'labs/ui-concepts.html'),
+        patchLab: resolve(__dirname, 'labs/patch-lab.html'),
         uiIron: resolve(__dirname, 'labs/ui-iron.html'),
         charLab: resolve(__dirname, 'labs/char-lab.html'),
       },

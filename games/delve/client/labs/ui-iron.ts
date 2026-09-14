@@ -30,7 +30,10 @@ const BRASS = '#fbb954'; // the one warm accent
 type Px = string | null;
 
 /** Build a size×size nine-slice source from a per-pixel function. */
-function build(size: number, paint: (x: number, y: number, ring: number, lit: boolean) => Px): Pattern {
+function build(
+  size: number,
+  paint: (x: number, y: number, ring: number, lit: boolean) => Px,
+): Pattern {
   const last = size - 1;
   const rows: Px[][] = [];
   for (let y = 0; y < size; y++) {
@@ -72,7 +75,7 @@ const ITERATIONS: readonly Iteration[] = [
     pitch:
       'The baseline from the concept bench: hard outline, bright top rim, flat face. Nothing but the rim says "metal".',
     slice: 3,
-    pixels: build(7, (x, y, ring, lit) =>
+    pixels: build(7, (_x, _y, ring, lit) =>
       ring === 0 ? DARK : ring === 1 ? (lit ? LIT : DARK) : PLATE,
     ),
   },
@@ -94,7 +97,7 @@ const ITERATIONS: readonly Iteration[] = [
     pitch:
       'A channel cut between two rims: outline, lit lip, dark groove, second lip, face. Reads as a thicker plate that was milled rather than cast.',
     slice: 5,
-    pixels: build(11, (x, y, ring, lit) => {
+    pixels: build(11, (_x, _y, ring, lit) => {
       if (ring === 0) return DARK;
       if (ring === 1) return lit ? LIT : DARK;
       if (ring === 2) return GROOVE;
@@ -161,7 +164,7 @@ const ITERATIONS: readonly Iteration[] = [
     pitch:
       "B3's machined frame with B6's heading strip in it. The two strongest constructions combined, and the frame stays five pixels so the panel does not get heavier as well as busier.",
     slice: 5,
-    pixels: build(11, (x, y, ring, lit) => {
+    pixels: build(11, (_x, _y, ring, lit) => {
       if (ring === 0) return DARK;
       if (ring === 1) return lit ? LIT : DARK;
       if (ring === 2) return GROOVE;
@@ -244,8 +247,9 @@ for (const it of ITERATIONS) {
   section.style.setProperty('--panel-fw', `calc(var(--px) * ${it.slice})`);
   if (it.css) {
     const style = el('style');
-    style.textContent = it.css.replace(/(^|\})\s*([^{}]+)\{/g, (_m, brace, sel) =>
-      `${brace} #${it.id} ${sel.trim()} {`,
+    style.textContent = it.css.replace(
+      /(^|\})\s*([^{}]+)\{/g,
+      (_m, brace, sel) => `${brace} #${it.id} ${sel.trim()} {`,
     );
     section.append(style);
   }
@@ -299,11 +303,24 @@ function drawGround(): void {
   canvas.style.width = `${cols * T * UPSCALE}px`;
   canvas.style.height = `${rows * T * UPSCALE}px`;
   g.imageSmoothingEnabled = false;
-  composeBand(g, solidTile, bandLeft, bandTop, cols, rows, WIDTH, (c) => surfaceAt(SEED, c), (c, r) =>
-    oreMaterial(oreAt(SEED, c, r)),
+  composeBand(
+    g,
+    solidTile,
+    bandLeft,
+    bandTop,
+    cols,
+    rows,
+    (c) => surfaceAt(SEED, c),
+    (c, r) => oreMaterial(oreAt(SEED, c, r)),
   );
   const lighting = createLighting();
-  lighting.addLight((bandLeft + (cols >> 1)) * T + T / 2, CENTER_ROW * T + T / 2, 0, LAMP_COLOR, 2.6);
+  lighting.addLight(
+    (bandLeft + (cols >> 1)) * T + T / 2,
+    CENTER_ROW * T + T / 2,
+    0,
+    LAMP_COLOR,
+    2.6,
+  );
   lighting.render({
     g,
     LW: canvas.width,
