@@ -328,13 +328,17 @@ function draw(): void {
 }
 
 /**
- * Every fluid cell as a whole cell (PALETTE.md#fluids). A cell that moved last tick is drawn sliding
- * along its path instead of in place: the sim has already decided where it ends, and this only
- * animates toward it, so nothing appears to jump even when a move crosses several cells.
+ * Every fluid cell as a whole cell (PALETTE.md#fluids). A cell that fell or dropped last tick is drawn
+ * sliding along its path instead of in place: the sim has already decided where it ends, and this only
+ * animates toward it.
  */
 function drawFluid(progress: number): void {
-  const inTransit = new Map<number, number>(); // destination key → source key
-  for (const [from, to] of lastMoves) inTransit.set(to, from);
+  // Destination key → source key, for the moves drawn travelling. A merge isn't: pool cells are
+  // indistinguishable, so the cell simply joins the pool where the sim put it (FLUIDS.md).
+  const inTransit = new Map<number, number>();
+  for (const move of lastMoves) {
+    if (move.type !== 'merge') inTransit.set(move.to, move.from);
+  }
 
   for (const [key, cellKind] of field.cells) {
     const column = columnOfKey(key);
@@ -357,8 +361,8 @@ function drawFluid(progress: number): void {
 /**
  * Where a moving cell is, in whole art pixels, `progress` of the way along its move.
  *
- * An L, never a diagonal, so a moving block never cuts through a rock corner: a drop slides across
- * its row and then falls one cell, and a levelling move falls down its column and then slides across.
+ * An L, never a diagonal, so a moving block never cuts through a rock corner: a drop slides across its
+ * row and then falls one cell; a fall is straight down.
  */
 function pathPoint(from: number, to: number, progress: number): [number, number] {
   const fromX = columnOfKey(from) * T;
