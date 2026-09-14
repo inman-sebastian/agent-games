@@ -1,5 +1,6 @@
 // The oracle: runs scenes through Terraria 1.4.0.5's own Liquid.cs and LiquidRenderer.cs and writes what they
-// produce, for the TypeScript port's tests to match exactly.
+// produce, for the TypeScript port's tests to match exactly. `smooth <in> <out>` runs the Smooth World pass
+// instead (SmoothOracle.cs). Run fetch.sh first.
 //
 // Scene (JSON): rows ('#' rock, '~' full water, '.' open), updates, snapshotEvery, events [{at, op, x, y, amount}].
 // The grid sits in a world with a 10-tile rock margin. At start every wet tile joins the list (x, then y).
@@ -15,6 +16,12 @@ using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Terraria;
 using Terraria.GameContent.Liquid;
+
+if (args[0] == "smooth")
+{
+  SmoothOracle.Run(args[1], args[2]);
+  return;
+}
 
 const int Margin = 10;
 var input = JsonDocument.Parse(File.ReadAllText(args[0])).RootElement;

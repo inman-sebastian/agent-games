@@ -87,6 +87,8 @@ export interface Block {
   readonly strata: number;
   readonly hp: number;
   readonly dim: boolean;
+  /** The cell's shape: 0 full, or Terraria's slope 1–4 (shared/src/slopes.ts). Open cells are 0. */
+  readonly slope: number;
 }
 
 // ---- sim / save state -------------------------------------------------------------------

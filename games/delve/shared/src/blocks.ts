@@ -7,6 +7,7 @@
 import './resources/index'; // side-effect: registers every strata + ore before we read them
 import { all } from './registry';
 import { tileRand, vnoise } from './rng';
+import { OPEN as OPEN_SHAPE, shapeAt } from './slopes';
 import type { Block, OreResource, StrataResource, WorldSize } from './types';
 /**
  * Cells per BLOCK edge — the 2x2 split (#44).
@@ -252,6 +253,7 @@ const OPEN: Block = Object.freeze({
   strata: -1,
   hp: 0,
   dim: false,
+  slope: 0,
 });
 
 /**
@@ -260,7 +262,8 @@ const OPEN: Block = Object.freeze({
  * Dynamic dug/damage state is layered on by the sim.
  */
 export function blockAt(seed: number, column: number, row: number): Block {
-  if (row <= surfaceAt(seed, column)) return OPEN;
+  const shape = shapeAt(seed, column, row);
+  if (shape === OPEN_SHAPE) return OPEN;
   const ore = oreAt(seed, column, row);
   const oreDef = ore ? ORE_BY_ID[ore] : null;
   return {
@@ -271,11 +274,12 @@ export function blockAt(seed: number, column: number, row: number): Block {
     // The ore's toughness bonus is per BLOCK too, so it divides like the rock's does.
     hp: rockHp(row) + (oreDef ? oreDef.hp / CELLS_PER_BLOCK : 0),
     dim: oreDef ? !!oreDef.dim : false,
+    slope: shape,
   };
 }
 
-/** Cheap boolean solidity for the per-pixel rock field. Static only — callers combine it with
- * the dug overlay: `solidAt(...) && !isDug(...)`. */
+/** Cheap boolean solidity for the per-pixel rock field: anything but an open cell, slopes included. Static only —
+ * callers combine it with the dug overlay: `solidAt(...) && !isDug(...)`. */
 export function solidAt(seed: number, column: number, row: number): boolean {
-  return row > surfaceAt(seed, column);
+  return shapeAt(seed, column, row) !== OPEN_SHAPE;
 }

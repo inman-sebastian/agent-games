@@ -56,11 +56,14 @@ describe('world-gen determinism', () => {
         (seed, c, offset) => {
           const surface = surfaceAt(seed, c);
           const row = surface + offset;
-          if (offset <= 0) {
+          // world smoothing (#92) may fill the surface row or clear the one below it; nothing further
+          if (offset <= -1) {
             expect(blockAt(seed, c, row).kind).toBe('open');
             expect(oreAt(seed, c, row)).toBe(0);
-          } else {
+          } else if (offset >= 2) {
             expect(blockAt(seed, c, row).solid).toBe(true);
+          } else {
+            expect(blockAt(seed, c, row).solid).toBe(solidAt(seed, c, row));
           }
         },
       ),
@@ -173,17 +176,18 @@ describe('the surface heightmap (#44)', () => {
     }
   });
 
-  it('puts the boundary exactly at the surface row, with nothing floating', () => {
-    // The issue's own acceptance criterion: no column's surface sits inside rock or hangs over a
-    // gap. Solidity is DEFINED from the heightmap, so this is really a check that every consumer
-    // agrees — `blockAt`, `solidAt` and `oreAt` all branch on it separately.
+  it('puts the boundary at the surface, within the one row smoothing may move, with nothing floating', () => {
+    // No column's surface sits inside rock or hangs over a gap. World smoothing (#92) fills the surface row
+    // or clears the row below it in places, and nothing further: every consumer — `blockAt`, `solidAt` — agrees.
     for (const seed of [5, 555]) {
       for (let c = -60; c < 60; c++) {
         const surface = surfaceAt(seed, c);
-        expect(solidAt(seed, c, surface)).toBe(false);
-        expect(solidAt(seed, c, surface + 1)).toBe(true);
-        expect(blockAt(seed, c, surface).solid).toBe(false);
-        expect(blockAt(seed, c, surface + 1).solid).toBe(true);
+        expect(solidAt(seed, c, surface - 1)).toBe(false);
+        expect(solidAt(seed, c, surface + 2)).toBe(true);
+        for (const row of [surface, surface + 1]) {
+          expect(blockAt(seed, c, row).solid).toBe(solidAt(seed, c, row));
+        }
+        if (solidAt(seed, c, surface)) expect(solidAt(seed, c, surface + 1)).toBe(true);
       }
     }
   });

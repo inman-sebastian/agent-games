@@ -154,10 +154,10 @@ Nothing here is checked against a reading of Terraria's code: it's checked again
 1–3 levels that trickle down a shaft long after (the pool-over-a-cave scene still has 32 active tiles after
 400 updates); breaches and pours create or lose a few units; a U-bend never levels.
 
-To regenerate: fetch `Liquid.cs`, `LiquidBuffer.cs` and `GameContent/Liquid/LiquidRenderer.cs` from the
-1.4.0.5 decompile ([AliceSavard/Terarria1405](https://github.com/AliceSavard/Terarria1405)) into the harness
-folder (they're Re-Logic's and stay out of the repo; `.gitignore` keeps them out), then, with the .NET 8 SDK,
-`dotnet run -c Release -- ../scenes.json out.json` and gzip `out.json` to `oracle.json.gz`.
+To regenerate: run `tools/terraria-oracle/harness/fetch.sh` (it fetches `Liquid.cs`, `LiquidBuffer.cs` and
+`LiquidRenderer.cs` from the 1.4.0.5 decompile, [AliceSavard/Terarria1405](https://github.com/AliceSavard/Terarria1405),
+and extracts the Smooth World pass for [SLOPES.md](SLOPES.md) — Re-Logic's code, `.gitignore`d), then, with the
+.NET 8 SDK, `dotnet run -c Release -- ../scenes.json out.json` and gzip `out.json` to `oracle.json.gz`.
 
 ## Deviations
 
@@ -180,6 +180,9 @@ lava's light.
 
 ## Not built yet
 
+- **The renderer in WGSL.** Everything drawn is on the GPU in the game (RENDERING.md; the author,
+  2026-09-14): the draw cache, the texture, see-through water, the molten surface and its heat (jump flooding
+  in place of `surfaceDistance`), gated against the TypeScript renderer, which stays the reference.
 - **World integration.** The step on the server's tick; digging frames the tiles around it.
 - **Netcode.** Terraria sends changed tiles by chunk (`NetLiquidModule`); the same, to the clients that see
   them.

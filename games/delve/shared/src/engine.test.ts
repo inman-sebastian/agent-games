@@ -400,12 +400,12 @@ describe('derived stats at base levels', () => {
     expect(stats(withLantern).lamp / SUB).toBeGreaterThanOrEqual(6);
   });
 
-  it("the row at a column's own surface is open", () => {
+  it("the rows around a column's own surface are open above it and solid below it", () => {
     // Per column, not at row 0: the surface is a heightmap (#44), so a hill puts rock above row 0
-    // and a valley puts sky below it.
+    // and a valley puts sky below it. World smoothing (#92) may move the surface row and the one below it.
     for (const column of [-40, -1, 0, 7, 123]) {
-      expect(blockAt(1, column, surfaceAt(1, column)).solid, `column ${column}`).toBe(false);
-      expect(blockAt(1, column, surfaceAt(1, column) + 1).solid, `column ${column}`).toBe(true);
+      expect(blockAt(1, column, surfaceAt(1, column) - 1).solid, `column ${column}`).toBe(false);
+      expect(blockAt(1, column, surfaceAt(1, column) + 2).solid, `column ${column}`).toBe(true);
     }
   });
 });

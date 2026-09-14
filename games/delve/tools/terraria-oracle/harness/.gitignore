@@ -3,3 +3,5 @@ LiquidBuffer.cs
 LiquidRenderer.cs
 bin/
 obj/
+SmoothWorld.generated.cs
+WorldGen.cs.txt

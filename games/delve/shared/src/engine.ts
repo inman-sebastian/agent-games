@@ -106,15 +106,18 @@ export function newWorld(seed: number, size: WorldSize = DEFAULT_WORLD_SIZE): Wo
   return { seed: seed >>> 0 || 1, size, dug: {}, dmg: {} };
 }
 
-/** The row the feet rest on at `x`: one below the highest surface the body spans. */
+/** The row the feet rest on at `x`: the highest solid cell under the columns the body spans. World smoothing can
+ * fill or clear the cell just above or below the heightmap, so it's found by shape, not by `surfaceAt`. */
 function groundUnder(seed: number, x: number, hw: number): number {
   const left = Math.floor(x - hw + EPSILON);
   const right = Math.floor(x + hw - EPSILON);
   let highest = Infinity;
   for (let column = left; column <= right; column++) {
-    highest = Math.min(highest, surfaceAt(seed, column));
+    let row = surfaceAt(seed, column) - 2;
+    while (!solidAt(seed, column, row)) row++;
+    highest = Math.min(highest, row);
   }
-  return highest + 1;
+  return highest;
 }
 
 /**
@@ -225,7 +228,7 @@ export function newSession(seed: number, size: WorldSize = DEFAULT_WORLD_SIZE): 
 export const key = (column: number, row: number): string => `${column},${row}`;
 
 export const isDug = (world: WorldState, column: number, row: number): boolean =>
-  row <= surfaceAt(world.seed, column) || !!world.dug[key(column, row)];
+  !!world.dug[key(column, row)];
 
 /** Whether a column is inside the world's width (#58). */
 export const inColumns = (world: WorldState, column: number): boolean =>

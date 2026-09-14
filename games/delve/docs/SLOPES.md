@@ -14,6 +14,12 @@ how Terraria does it generally, in DELVE's own art direction. Slopes are mineabl
 - **One slope per cell.** The cell is DELVE's tile: what the player digs, what liquid fills, 8 art px. Terraria's
   16 px tile maps to one cell, so a DELVE position × 16 is a Terraria pixel.
 
+- **Rules on the CPU, everything drawn on the GPU** (the author, 2026-09-14, keeping RENDERING.md's
+  2026-09-13 decision). World smoothing and collision are shared rules the server runs in Node and the
+  oracles check, and Terraria's versions are order-dependent, so they stay in TypeScript. Every visual part —
+  the slope mask and shading, stalactites, lighting, liquid behind slopes — is WGSL, gated against its
+  TypeScript reference.
+
 ## Terraria's rules (1.4.0.5, decompiled)
 
 Read from the source, not a summary; line numbers are in the decompile ([AliceSavard/Terarria1405](https://github.com/AliceSavard/Terarria1405)).
@@ -54,12 +60,22 @@ swapped when only the right neighbour is solid, and ceilings first under a solid
 
 ## Mapping onto DELVE
 
-- **The static world gains a shape.** DELVE's world is a pure function of the seed, unbounded and computed per
-  cell, so Terraria's Smooth World pass — sequential over a finite world, sharing one random generator, reading
-  slopes it set a moment earlier — can't be ported literally. DELVE applies the same rules to each cell against
-  the **unsmoothed** world, with a seeded hash of the cell in place of `genRand`. Where Terraria would pound a
-  half brick, the cell stays full; where it would kill or place a tile, the cell opens or fills. This is the one
-  deliberate deviation in the slope rules, and it's why world generation isn't checked against an oracle.
+- **The static world gains a shape** (`shared/src/slopes.ts`, `shapeAt(seed, column, row)`: open, full, or a
+  slope). DELVE's world is a pure function of the seed, unbounded and computed per cell; Terraria's Smooth World
+  pass is sequential over a finite world, shares one random generator, and reads tiles it changed a moment
+  earlier — a one-cell step would get two slopes side by side if each cell were judged alone. So the pass is
+  **replayed statement by statement over fixed chunks of 64 columns**, each starting from the unsmoothed
+  heightmap and reading the unsmoothed world beyond its seams, with a xorshift seeded by the world seed and the
+  chunk in place of `genRand`. Within a chunk the result is exactly Terraria's; the chunk seams are the
+  deviation. Half bricks are tracked while the pass runs (its rules read them) and become full cells after.
+  `solidAt` and `blockAt` answer from the shape (`Block.slope`), and `isDug` is just the dug map: smoothing
+  fills the heightmap's surface row in places and clears the row below it in others, so "at or above the surface
+  is dug" no longer holds. Until collision is ported (#93), a slope collides as a full cell.
+- **Checked against Terraria's code.** `tools/terraria-oracle/harness/fetch.sh` extracts the Smooth World pass
+  from the decompiled `WorldGen.cs` unmodified; `SmoothOracle.cs` runs it (with `SlopeTile`, `PoundTile`,
+  `KillTile`, `PlaceTile` and `SolidTile` stubbed to their exact effects during generation) on
+  `smooth-scenes.json` — real DELVE chunks from four seeds and synthetic terrain with big steps, overhangs,
+  pillars and caves — and `smooth.test.ts` requires every tile's active, slope and half-brick bits to match.
 - **Mining** a slope is mining a cell: same hit points, same drops; dug, it's open like any cell.
 - **No save or protocol change.** A cell's shape is computed from the seed, and `dug` already records what's
   been mined. (The hammer would change that: shapes would then need storing and syncing.)

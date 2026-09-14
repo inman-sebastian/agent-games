@@ -85,6 +85,11 @@ namespace Terraria.ID
     public static class Sets
     {
       public static bool[] IsAContainer = new bool[1000];
+      public static bool[] CanBeClearedDuringGeneration = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Repeat(true, 1000));
+      public static class Conversion
+      {
+        public static bool[] Sand = new bool[1000];
+      }
       public static bool[] Platforms = new bool[1000];
     }
   }
@@ -122,7 +127,7 @@ namespace Terraria
     public ushort wall;
     public byte liquid;
     bool _active, _checking, _skip, _half;
-    byte _liquidType;
+    byte _liquidType, _slope;
     public bool active() => _active;
     public void active(bool v) => _active = v;
     public bool nactive() => _active;
@@ -138,10 +143,28 @@ namespace Terraria
     public bool halfBrick() => _half;
     public void halfBrick(bool v) => _half = v;
     public void color(byte c) { }
-    public void slope(byte s) { }
+    public byte slope() => _slope;
+    public void slope(byte s) => _slope = s;
+    public bool inActive() => false;
+    /// <summary>Tile.SmoothSlope: only sand runs it in Smooth World, and DELVE has no sand.</summary>
+    public static void SmoothSlope(int x, int y, bool applyToNeighbors, bool sync) { }
   }
 
-  public class Lang { public static LocalizedStub[] gen = new LocalizedStub[64]; }
+  public class Lang
+  {
+    public static LocalizedStub[] gen = Init();
+    static LocalizedStub[] Init()
+    {
+      var array = new LocalizedStub[128];
+      for (int i = 0; i < array.Length; ++i) array[i] = new LocalizedStub();
+      return array;
+    }
+  }
+  public class ProgressStub
+  {
+    public string Message;
+    public void Set(float value) { }
+  }
   public class LocalizedStub { public string Value = ""; }
   public class PlayerStub { public bool active; }
   public class ClientStub { public bool[,] TileSections = new bool[1, 1]; }
@@ -209,10 +232,48 @@ namespace Terraria
     public static int waterLine;
     public static Terraria.Utilities.UnifiedRandom genRandUnused;
     public static XorShift genRand = new XorShift();
-    public static bool SolidTile(int x, int y, bool b) => Main.tile[x, y].active() && Main.tileSolid[Main.tile[x, y].type];
+    public static ushort crackedType = 481;
+    /// <summary>WorldGen.SolidTile (WorldGen.cs:42370): an active solid full block — not half, not sloped.</summary>
+    public static bool SolidTile(int x, int y, bool noDoors = false)
+    {
+      var tile = Main.tile[x, y];
+      if (tile == null) return true;
+      return tile.active() && Main.tileSolid[tile.type] && !Main.tileSolidTop[tile.type] && !tile.halfBrick() && tile.slope() == 0 && !tile.inActive();
+    }
+    /// <summary>WorldGen.SlopeTile during generation (WorldGen.cs:49170): CanPoundTile holds for rock.</summary>
+    public static bool SlopeTile(int i, int j, int slope = 0, bool noEffects = false)
+    {
+      Main.tile[i, j].halfBrick(false);
+      Main.tile[i, j].slope((byte) slope);
+      return true;
+    }
+    /// <summary>WorldGen.PoundTile during generation (WorldGen.cs:49198): toggles the half brick.</summary>
+    public static bool PoundTile(int i, int j)
+    {
+      Main.tile[i, j].halfBrick(!Main.tile[i, j].halfBrick());
+      return true;
+    }
     public static bool SolidOrSlopedTile(Tile t) => t.active() && Main.tileSolid[t.type] && !Main.tileSolidTop[t.type];
-    public static void KillTile(int i, int j, bool fail, bool effectOnly, bool noItem) { }
-    public static bool PlaceTile(int i, int j, int type, bool mute, bool forced, int plr, int style) => false;
+    /// <summary>WorldGen.KillTile's clearing (WorldGen.cs:38134-38150): active and half brick off, type 0; slope bits stay.</summary>
+    public static void KillTile(int i, int j, bool fail = false, bool effectOnly = false, bool noItem = false)
+    {
+      if (!gen) return; // the liquid oracle never kills tiles
+      var tile = Main.tile[i, j];
+      if (!tile.active()) return;
+      tile.active(false);
+      tile.halfBrick(false);
+      tile.type = 0;
+    }
+    /// <summary>WorldGen.PlaceTile of a plain solid block into an empty cell.</summary>
+    public static bool PlaceTile(int i, int j, int type, bool mute = false, bool forced = false, int plr = -1, int style = 0)
+    {
+      if (!gen) return false; // the liquid oracle never places tiles
+      var tile = Main.tile[i, j];
+      if (tile.active()) return false;
+      tile.active(true);
+      tile.type = (ushort) type;
+      return true;
+    }
     public static void SquareTileFrame(int i, int j, bool resetFrame)
     {
       // WorldGen.SquareTileFrame → TileFrame on the 3×3, column by column; TileFrame wakes any liquid there
