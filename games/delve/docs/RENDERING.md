@@ -35,7 +35,73 @@ What that does and doesn't change:
 - **Tooling:** probe's headless Chrome exposes a real WebGPU adapter; `shot.sh` launches Chrome with
   `--disable-gpu`, so WebGPU captures go through probe instead.
 
-The spike's findings get recorded here, and the sections below get rewritten as each part moves.
+The sections below get rewritten as each part moves.
+
+### Spike findings (#69)
+
+`client/labs/gpu-lab.html` renders one carved screen of the real world twice: through the Canvas 2D
+path (`composeBand` + `lighting.ts`) and through the compute pipeline in `client/src/render/gpu/`,
+which reads the same world predicates, strata ramps, tuning constants and light field. Materials are
+out of scope on both sides. Measured with `pnpm probe` on the author's machine (Apple, Metal).
+
+**Fidelity: the port is faithful.**
+
+| Frame                                 | Identical pixels           | Within 8 levels   | Where the rest differ                                                                                                       |
+| ------------------------------------- | -------------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Rock, sky, stalactites (lighting off) | **99.99%** (14 of 130,560) | 99.99%            | Single pixels one shading band apart, and one 2×2 silhouette block: noise values landing on a threshold, float32 vs float64 |
+| With lighting                         | 75.8%                      | **100%** (max 11) | ±1-level rounding everywhere the glow, scrim and vignette blend — Canvas 2D's 8-bit compositing vs the shader's arithmetic  |
+
+Nothing that differs is visible side by side. A pixel-exact match isn't a goal: the GPU renderer
+replaces the CPU one, so the diff proved the port, and after the port the GPU output is the look.
+
+**Cost: a whole screen, every frame, for less than the cached CPU path.** At a 3400×1900 window
+(1,696×944 art pixels):
+
+| Path                                                             | Main thread per frame                      | GPU         |
+| ---------------------------------------------------------------- | ------------------------------------------ | ----------- |
+| Canvas 2D, full recompose (what the chunk cache exists to avoid) | ~760 ms                                    | —           |
+| **The game today** (cached chunks, Worker bakes not counted)     | **~4.2 ms** — lighting 3.5, scrim 2.7      | —           |
+| **WebGPU, full recompose from scratch**                          | **~3.8 ms** — world upload 3.7, encode 0.1 | **~2.6 ms** |
+
+The GPU path's main-thread cost is almost entirely **rebuilding the world upload from world queries
+every frame**: about 25,000 solidity lookups plus the top-light seeds. Nothing requires that. With the
+world held on the GPU and updated by deltas (digs, and a row or column entering view), the expected
+cost is well under a millisecond on the main thread. That's a projection, not a measurement. Either
+way the chunk cache, the bake Worker, and the scrim's CPU cost stop existing.
+
+**Code shape.**
+
+- **WGSL in `.wgsl` files**, imported with Vite's `?raw`. WGSL has no includes, so modules are
+  concatenated.
+- **Tuning constants are generated from the TypeScript that owns them** (`gpu/constants.ts`). A retune
+  in `cave-render.ts` or `lighting.ts` reaches both renderers, and nothing has a second home.
+- **Exact integer ports** of `rng.ts` (32-bit wrapping arithmetic) and `palette.ts`'s quantiser.
+- **A frame is 12 passes**: mask; jump-flood init and 7 steps; shade; light; present.
+- **Techniques that changed**, all without measurable cost to the look:
+  - The chamfer edge-distance sweep became jump flooding with the chamfer metric.
+  - The top-light depth became a bounded 36 px upward scan, exact because brightness has clamped by
+    then.
+  - The contact-shadow distance became a ±2 px window, exact for the same reason.
+- **The light propagation stayed on the CPU** (`LightingInstance.field`, split out of `render` so both
+  renderers read one field). It costs 0.8 ms in the game.
+
+**Tooling.** probe's headless Chrome exposes a Metal adapter. `pnpm probe --shot` captures WebGPU
+pages, which `shot.sh` (with `--disable-gpu`) can't. The lab's `window.gpuLab.runDiff()` reads the GPU
+frame back and diffs it for probe.
+
+**What the spike surfaced for the epic:**
+
+- **Per-row strata ramps come free.** Chunks pick one ramp per band from its centre row, which is the
+  seam #54 describes. The GPU shades every pixel with no chunks, so the ramp can follow the row.
+- **The material shaders are the real porting cost.** There are 13 JavaScript `shade(ShadeCtx)`
+  functions, plus the feathered material blend. The contract maps onto one WGSL function per material,
+  selected by id, and the `delve-new-material` skill has to change with it.
+- **The render gates need a new basis.** `chunks.test.ts` and `soft-canvas.ts` test a pipeline that goes
+  away, and a CPU-vs-GPU diff only works while both exist. The likely replacements are golden-image
+  checks through probe plus invariant tests on the TypeScript that prepares GPU data. That's a decision
+  for the epic, not the spike.
+- **Unsupported browsers.** The renderer throws `GpuUnavailable` with a sentence for the page. The
+  unsupported-browser screen is renderer-core work.
 
 ## Grounding
 

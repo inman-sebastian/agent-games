@@ -19,11 +19,11 @@
 import { SUB } from '@delve/shared';
 import type { LightColor } from '@delve/shared';
 
-const DITHER_STEPS = 10; // brightness quantisation levels for the darkness scrim + vignette
+export const DITHER_STEPS = 10; // brightness quantisation levels for the darkness scrim + vignette
 const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4×4 ordered dither, matches the rock
 const BAYER_LEVELS = 16; // 4×4 matrix range, to normalise a Bayer value to [0, 1)
 const AMBIENT: LightColor = [0, 0, 0]; // no floor — lamp-only visibility: unlit space is the void
-const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades toward (deep, cool)
+export const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades toward (deep, cool)
 const ADD = 0.26; // how strongly the light field shows as additive glow
 const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
 // Conduction is authored PER BLOCK and converted to the per-cell step the sweeps actually take.
@@ -39,17 +39,17 @@ const DIAGONAL_ATTEN = perCell(0.9); // extra factor on diagonal propagation ste
 const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
 const ORE_GLOW = 1.6; // ore-glow seed strength (r>0 emitters flood their colour into open space)
 const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
-const MAX_DARKNESS = 1; // lamp-only visibility: a fully-unlit pixel fades all the way to the void
+export const MAX_DARKNESS = 1; // lamp-only visibility: a fully-unlit pixel fades all the way to the void
 // Faint-light floor: lamp brightness below this reads as full dark; above it, remaps 0→1. So distant,
 // barely-lit tiles stay uniformly dark (no muddy ore-colour blobs leaking through the fog) while tiles
 // the lamp reaches meaningfully still read — the "hint of neighbouring tiles" near dug/lit areas.
-const LIGHT_FLOOR = 0.08;
+export const LIGHT_FLOOR = 0.08;
 // The value at which propagation is cut off — a quarter of LIGHT_FLOOR, so the cut lands well
 // inside the range the scrim already crushes to black and can't show as an edge in the glow.
 const PROPAGATION_EPS = LIGHT_FLOOR / 4;
-const VIGNETTE_INNER = 0.34; // vignette starts this fraction of the half-height from center
-const VIGNETTE_SPAN = 0.48; // and reaches full over this fraction of the half-height
-const VIGNETTE_MAX = 0.5; // max vignette darkness at the corners
+export const VIGNETTE_INNER = 0.34; // vignette starts this fraction of the half-height from center
+export const VIGNETTE_SPAN = 0.48; // and reaches full over this fraction of the half-height
+export const VIGNETTE_MAX = 0.5; // max vignette darkness at the corners
 
 export const LAMP_COLOR: LightColor = [1.0, 0.72, 0.42]; // warm lantern
 
@@ -94,9 +94,37 @@ export interface LightingConfig {
   scrim?: boolean;
 }
 
+/** What the field needs: the view and the world's solidity, but no canvas to draw into. */
+export type LightFieldConfig = Omit<LightingConfig, 'g' | 'scrim'>;
+
+/** The per-cell light field for one view, windowed around it. Valid until the next `field`/`render`. */
+export interface LightField {
+  /** World cell of the grid's top-left, and its size in cells. */
+  tileLeft: number;
+  tileTop: number;
+  gridW: number;
+  gridH: number;
+  /** Additive glow per cell, RGBA bytes (alpha 255), sampled bilinearly between cell centres. */
+  glow: Uint8ClampedArray<ArrayBuffer>;
+  /** Scalar light per cell, 0..1, the darkness scrim reads. */
+  bright: Float32Array<ArrayBuffer>;
+}
+
+interface LitBox {
+  tileLeft: number;
+  tileTop: number;
+  litX0: number;
+  litX1: number;
+  litY0: number;
+  litY1: number;
+}
+
 export interface LightingInstance {
   addLight(x: number, y: number, r: number, color: LightColor, intensity: number): void;
   render(cfg: LightingConfig): void;
+  /** Build only the field and hand it back, consuming the emitters — for a renderer that composites it
+   *  itself (the WebGPU spike, #69). */
+  field(cfg: LightFieldConfig): LightField;
   readonly count: number;
   /** Last frame's cost split: the per-CELL propagation field vs the per-PIXEL darkness scrim. */
   readonly fieldMs: number;
@@ -147,7 +175,7 @@ export function create(): LightingInstance {
   let oreR!: Float32Array;
   let oreG!: Float32Array;
   let oreB!: Float32Array;
-  let bright!: Float32Array; // per-tile scalar brightness → the dithered scrim
+  let bright!: Float32Array<ArrayBuffer>; // per-tile scalar brightness → the dithered scrim
   let gridW = 0;
   let gridH = 0;
 
@@ -187,38 +215,20 @@ export function create(): LightingInstance {
     vigCtx.putImageData(image, 0, 0);
   }
 
-  function render(cfg: LightingConfig): void {
+  /**
+   * The per-CELL light field for a view: seed every emitter, propagate through open space and rock, and
+   * build the tile-resolution glow (RGBA bytes) and scalar brightness the per-pixel passes read.
+   *
+   * Split out of `render` so the Canvas 2D scrim and the WebGPU composite (#69) read ONE field — the
+   * propagation is a rule about how light moves, and a second copy of it would drift.
+   */
+  function buildField(cfg: LightFieldConfig): LitBox {
     const tStart = performance.now();
-    const g = cfg.g;
     const { LW, LH, T } = cfg;
     const camX = cfg.camX ?? 0;
     const camY = cfg.camY ?? 0;
-    const surfaceAt = cfg.surfaceAt ?? ((): number => -1);
     const solidTile = cfg.solidTile;
     const hueCap = cfg.hueCap !== false;
-
-    ensureVignette(LW, LH);
-    if (screenW !== LW || screenH !== LH) {
-      screenW = LW;
-      screenH = LH;
-      scrimCanvas.width = LW;
-      scrimCanvas.height = LH;
-      scrimCtx.imageSmoothingEnabled = false;
-      scrimImg = scrimCtx.createImageData(LW, LH);
-      scrim32 = new Uint32Array(scrimImg.data.buffer);
-      // The word an unreachable pixel resolves to. Derived by writing the bytes rather than
-      // packing them by hand, so it stays correct on a big-endian machine.
-      scrimImg.data[0] = SCRIM[0];
-      scrimImg.data[1] = SCRIM[1];
-      scrimImg.data[2] = SCRIM[2];
-      scrimImg.data[3] = MAX_DARKNESS * 255;
-      voidWord = scrim32[0];
-      scrimImg.data[3] = 0;
-      clearWord = scrim32[0];
-      colIndex = new Int32Array(LW);
-      colWeight = new Float32Array(LW);
-      colWeightInv = new Float32Array(LW);
-    }
 
     // ---- world-space per-tile light fields (windowed around the view) ----
     const tileLeft = Math.floor(camX / T) - LMARGIN;
@@ -357,7 +367,6 @@ export function create(): LightingInstance {
       }
 
     fieldMs = performance.now() - tStart;
-    const tField = performance.now();
 
     // ---- build the tile-res buffers (compute per tile, upscale on the GPU) ----
     // glow = additive colour (warm lamp + ore hue), GPU-interpolated on upscale — the expensive
@@ -427,6 +436,41 @@ export function create(): LightingInstance {
         }
       }
     glowCtx.putImageData(glowImg, 0, 0);
+    return { tileLeft, tileTop, litX0, litX1, litY0, litY1 };
+  }
+
+  function render(cfg: LightingConfig): void {
+    const g = cfg.g;
+    const { LW, LH, T } = cfg;
+    const camX = cfg.camX ?? 0;
+    const camY = cfg.camY ?? 0;
+    const surfaceAt = cfg.surfaceAt ?? ((): number => -1);
+
+    ensureVignette(LW, LH);
+    if (screenW !== LW || screenH !== LH) {
+      screenW = LW;
+      screenH = LH;
+      scrimCanvas.width = LW;
+      scrimCanvas.height = LH;
+      scrimCtx.imageSmoothingEnabled = false;
+      scrimImg = scrimCtx.createImageData(LW, LH);
+      scrim32 = new Uint32Array(scrimImg.data.buffer);
+      // The word an unreachable pixel resolves to. Derived by writing the bytes rather than
+      // packing them by hand, so it stays correct on a big-endian machine.
+      scrimImg.data[0] = SCRIM[0];
+      scrimImg.data[1] = SCRIM[1];
+      scrimImg.data[2] = SCRIM[2];
+      scrimImg.data[3] = MAX_DARKNESS * 255;
+      voidWord = scrim32[0];
+      scrimImg.data[3] = 0;
+      clearWord = scrim32[0];
+      colIndex = new Int32Array(LW);
+      colWeight = new Float32Array(LW);
+      colWeightInv = new Float32Array(LW);
+    }
+
+    const { tileLeft, tileTop, litX0, litX1, litY0, litY1 } = buildField(cfg);
+    const tField = performance.now();
 
     // ---- scrim: per-pixel dithered darkness from the 1-channel brightness field ----
     const scrim = scrimImg.data;
@@ -544,9 +588,17 @@ export function create(): LightingInstance {
     emitters.length = 0; // reset for next frame
   }
 
+  function field(cfg: LightFieldConfig): LightField {
+    const { tileLeft, tileTop } = buildField(cfg);
+    lightCount = emitters.length;
+    emitters.length = 0;
+    return { tileLeft, tileTop, gridW, gridH, glow: glowImg.data, bright };
+  }
+
   return {
     addLight,
     render,
+    field,
     get count() {
       return lightCount;
     },
