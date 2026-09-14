@@ -4,7 +4,7 @@
 //   mask_main   the per-pixel solidity mask with eroded edges and rounded corners   (buildMask)
 //   jfa_init    seed every open pixel for the edge distance field
 //   jfa_step    one jump-flooding pass — the GPU stand-in for the two-pass chamfer sweep (distField)
-//   shade_main  background, sky, top-lit stone, contact shadow and stalactites       (shadeRock + composeBand)
+//   shade_main  background, sky, top-lit stone and contact shadow                    (shadeRock + composeBand)
 //
 // The world comes from the persistent world window (gpu/world-window.ts): cell solidity and surface
 // heights around the view, uploaded only when they change. The top-light seed above the band and the sky
@@ -36,7 +36,7 @@ struct JfaStep {
 }
 
 @group(0) @binding(0) var<uniform> band: Band;
-@group(0) @binding(1) var<storage, read> cells: array<u32>;        // the world window, row-major, 1 = solid
+@group(0) @binding(1) var<storage, read> cells: array<u32>;        // the world window, row-major: bit 0 solid, 1–3 shape, 8–15 material
 @group(0) @binding(2) var<storage, read_write> mask: array<u32>;   // per pixel, 1 = solid
 @group(0) @binding(3) var<storage, read> seeds_in: array<vec2i>;
 @group(0) @binding(4) var<storage, read_write> seeds_out: array<vec2i>;
@@ -55,6 +55,57 @@ fn solid_cell(column: i32, row: i32) -> bool {
     return true;
   }
   return (cells[u32(local.y) * band.window_cells.x + u32(local.x)] & 1u) != 0u;
+}
+
+// ---- slopes (#94) ---------------------------------------------------------------------------------------------
+// A cell's shape, packed in bits 1–3 of the world window: 0 full, or Terraria's slope 1–4 (@delve/shared slopes.ts).
+const OPEN_SHAPE: i32 = -1;
+const SIDE_UP: i32 = 0;
+const SIDE_DOWN: i32 = 1;
+const SIDE_LEFT: i32 = 2;
+const SIDE_RIGHT: i32 = 3;
+
+// A band-relative cell's shape: OPEN_SHAPE where it isn't solid. Past the window, full rock.
+fn shape_cell(column: i32, row: i32) -> i32 {
+  let local = band.cell + vec2i(column, row) - band.window_cell;
+  if (local.x < 0 || local.y < 0 || local.x >= i32(band.window_cells.x) || local.y >= i32(band.window_cells.y)) {
+    return 0;
+  }
+  let packed = cells[u32(local.y) * band.window_cells.x + u32(local.x)];
+  if ((packed & 1u) == 0u) { return OPEN_SHAPE; }
+  return i32((packed >> 1u) & 7u);
+}
+
+// slopes.ts `covers`: whether a shape is solid along the whole of a side.
+fn covers(shape: i32, side: i32) -> bool {
+  if (shape == 0) { return true; }
+  if (shape == OPEN_SHAPE) { return false; }
+  if (side == SIDE_UP) { return shape == 3 || shape == 4; }
+  if (side == SIDE_DOWN) { return shape == 1 || shape == 2; }
+  if (side == SIDE_LEFT) { return shape == 1 || shape == 3; }
+  return shape == 2 || shape == 4;
+}
+
+// slopes.ts `insideShape`: whether a cell pixel is in the shape's solid half.
+fn inside_shape(shape: i32, x: f32, y: f32) -> bool {
+  let last = f32(T) - 1.0;
+  if (shape == OPEN_SHAPE) { return false; }
+  if (shape == 1) { return y >= x; }
+  if (shape == 2) { return y >= last - x; }
+  if (shape == 3) { return y <= last - x; }
+  if (shape == 4) { return y <= x; }
+  return true;
+}
+
+// slopes.ts `diagonalDistance`: how far a pixel's centre lies inside a slope's diagonal edge.
+fn diagonal_distance(shape: i32, x: f32, y: f32) -> f32 {
+  let last = f32(T) - 1.0;
+  let root2 = sqrt(2.0);
+  if (shape == 1) { return (y - x) / root2 + 0.5; }
+  if (shape == 2) { return (y - (last - x)) / root2 + 0.5; }
+  if (shape == 3) { return (last - x - y) / root2 + 0.5; }
+  if (shape == 4) { return (x - y) / root2 + 0.5; }
+  return 99.0;
 }
 
 // The sky's bottom edge in a band column, as a band-relative pixel row.
@@ -101,27 +152,33 @@ fn mask_main(@builtin(global_invocation_id) id: vec3u) {
   let column = px / T;
   let row = py / T;
   let index = pixel_index(px, py);
-  if (!solid_cell(column, row)) {
+  let shape = shape_cell(column, row);
+  let local_x = f32(px % T);
+  let local_y = f32(py % T);
+  if (!inside_shape(shape, local_x, local_y)) {
     mask[index] = 0u;
     return;
   }
-  let local_x = f32(px % T);
-  let local_y = f32(py % T);
   let size = f32(T);
-  let open_up = !solid_cell(column, row - 1);
-  let open_down = !solid_cell(column, row + 1);
-  let open_left = !solid_cell(column - 1, row);
-  let open_right = !solid_cell(column + 1, row);
+  // a side is exposed where the neighbour across it doesn't cover it (buildMask)
+  let open_up = !covers(shape_cell(column, row - 1), SIDE_DOWN);
+  let open_down = !covers(shape_cell(column, row + 1), SIDE_UP);
+  let open_left = !covers(shape_cell(column - 1, row), SIDE_RIGHT);
+  let open_right = !covers(shape_cell(column + 1, row), SIDE_LEFT);
 
-  var edge_dist = 99.0;
-  if (open_up) { edge_dist = min(edge_dist, local_y + 0.5); }
-  if (open_down) { edge_dist = min(edge_dist, size - 1.0 - local_y + 0.5); }
-  if (open_left) { edge_dist = min(edge_dist, local_x + 0.5); }
-  if (open_right) { edge_dist = min(edge_dist, size - 1.0 - local_x + 0.5); }
-  if (!solid_cell(column - 1, row - 1)) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
-  if (!solid_cell(column + 1, row - 1)) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
-  if (!solid_cell(column - 1, row + 1)) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
-  if (!solid_cell(column + 1, row + 1)) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
+  var edge_dist = diagonal_distance(shape, local_x, local_y);
+  if (open_up && covers(shape, SIDE_UP)) { edge_dist = min(edge_dist, local_y + 0.5); }
+  if (open_down && covers(shape, SIDE_DOWN)) { edge_dist = min(edge_dist, size - 1.0 - local_y + 0.5); }
+  if (open_left && covers(shape, SIDE_LEFT)) { edge_dist = min(edge_dist, local_x + 0.5); }
+  if (open_right && covers(shape, SIDE_RIGHT)) { edge_dist = min(edge_dist, size - 1.0 - local_x + 0.5); }
+  let up_left = shape_cell(column - 1, row - 1);
+  let up_right = shape_cell(column + 1, row - 1);
+  let down_left = shape_cell(column - 1, row + 1);
+  let down_right = shape_cell(column + 1, row + 1);
+  if (!(covers(up_left, SIDE_DOWN) || covers(up_left, SIDE_RIGHT))) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
+  if (!(covers(up_right, SIDE_DOWN) || covers(up_right, SIDE_LEFT))) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
+  if (!(covers(down_left, SIDE_UP) || covers(down_left, SIDE_RIGHT))) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
+  if (!(covers(down_right, SIDE_UP) || covers(down_right, SIDE_LEFT))) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
 
   let noise = vnoise(
     f32(band.origin.x + px) * EDGE_NOISE_FREQ,
@@ -130,11 +187,16 @@ fn mask_main(@builtin(global_invocation_id) id: vec3u) {
   );
   let threshold = EDGE_EROSION_BASE + EDGE_EROSION_RANGE * noise;
 
+  // convex corners — an exposed edge or the cell's own open side on both sides — round off
+  let side_up = open_up || !covers(shape, SIDE_UP);
+  let side_down = open_down || !covers(shape, SIDE_DOWN);
+  let side_left = open_left || !covers(shape, SIDE_LEFT);
+  let side_right = open_right || !covers(shape, SIDE_RIGHT);
   var corner_dist = 99.0;
-  if (open_up && open_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
-  if (open_up && open_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
-  if (open_down && open_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
-  if (open_down && open_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
+  if (side_up && side_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
+  if (side_up && side_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
+  if (side_down && side_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
+  if (side_down && side_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
   let round_radius = CORNER_ROUND_BASE + CORNER_ROUND_NOISE * noise;
 
   mask[index] = select(0u, 1u, edge_dist > threshold && corner_dist >= round_radius);
@@ -267,50 +329,6 @@ fn composite_material(ctx: ShadeCtx, px: i32, py: i32) -> vec3f {
   return mix(colour_a, shade_cell(other, ctx), t);
 }
 
-// JavaScript's Math.round (half rounds up). WGSL's round() rounds half to even.
-fn js_round(v: f32) -> f32 {
-  return floor(v + 0.5);
-}
-
-// The stalactite and stalagmite pixels composeBand draws with `pen`, as a per-pixel test. A tip can
-// overhang into the next cell, so the cells either side are asked too — in the order composeBand draws
-// them, so a later one still wins.
-fn stalactite(px: i32, py: i32, colour_in: vec3f) -> vec3f {
-  var colour = colour_in;
-  let row = py / T;
-  let center = band_colour(0);
-  let deep = band_colour(1);
-  let rim_a = band_colour(5);
-  for (var dc = -1; dc <= 1; dc++) {
-    let column = px / T + dc;
-    if (column < 0 || column >= i32(band.cells.x) || solid_cell(column, row)) { continue; }
-    let world_column = band.cell.x + column;
-    let world_row = band.cell.y + row;
-    let x = column * T;
-    let y = row * T;
-    if (solid_cell(column, row - 1) && hash_xy(world_column, world_row, 21u) % 3u == 0u) {
-      let tip = x + (T >> 1u) + i32(hash_xy(world_column, world_row, 22u) % 5u) - 2;
-      let span = 3 + i32(hash_xy(world_column, world_row, 23u) % 4u);
-      let i = py - y;
-      if (i >= 0 && i < span) {
-        let half_width = max(0, i32(js_round(f32(span - i) / 2.2)));
-        if (abs(px - tip) <= half_width) { colour = select(deep, center, i < 2); }
-      }
-      if (px == tip && py == y) { colour = rim_a; }
-    }
-    if (solid_cell(column, row + 1) && hash_xy(world_column, world_row, 24u) % 4u == 0u) {
-      let tip = x + (T >> 1u) + i32(hash_xy(world_column, world_row, 25u) % 5u) - 2;
-      let span = 2 + i32(hash_xy(world_column, world_row, 26u) % 3u);
-      let i = y + T - 1 - py;
-      if (i >= 0 && i < span) {
-        let half_width = max(0, i32(js_round(f32(span - i) / 2.2)));
-        if (abs(px - tip) <= half_width) { colour = select(deep, center, i < 1); }
-      }
-    }
-  }
-  return colour;
-}
-
 // Canvas source-over of an 8-bit black with alpha `alpha` onto an opaque pixel.
 fn darken(colour: vec3f, alpha: f32) -> vec3f {
   return floor(colour * (255.0 - alpha) / 255.0 + 0.5);
@@ -343,7 +361,8 @@ fn shade_main(@builtin(global_invocation_id) id: vec3u) {
     let edge_seed = seeds_in[index];
     let edge_dist = select(FAR, chamfer(vec2i(px, py) - edge_seed), edge_seed.x >= 0);
     let top = top_dist(px, py);
-    let range = select(SHADE_RANGE_SIDE_PX, SHADE_RANGE_TOP_PX, top <= edge_dist + 0.8);
+    // up-facing up to a 45° slope (shadeRock, #94)
+    let range = select(SHADE_RANGE_SIDE_PX, SHADE_RANGE_TOP_PX, top <= edge_dist * DIAGONAL + 0.8);
     let ctx = ShadeCtx(
       vec2f(world_x, world_y),
       px,
@@ -360,8 +379,5 @@ fn shade_main(@builtin(global_invocation_id) id: vec3u) {
     if (near < 1.4) { colour = darken(colour, CONTACT_SHADOW_NEAR); }
     else if (near < 2.7) { colour = darken(colour, CONTACT_SHADOW_FAR); }
   }
-  // After the rock, over everything: a tip can overhang onto the neighbouring cell's rock.
-  colour = stalactite(px, py, colour);
-
   textureStore(scene, vec2i(px, py), vec4f(colour / 255.0, 1.0));
 }

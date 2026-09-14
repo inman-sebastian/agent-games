@@ -72,6 +72,8 @@ export interface DamageCtx {
    * Chunks are bitten out of the silhouette on this side. 0,0 = don't deform (unknown side). */
   dirX: number;
   dirY: number;
+  /** The tile's shape (#94): 0 or omitted for a full cell, else a slope 1–4, whose open corner is never drawn on. */
+  shape?: number;
 }
 
 /**

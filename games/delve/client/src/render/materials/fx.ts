@@ -1,7 +1,7 @@
 // fx.ts — reusable, opt-in visual effects a material's shader can layer on top of its base surface.
 // These lean on what the compositor already computes per pixel (see ShadeCtx): how lit a pixel is
 // (0..1, peaking on exposed top-lit faces) and its world coordinate (for stable, seamless placement).
-import { hashXY } from '@delve/shared';
+import { FULL, hashXY, insideShape } from '@delve/shared';
 import { clamp01, T } from '../palette';
 import type { Rgb } from '../palette';
 import type { DamageCtx, Material, ShadeCtx } from './types';
@@ -164,11 +164,12 @@ export function drawDamage(ctx: DamageCtx): void {
   const u = Math.max(1, Math.round(ctx.scale)); // one art pixel in display px
   const half = T / 2;
 
-  // plot one art-pixel (floored to the tile grid), clamped inside the tile
+  const shape = ctx.shape ?? FULL;
+  // plot one art-pixel (floored to the tile grid), clamped inside the tile's solid part
   const plot = (axf: number, ayf: number, color: string, alpha: number): void => {
     const ax = Math.floor(axf);
     const ay = Math.floor(ayf);
-    if (ax < 0 || ay < 0 || ax >= T || ay >= T) return;
+    if (ax < 0 || ay < 0 || ax >= T || ay >= T || !insideShape(shape, ax, ay, T)) return;
     g.globalAlpha = alpha;
     g.fillStyle = color;
     g.fillRect(ctx.x + ax * u, ctx.y + ay * u, u, u);
@@ -201,7 +202,7 @@ export function drawDamage(ctx: DamageCtx): void {
   g.fillStyle = 'rgb(20,17,26)';
   for (let idx = 0; idx < crackAccum.length; idx++) {
     const hits = crackAccum[idx];
-    if (hits === 0) continue;
+    if (hits === 0 || !insideShape(shape, idx % T, (idx / T) | 0, T)) continue;
     g.globalAlpha = Math.min(0.85, 0.44 + 0.17 * (hits - 1)); // 1 crack → soft; each overlap → deeper
     g.fillRect(ctx.x + (idx % T) * u, ctx.y + ((idx / T) | 0) * u, u, u);
   }

@@ -2,7 +2,15 @@
 // safe-zone position picker, and cluster-edge grouping (adjacent same-material lit tiles collapse
 // into one traveling glint edge).
 import { describe, it, expect } from 'vitest';
-import { pickAway, collectTwinkleEdges } from './fx';
+import {
+  insideShape,
+  SLOPE_DOWN_LEFT,
+  SLOPE_DOWN_RIGHT,
+  SLOPE_UP_LEFT,
+  SLOPE_UP_RIGHT,
+} from '@delve/shared';
+import { pickAway, collectTwinkleEdges, drawDamage } from './fx';
+import { T } from '../palette';
 import type { Material } from './types';
 
 describe('pickAway', () => {
@@ -61,5 +69,24 @@ describe('collectTwinkleEdges', () => {
 
   it('drops wholly dark runs', () => {
     expect(collectTwinkleEdges({ ...scan, lit: () => 0 })).toHaveLength(0);
+  });
+});
+
+describe('drawDamage on a slope (#94)', () => {
+  it("never draws cracks or bites into a slope's open corner", () => {
+    for (const shape of [SLOPE_DOWN_RIGHT, SLOPE_DOWN_LEFT, SLOPE_UP_RIGHT, SLOPE_UP_LEFT]) {
+      for (let seed = 0; seed < 40; seed++) {
+        const plotted: [number, number][] = [];
+        const g = {
+          globalAlpha: 1,
+          fillStyle: '',
+          fillRect: (x: number, y: number) => plotted.push([x, y]),
+        } as unknown as CanvasRenderingContext2D;
+        drawDamage({ g, x: 0, y: 0, scale: 1, frac: 1, seed, lit: 1, dirX: 1, dirY: 0, shape });
+        expect(plotted.length, `shape ${shape} seed ${seed} draws something`).toBeGreaterThan(0);
+        for (const [x, y] of plotted)
+          expect(insideShape(shape, x, y, T), `shape ${shape} seed ${seed}: ${x},${y}`).toBe(true);
+      }
+    }
   });
 });

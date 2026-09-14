@@ -30,7 +30,7 @@ What that does and doesn't change:
   arithmetic, which WGSL reproduces exactly; only the final float conversion can move a threshold by a
   hair.
 - **What ports mechanically:** noise, the stone surface, quantize/dither, the background, the sky, the
-  stalactites, the scrim and the vignette. **What needs a GPU-native technique:** the chamfer distance
+  the scrim and the vignette. **What needs a GPU-native technique:** the chamfer distance
   transforms (sequential two-pass sweeps; the GPU equivalent is jump flooding) and the order-dependent
   light propagation.
 - **Tooling:** probe's headless Chrome exposes a real WebGPU adapter; `shot.sh` launches Chrome with
@@ -346,7 +346,10 @@ not a view of a fixed field; its size is capped
    distant-rock silhouettes. Drawn first; open/dug tunnels reveal it. Built to accept
    **parallax** layers later — see [Background depth & parallax](#background-depth--parallax).
 2. **Foreground rock + ore** — the diggable solid, composited on top with transparency
-   for open space, plus a subtle **contact shadow** where rock meets the background. Ore
+   for open space, plus a subtle **contact shadow** where rock meets the background. A cell is full or
+   a **slope** ([SLOPES.md](SLOPES.md)); the per-pixel mask cuts a slope's open corner and erodes its diagonal
+   like any edge. (Stalactites and stalagmites left this layer: they return as biome decorations —
+   [JUICE.md](JUICE.md#surface-decoration-planned).) Ore
    is **baked into this layer** through each ore's material shader (feathered into the
    strata — see _Foreground rock & materials_ below), **not** a separate overlay.
 3. **Overlays (per-frame)** — animated FX drawn over the cached rock: each exposed, lit

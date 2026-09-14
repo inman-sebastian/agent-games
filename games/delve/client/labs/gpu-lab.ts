@@ -11,7 +11,7 @@
 // through the strata to bedrock, lit and unlit — and fails on drift past the tolerance measured when the
 // port landed. composeBand is the golden image, so an art change needs its TypeScript and WGSL twins to
 // agree, not a re-blessed PNG. Run it with `pnpm render-gate` (tools/README.md).
-import { STRATA, solidAt, surfaceAt, oreAt, SUB } from '@delve/shared';
+import { STRATA, solidAt, surfaceAt, oreAt, SUB, shapeAt, skyRowAt } from '@delve/shared';
 import { setStrata, composeBand, T, hashXY } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { oreMaterial, allOreMaterials, collectTwinkleEdges } from '../src/render/materials';
@@ -48,7 +48,7 @@ let centre = { column: number('c', 2400 * SUB), row: number('r', 26) };
 let camera = { ...centre };
 
 // A shaft down from the surface, a chamber, and a long tunnel — so the frame has sky, hills, strata,
-// eroded edges, stalactites, and somewhere for the lamp's light to go.
+// eroded edges, and somewhere for the lamp's light to go.
 const dug = new Set<string>();
 const carve = (column: number, row: number): void => {
   dug.add(`${column},${row}`);
@@ -69,7 +69,26 @@ function carveAround({ column, row }: { column: number; row: number }): void {
 carveAround(centre);
 const isSolid = (column: number, row: number): boolean =>
   solidAt(SEED, column, row) && !dug.has(`${column},${row}`);
-const surfaceOf = (column: number): number => surfaceAt(SEED, column);
+const surfaceOf = (column: number): number => skyRowAt(SEED, column);
+/**
+ * The slope sampler (#94): while it's on, every solid cell next to open space near the centre takes one of the
+ * four slopes by a hash of the cell — the world's heightmap has no overhangs, so its ceiling slopes would
+ * otherwise never reach the gate.
+ */
+let sampleSlopes = query.get('slopes') === '1';
+const shapeOf = (column: number, row: number): number => {
+  if (sampleSlopes && Math.abs(column - centre.column) < 40 && Math.abs(row - centre.row) < 20) {
+    const open = (c: number, r: number): boolean => !isSolid(c, r);
+    if (
+      open(column, row - 1) ||
+      open(column, row + 1) ||
+      open(column - 1, row) ||
+      open(column + 1, row)
+    )
+      return 1 + ((Math.imul((column * 73856093) ^ (row * 19349663), 0x9e3779b1) >>> 29) % 4);
+  }
+  return shapeAt(SEED, column, row);
+};
 // Ores on both paths unless `?ores=0`: the materials are what #73 ported, and what the diff checks.
 const oresOn = query.get('ores') !== '0';
 const materialAt = (column: number, row: number) =>
@@ -78,6 +97,7 @@ const materialAt = (column: number, row: number) =>
 const worldWindow = createWorldWindow({
   solid: isSolid,
   material: (column, row) => (materialAt(column, row) ? oreAt(SEED, column, row) : 0),
+  shape: shapeOf,
   surface: surfaceOf,
 });
 
@@ -231,7 +251,7 @@ function addLamp(): void {
 function renderCpu(): number {
   const started = performance.now();
   const { bandLeft, bandTop } = band();
-  composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf, materialAt);
+  composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf, materialAt, shapeOf);
   drawTwinkle(cpu);
   drawEntitiesCpu(cpu);
   if (lightingOn) {
@@ -388,6 +408,13 @@ const GATE_ROWS = [26, 120, 400, 700, 1000, 1250, 1385];
 const STRATA_VIEWS = GATE_ROWS.flatMap((row, index) =>
   [false, true].map((lit) => ({ column: 2400 * SUB + index * 97, row, lit, label: 'strata' })),
 );
+/** The slope sampler's views, unlit and lit: all four slopes on the tunnel and chamber's faces. */
+const SLOPE_VIEWS = [false, true].map((lit) => ({
+  column: 2400 * SUB + 31,
+  row: 160,
+  lit,
+  label: 'slopes',
+}));
 
 /**
  * The nearest pocket of an ore to the default column, scanning down (the world is 1400 rows deep) and
@@ -455,7 +482,8 @@ async function gate(): Promise<{ pass: boolean; failures: string[]; views: GateV
       : [];
   });
   let glintsSeen = 0;
-  for (const view of [...STRATA_VIEWS, ...materialViews]) {
+  for (const view of [...STRATA_VIEWS, ...SLOPE_VIEWS, ...materialViews]) {
+    sampleSlopes = view.label === 'slopes';
     centre = { column: view.column, row: view.row };
     camera = { ...centre };
     lightingOn = view.lit;
@@ -497,6 +525,8 @@ async function gate(): Promise<{ pass: boolean; failures: string[]; views: GateV
   if (glintsSeen === 0) failures.push('no view drew a twinkle glint');
   if (gpu.lastError) failures.push(`GPU error: ${gpu.lastError}`);
   ({ centre, camera, lightingOn, mode } = restore);
+  sampleSlopes = false;
+  worldWindow.reset();
   worldWindow.reset();
   const pass = failures.length === 0;
   document.title = pass ? 'PASS' : 'FAIL';

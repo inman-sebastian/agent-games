@@ -2,7 +2,7 @@
 //
 //   1. rock     compute passes over the band of cells under the screen (rock.wgsl): the eroded mask,
 //               jump-flooded edge distances, then shade — background, sky, top-lit stone, contact
-//               shadow, stalactites — into the `scene` texture
+//               shadow — into the `scene` texture
 //   1b. light   compute passes over the light grid (light.wgsl): seed the emitters, relax the field
 //               through open space and rock, finish into the glow and brightness the present reads
 //   1c. entities one instanced render pass (quads.wgsl): particles, motes, the reticle and the player's

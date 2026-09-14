@@ -2,7 +2,7 @@
 // modules into a canvas sized to the crop, so a visual check is one tiny image of precisely the
 // thing (captured headless via shot.sh). Driven entirely by URL params (see render.html).
 import { T, setStrata, composeBand } from '../src/render/cave-render';
-import { WIDTH, STRATA, blockAt, oreAt, surfaceAt } from '@delve/shared';
+import { WIDTH, STRATA, blockAt, oreAt, solidAt, shapeAt, skyRowAt } from '@delve/shared';
 import { ORE_ART, drawOreBlock } from '../src/render/ore-art';
 import { oreMaterial, drawDamage } from '../src/render/materials';
 import { drawPlayer, poseFor } from '../src/render/entity/player';
@@ -64,7 +64,7 @@ if (damage > 0) {
 // centre column for every column here, which is flat by construction and rendered a dead-level
 // horizon no matter what the generator produced.
 const solidTile = (column: number, row: number): boolean =>
-  row > surfaceAt(seed, column) && !dug.has(`${column},${row}`);
+  solidAt(seed, column, row) && !dug.has(`${column},${row}`);
 
 const LW = cols * T;
 const LH = rows * T;
@@ -76,7 +76,7 @@ g.imageSmoothingEnabled = false;
 canvas.style.width = `${LW * scale}px`;
 canvas.style.height = `${LH * scale}px`;
 
-// rock + background + stalactites, at this depth. In 'strata' style, ore tiles are baked into the
+// rock + background, at this depth. In 'strata' style, ore tiles are baked into the
 // rock band through the shared compositor, each coloured by its OWN material shader (render/
 // materials/*), with the material↔rock boundary feathered so they blend seamlessly.
 const materialAt =
@@ -84,8 +84,9 @@ const materialAt =
     ? (column: number, row: number) => oreMaterial(oreAt(seed, column, row))
     : undefined;
 // The real per-column surface, so a crop that includes the surface shows the actual terrain.
-const surfaceOf = (column: number): number => surfaceAt(seed, column);
-composeBand(g, solidTile, bandLeft, bandTop, cols, rows, surfaceOf, materialAt);
+const surfaceOf = (column: number): number => skyRowAt(seed, column);
+const shapeOf = (column: number, row: number): number => shapeAt(seed, column, row);
+composeBand(g, solidTile, bandLeft, bandTop, cols, rows, surfaceOf, materialAt, shapeOf);
 
 // crystal style only: draw the faceted ore blocks on top (the harness always reveals ore).
 if (oreStyle !== 'strata') {

@@ -47,3 +47,7 @@ Moss/grass/flora belong to a future **procedural surface-decoration pass** layer
 top of the rock — applied _selectively_ (e.g. only on undisturbed surfaces), not baked
 into the rim (freshly-mined rock shouldn't be mossy). Each stratum reserves an `accent`
 colour as an input for this.
+
+**Stalactites and stalagmites belong to it too** (the author, 2026-09-14): decorations or props placed by
+biomes, not part of how blocks render. They were drawn by the rock compositor on every open cell under or
+over rock; that was removed from `composeBand` and `rock.wgsl` (#94) until biomes place them.

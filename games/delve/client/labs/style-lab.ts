@@ -147,7 +147,7 @@ function renderScene(): void {
     const y = r - top;
     return c < 0 || c >= COLS || y < 0 || y >= ROWS ? true : grid[y][c];
   };
-  // rock + background + sky + stalactites — the exact game renderer, at this stratum's depth
+  // rock + background + sky — the exact game renderer, at this stratum's depth
   composeBand(lb, solidTile, 0, top, COLS, ROWS, NO_SKY);
   // ore veins — the exact game vein renderer
   if (o.ore) {

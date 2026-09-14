@@ -4,7 +4,7 @@
 // mined like any other cell.
 import { describe, it, expect } from 'vitest';
 import { blockAt, mineTile, mineable, newSession, solidAt, surfaceAt } from './engine';
-import { FULL, OPEN, SMOOTH_CHUNK, shapeAt } from './slopes';
+import { covers, FULL, insideShape, OPEN, SMOOTH_CHUNK, shapeAt, skyRowAt } from './slopes';
 import type { SimEvent } from './types';
 
 /** Every sloped cell along the surface of `columns` columns from `from`. */
@@ -69,5 +69,59 @@ describe('slopes in the world', () => {
       true,
     );
     expect(mineable(session.world, c, r)).toBe(false);
+  });
+});
+
+describe('slope geometry', () => {
+  it("knows which sides each shape covers: a slope's two solid edges, a full cell's four", () => {
+    // Terraria (Tile.cs:216-238): 1 solid left+bottom, 2 right+bottom, 3 left+top, 4 right+top
+    const sides = (shape: number): string =>
+      (['up', 'down', 'left', 'right'] as const).filter((side) => covers(shape, side)).join(' ');
+    expect(sides(FULL)).toBe('up down left right');
+    expect(sides(OPEN)).toBe('');
+    expect(sides(1)).toBe('down left');
+    expect(sides(2)).toBe('down right');
+    expect(sides(3)).toBe('up left');
+    expect(sides(4)).toBe('up right');
+  });
+
+  it('puts the solid half of a cell on the side of its solid edges, the open corner empty', () => {
+    const size = 8;
+    const picture = (shape: number): string[] =>
+      Array.from({ length: size }, (_, y) =>
+        Array.from({ length: size }, (_, x) => (insideShape(shape, x, y, size) ? '#' : '.')).join(
+          '',
+        ),
+      );
+    // slope 1: open top-right — a floor descending to the right
+    expect(picture(1)).toEqual([
+      '#.......',
+      '##......',
+      '###.....',
+      '####....',
+      '#####...',
+      '######..',
+      '#######.',
+      '########',
+    ]);
+    // the four slopes tile a full cell in pairs (1 with 4, 2 with 3), overlapping only on the diagonal
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        expect(insideShape(1, x, y, size) || insideShape(4, x, y, size)).toBe(true);
+        expect(insideShape(2, x, y, size) || insideShape(3, x, y, size)).toBe(true);
+      }
+    }
+    expect(insideShape(3, 7, 7, size)).toBe(false);
+    expect(insideShape(4, 0, 7, size)).toBe(false);
+  });
+
+  it('shows sky down to the first full cell, so a surface slope has sky in its open corner', () => {
+    const seed = 12345;
+    for (let c = 3000; c < 3400; c++) {
+      const sky = skyRowAt(seed, c);
+      expect(shapeAt(seed, c, sky + 1), `column ${c}`).toBe(FULL);
+      for (let r = surfaceAt(seed, c) - 2; r <= sky; r++)
+        expect(shapeAt(seed, c, r)).not.toBe(FULL);
+    }
   });
 });

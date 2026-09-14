@@ -1,14 +1,25 @@
 // cave-render.ts — the shared DELVE rock renderer. Pure, no game state: given a solidTile(c,r)
-// predicate and a world window, it composites the layered cave (background + top-lit rock + sky
-// + stalactites) into a 2D context. The game draws its rock on the GPU (render/gpu/rock.wgsl); this is
+// predicate and a world window, it composites the layered cave (background + top-lit rock + sky) into a 2D
+// context. (Stalactites and stalagmites left block rendering; they return as decorations with biomes.) The game draws its rock on the GPU (render/gpu/rock.wgsl); this is
 // the reference that port is gated against (`pnpm render-gate`), and what the labs and icons draw with.
 //
 // Many of the numbers in shadeRock/buildMask are hand-tuned noise octave frequencies/amplitudes
 // and brightness thresholds — a "family of coefficients" (see CODE-STYLE.md) kept inline with a
 // note rather than atomised into dozens of names that would obscure the pipeline.
-import { vnoise, mulberry, hashXY, SUB } from '@delve/shared';
+import {
+  vnoise,
+  mulberry,
+  hashXY,
+  SUB,
+  FULL,
+  OPEN,
+  covers,
+  insideShape,
+  diagonalDistance,
+} from '@delve/shared';
+import type { Side } from '@delve/shared';
 import type { StrataResource } from '@delve/shared';
-import { T, TEX, clamp01, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
+import { T, TEX, clamp01, mix, desat, colorsFor, stoneSurface } from './palette';
 import type { Rgb, RockColors } from './palette';
 import type { Material, ShadeCtx } from './materials/types';
 
@@ -126,9 +137,19 @@ export const EDGE_NOISE_FREQ = 0.28;
 export const CORNER_ROUND_BASE = 1.3;
 export const CORNER_ROUND_NOISE = 0.65;
 
+/** A cell's shape: FULL, or one of Terraria's slopes 1–4 (@delve/shared slopes.ts). Only asked of solid cells. */
+type ShapeTile = (column: number, row: number) => number;
+
+/** Every solid cell full: the world before slopes, and the labs that don't have them. */
+const ALL_FULL: ShapeTile = () => FULL;
+
 /**
  * Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. Exported for the
  * liquid lab (#90), whose water wets the open pixels the stone leaves.
+ *
+ * Slopes (#94): a sloped cell's pixels outside its solid half are open, and its diagonal is an edge like any
+ * other, eroded by the same noise. A side counts as exposed where the neighbour across it doesn't cover it — a
+ * slope leaves its open sides exposed — and a slope's two tips round like convex corners.
  */
 export function buildMask(
   isSolid: SolidTile,
@@ -136,37 +157,47 @@ export function buildMask(
   height: number,
   bandLeft: number,
   bandTop: number,
+  shapeOf: ShapeTile = ALL_FULL,
 ): Uint8Array {
   const originX = bandLeft * T;
   const originY = bandTop * T;
   const mask = new Uint8Array(width * height);
+  const shapeAtCell = (column: number, row: number): number =>
+    isSolid(column, row) ? shapeOf(column, row) : OPEN;
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
       const column = bandLeft + ((px / T) | 0);
       const row = bandTop + ((py / T) | 0);
-      if (!isSolid(column, row)) {
+      const shape = shapeAtCell(column, row);
+      const localX = px % T;
+      const localY = py % T;
+      if (!insideShape(shape, localX, localY, T)) {
         mask[py * width + px] = 0;
         continue;
       }
-      // distance (px) from this sub-tile pixel to the nearest open neighbour edge/corner
-      const localX = px % T;
-      const localY = py % T;
-      const openU = !isSolid(column, row - 1);
-      const openD = !isSolid(column, row + 1);
-      const openL = !isSolid(column - 1, row);
-      const openR = !isSolid(column + 1, row);
-      let edgeDist = 99;
-      if (openU) edgeDist = Math.min(edgeDist, localY + 0.5);
-      if (openD) edgeDist = Math.min(edgeDist, T - 1 - localY + 0.5);
-      if (openL) edgeDist = Math.min(edgeDist, localX + 0.5);
-      if (openR) edgeDist = Math.min(edgeDist, T - 1 - localX + 0.5);
-      if (!isSolid(column - 1, row - 1))
+      // a side is exposed where the neighbour across it doesn't cover it; an open side of this cell's own is
+      // bounded by its diagonal instead
+      const openU = !covers(shapeAtCell(column, row - 1), 'down');
+      const openD = !covers(shapeAtCell(column, row + 1), 'up');
+      const openL = !covers(shapeAtCell(column - 1, row), 'right');
+      const openR = !covers(shapeAtCell(column + 1, row), 'left');
+      const edgeU = openU && covers(shape, 'up');
+      const edgeD = openD && covers(shape, 'down');
+      const edgeL = openL && covers(shape, 'left');
+      const edgeR = openR && covers(shape, 'right');
+      // distance (px) from this sub-tile pixel to the nearest exposed edge, diagonal or corner
+      let edgeDist = diagonalDistance(shape, localX, localY, T);
+      if (edgeU) edgeDist = Math.min(edgeDist, localY + 0.5);
+      if (edgeD) edgeDist = Math.min(edgeDist, T - 1 - localY + 0.5);
+      if (edgeL) edgeDist = Math.min(edgeDist, localX + 0.5);
+      if (edgeR) edgeDist = Math.min(edgeDist, T - 1 - localX + 0.5);
+      if (!coversCorner(shapeAtCell(column - 1, row - 1), 'down', 'right'))
         edgeDist = Math.min(edgeDist, Math.hypot(localX + 0.5, localY + 0.5));
-      if (!isSolid(column + 1, row - 1))
+      if (!coversCorner(shapeAtCell(column + 1, row - 1), 'down', 'left'))
         edgeDist = Math.min(edgeDist, Math.hypot(T - localX - 0.5, localY + 0.5));
-      if (!isSolid(column - 1, row + 1))
+      if (!coversCorner(shapeAtCell(column - 1, row + 1), 'up', 'right'))
         edgeDist = Math.min(edgeDist, Math.hypot(localX + 0.5, T - localY - 0.5));
-      if (!isSolid(column + 1, row + 1))
+      if (!coversCorner(shapeAtCell(column + 1, row + 1), 'up', 'left'))
         edgeDist = Math.min(edgeDist, Math.hypot(T - localX - 0.5, T - localY - 0.5));
       const noise = vnoise(
         (originX + px) * EDGE_NOISE_FREQ,
@@ -174,15 +205,20 @@ export function buildMask(
         TEX + 2,
       );
       const threshold = EDGE_EROSION_BASE + EDGE_EROSION_RANGE * noise;
-      // convex-corner rounding: erode a quarter-disc at any corner where two adjacent sides are open,
-      // so the outline is never perfectly square. Distance is to that corner's tile vertex.
+      // convex-corner rounding: erode a quarter-disc at any corner where two adjacent sides are open — an
+      // exposed edge, or the cell's own open side (so a slope's tips round) — so the outline is never
+      // perfectly square. Distance is to that corner's tile vertex.
+      const sideU = openU || !covers(shape, 'up');
+      const sideD = openD || !covers(shape, 'down');
+      const sideL = openL || !covers(shape, 'left');
+      const sideR = openR || !covers(shape, 'right');
       let cornerDist = 99;
-      if (openU && openL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, localY + 0.5));
-      if (openU && openR)
+      if (sideU && sideL) cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, localY + 0.5));
+      if (sideU && sideR)
         cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, localY + 0.5));
-      if (openD && openL)
+      if (sideD && sideL)
         cornerDist = Math.min(cornerDist, Math.hypot(localX + 0.5, T - localY - 0.5));
-      if (openD && openR)
+      if (sideD && sideR)
         cornerDist = Math.min(cornerDist, Math.hypot(T - localX - 0.5, T - localY - 0.5));
       const roundRadius = CORNER_ROUND_BASE + CORNER_ROUND_NOISE * noise;
       const solid = edgeDist > threshold && cornerDist >= roundRadius;
@@ -191,6 +227,10 @@ export function buildMask(
   }
   return mask;
 }
+
+/** Whether a (diagonal) neighbour's shape is solid at its corner nearest this cell — the corner between those two sides. */
+const coversCorner = (shape: number, vertical: Side, horizontal: Side): boolean =>
+  covers(shape, vertical) || covers(shape, horizontal);
 
 // Contact shadow: how dark open pixels near a rock edge get (alpha, 0-255), by distance.
 export const CONTACT_SHADOW_NEAR = 105;
@@ -245,10 +285,11 @@ function shadeRock(
   materialAt: ((column: number, row: number) => Material | null) | undefined,
   bandLeft: number,
   bandTop: number,
+  shapeOf: ShapeTile,
 ): OffscreenCanvas | HTMLCanvasElement {
   const originX = bandLeft * T;
   const originY = bandTop * T;
-  const mask = buildMask(isSolid, width, height, bandLeft, bandTop);
+  const mask = buildMask(isSolid, width, height, bandLeft, bandTop, shapeOf);
   const isOpen = (x: number, y: number): number =>
     x < 0 || x >= width || y < 0 || y >= height ? 0 : mask[y * width + x] ? 0 : 1;
   const rockDist = distField((i) => mask[i] === 1, width, height, 0);
@@ -400,7 +441,10 @@ function shadeRock(
       // texture/palette on top. The range spans ~1–1.5 tiles so exposed rock reads as a broad, softly
       // fading band (like SteamWorld/Core Keeper) — a bigger lit surface for texture + damage FX —
       // rather than a thin bright rim snapping to black.
-      const range = topDist[i] <= edgeDist[i] + 0.8 ? SHADE_RANGE_TOP_PX : SHADE_RANGE_SIDE_PX;
+      // An up-facing surface is lit from the top. On a 45° slope the depth below the surface runs √2 times the
+      // distance to it, so a floor counts as up-facing up to that (#94); a vertical face is far from the top.
+      const range =
+        topDist[i] <= edgeDist[i] * DIAGONAL + 0.8 ? SHADE_RANGE_TOP_PX : SHADE_RANGE_SIDE_PX;
       const rawBrightness = 1 - edgeDist[i] / range;
 
       // which material(s) colour this PIXEL — blended across the nearest boundary for a soft transition
@@ -458,7 +502,7 @@ const columnsOf = (bandLeft: number, colsW: number): number[] =>
   Array.from({ length: colsW }, (_, i) => bandLeft + i);
 
 /**
- * Compose background + rock + sky + stalactites for a world rectangle into 2D context `g`, with the
+ * Compose background + rock + sky for a world rectangle into 2D context `g`, with the
  * destination's top-left at `(bandLeft, bandTop)` and `colsW` x `rowsH` CELLS. The world is unbounded,
  * so `isSolid` answers for any column. (A seventh "world width" argument used to sit here, ignored
  * since the world stopped having edges; seventeen callers passed five different values for it.)
@@ -476,13 +520,15 @@ export function composeBand(
    */
   surfaceAt: (column: number) => number,
   materialAt?: (column: number, row: number) => Material | null,
+  /** Each solid cell's shape: full or a slope (#94). Omitted, every solid cell is full. */
+  shapeOf: ShapeTile = ALL_FULL,
 ): void {
   const width = colsW * T;
   const height = rowsH * T;
   const originX = bandLeft * T;
   const originY = bandTop * T;
   const ramp = rampAt(Math.max(1, bandTop + (rowsH >> 1)));
-  const colors = colorsFor(ramp); // strata rock (also used for the bg + stalactites)
+  const colors = colorsFor(ramp); // strata rock (also used for the bg)
   const bg = bgFor(ramp);
 
   // background: flat midpoint fill (so cached chunks meet seamlessly) + world-anchored silhouettes
@@ -532,52 +578,19 @@ export function composeBand(
   // foreground rock — where materialAt assigns a material, that material's shader colours the pixel
   // through this SAME top-lit geometry, with the boundary feathered by world noise (see shadeRock).
   g.drawImage(
-    shadeRock(isSolid, width, height, colors, materialAt, bandLeft, bandTop) as CanvasImageSource,
+    shadeRock(
+      isSolid,
+      width,
+      height,
+      colors,
+      materialAt,
+      bandLeft,
+      bandTop,
+      shapeOf,
+    ) as CanvasImageSource,
     0,
     0,
   );
-
-  // stalactites / stalagmites where open tiles meet rock (deterministic per world tile)
-  const pen = (x: number, y: number, w: number, h: number, color: string): void => {
-    g.fillStyle = color;
-    g.fillRect(x, y, w || 1, h || 1);
-  };
-  for (let row = bandTop; row < bandTop + rowsH; row++) {
-    for (let column = bandLeft; column < bandLeft + colsW; column++) {
-      if (isSolid(column, row)) continue;
-      const x = (column - bandLeft) * T;
-      const y = (row - bandTop) * T;
-      if (isSolid(column, row - 1) && hashXY(column, row, 21) % 3 === 0) {
-        const tipX = x + (T >> 1) + ((hashXY(column, row, 22) % 5) - 2);
-        const length = 3 + (hashXY(column, row, 23) % 4);
-        for (let i = 0; i < length; i++) {
-          const halfWidth = Math.max(0, Math.round((length - i) / 2.2));
-          pen(
-            tipX - halfWidth,
-            y + i,
-            2 * halfWidth + 1,
-            1,
-            rgbHex(i < 2 ? colors.center : colors.deep),
-          );
-        }
-        pen(tipX, y, 1, 1, rgbHex(colors.rimA));
-      }
-      if (isSolid(column, row + 1) && hashXY(column, row, 24) % 4 === 0) {
-        const tipX = x + (T >> 1) + ((hashXY(column, row, 25) % 5) - 2);
-        const length = 2 + (hashXY(column, row, 26) % 3);
-        for (let i = 0; i < length; i++) {
-          const halfWidth = Math.max(0, Math.round((length - i) / 2.2));
-          pen(
-            tipX - halfWidth,
-            y + T - 1 - i,
-            2 * halfWidth + 1,
-            1,
-            rgbHex(i < 1 ? colors.center : colors.deep),
-          );
-        }
-      }
-    }
-  }
 }
 
 export { mulberry, hashXY, vnoise };

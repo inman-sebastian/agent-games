@@ -15,11 +15,16 @@
 export interface WorldSource {
   solid(column: number, row: number): boolean;
   material(column: number, row: number): number;
+  /** A cell's static shape: 0 full, or a slope 1–4 (#94). Open cells may answer anything; it isn't read. */
+  shape(column: number, row: number): number;
+  /** The lowest row that shows sky in a column. */
   surface(column: number): number;
 }
 
-/** A packed window cell: bit 0 is solidity, bits 8–15 the material id. */
+/** A packed window cell: bit 0 is solidity, bits 1–3 the shape, bits 8–15 the material id. */
 export const SOLID_BIT = 1;
+export const SHAPE_SHIFT = 1;
+export const SHAPE_MASK = 7;
 export const MATERIAL_SHIFT = 8;
 
 export interface WorldWindow {
@@ -62,7 +67,9 @@ export function createWorldWindow(source: WorldSource): WorldWindow {
   let built = false;
 
   const query = (column: number, row: number): number =>
-    (source.solid(column, row) ? SOLID_BIT : 0) | (source.material(column, row) << MATERIAL_SHIFT);
+    (source.solid(column, row) ? SOLID_BIT : 0) |
+    ((Math.max(0, source.shape(column, row)) & SHAPE_MASK) << SHAPE_SHIFT) |
+    (source.material(column, row) << MATERIAL_SHIFT);
 
   /** Place the window around the view, reusing every cell the old window already knew. */
   function place(nextLeft: number, nextTop: number, nextCols: number, nextRows: number): void {
@@ -116,7 +123,7 @@ export function createWorldWindow(source: WorldSource): WorldWindow {
     const localRow = row - top;
     if (!built || localColumn < 0 || localColumn >= cols || localRow < 0 || localRow >= rows)
       return;
-    // A dig changes solidity only; a cell's material is static, so it isn't asked again.
+    // A dig changes solidity only; a cell's shape and material are static, so they aren't asked again.
     const index = localRow * cols + localColumn;
     const material = cells[index] & ~SOLID_BIT;
     cells[index] = material | (source.solid(column, row) ? SOLID_BIT : 0);

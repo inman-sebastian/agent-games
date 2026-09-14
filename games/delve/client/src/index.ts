@@ -171,6 +171,8 @@ const worldWindow = createWorldWindow({
   // a cell's material id: its ore, where that ore has a registered material, else 0 for the strata stone
   material: (column, row) =>
     materialAt(column, row) ? engine.oreAt(s.world.seed, column, row) : 0,
+  // a cell's static shape: full or a slope (#94)
+  shape: (column, row) => engine.shapeAt(s.world.seed, column, row),
   surface: (column) => surfaceOf(column),
 });
 
@@ -207,7 +209,8 @@ function endPhase(name: string): void {
 // ---- render -----------------------------------------------------------------------------
 // The surface is a heightmap (#44), so everything that used to take the constant row now takes this
 // — one closure over the live seed, so the renderer, the lighting and the compositor agree.
-const surfaceOf = (column: number): number => engine.surfaceAt(s.world.seed, column);
+// The lowest sky row: world smoothing moves the surface by a cell, and a slope shows sky in its open corner (#94).
+const surfaceOf = (column: number): number => engine.skyRowAt(s.world.seed, column);
 
 const LAMP_BASE_INTENSITY = 0.9; // lamp seed brightness at lamp reach 0
 const LAMP_CORE_CELLS = 1 * engine.SUB; // full brightness within a block of the lamp
@@ -312,6 +315,7 @@ function render(t: number): void {
         lit: dlit,
         dirX,
         dirY,
+        shape: engine.shapeAt(s.world.seed, dc, dr),
       };
       (materialAt(dc, dr)?.damage ?? drawDamage)(damageCtx);
     }

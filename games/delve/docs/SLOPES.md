@@ -17,7 +17,7 @@ how Terraria does it generally, in DELVE's own art direction. Slopes are mineabl
 - **Rules on the CPU, everything drawn on the GPU** (the author, 2026-09-14, keeping RENDERING.md's
   2026-09-13 decision). World smoothing and collision are shared rules the server runs in Node and the
   oracles check, and Terraria's versions are order-dependent, so they stay in TypeScript. Every visual part —
-  the slope mask and shading, stalactites, lighting, liquid behind slopes — is WGSL, gated against its
+  the slope mask and shading, lighting, liquid behind slopes — is WGSL, gated against its
   TypeScript reference.
 
 ## Terraria's rules (1.4.0.5, decompiled)
@@ -81,10 +81,19 @@ swapped when only the right neighbour is solid, and ceilings first under a solid
   been mined. (The hammer would change that: shapes would then need storing and syncing.)
 - **Collision** ports Terraria's slope routines onto `physicsStep`, in cells, and is checked against Terraria's
   own `Collision.cs` compiled with stubs (the oracle method from [FLUIDS.md](FLUIDS.md#verification--the-oracle)).
-- **Rendering.** The shape feeds the per-pixel rock mask (`buildMask` and its WGSL twin), so light, contact
-  shadow and material shading follow the diagonal from the distance fields they already use. New work: erosion
-  along the diagonal, the top-light rule for sloped floors, the material cross-fade, stalactites, lighting
-  attenuation, damage cracks and twinkles — in TypeScript and WGSL together, gated by `pnpm render-gate`.
+- **Rendering** (`buildMask` in `cave-render.ts`, `mask_main` in `rock.wgsl`, in lockstep). A solid cell's shape
+  rides in bits 1–3 of the GPU world window. The mask leaves pixels outside a slope's solid half open
+  (`insideShape`: the diagonal belongs to the solid half) and treats the diagonal as an edge, eroded by the same
+  world noise (`diagonalDistance`, measured like a straight edge, so the pixel on it is half a pixel in). A side
+  counts as exposed where the neighbour across it doesn't cover it (`covers`: a slope leaves its open sides
+  exposed), and a slope's two tips round like convex corners. Light, contact shadow and material shading follow
+  the diagonal from the distance fields they already use; the top-light rule counts a surface as up-facing to
+  45° (depth below it up to √2 × the distance to it), so a sloped floor is lit like a flat one. The sky reaches
+  down to each column's first full cell (`skyRowAt`), so a surface slope shows sky in its open corner. Damage
+  cracks stay in the solid half. Lighting treats a slope as rock, as Terraria's does. Ore twinkles still follow
+  only straight faces. **The render gate** gained two slope-sampler views (`gpu-lab`, `?slopes=1` to see it):
+  every exposed cell near the centre takes one of the four slopes, since the heightmap has no overhangs to put
+  ceiling slopes in the strata views; a broken ceiling slope in the WGSL fails both.
 - **Liquid rendering** ports `DrawTile_LiquidBehindTile` into the liquid renderer, checked against the oracle.
 
 ## Work

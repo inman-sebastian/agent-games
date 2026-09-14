@@ -29,14 +29,16 @@ function fakeWorld(seed: number) {
         return (hash(column, 99) % 5) - 2;
       },
       material: (column: number, row: number): number => hash(row, column) % 4,
+      shape: (column: number, row: number): number => hash(column + 7, row) % 5,
     },
     queries: () => ({ solid: solidQueries, surface: surfaceQueries }),
     truth: (column: number, row: number): boolean =>
       hash(column, row) > 1 && !dug.has(`${column},${row}`),
     truthSurface: (column: number): number => (hash(column, 99) % 5) - 2,
-    /** The packed cell the window stores: bit 0 solid, bits 8–15 the static material id. */
+    /** The packed cell the window stores: bit 0 solid, bits 1–3 the static shape, bits 8–15 the static material id. */
     truthCell: (column: number, row: number): number =>
       (hash(column, row) > 1 && !dug.has(`${column},${row}`) ? 1 : 0) |
+      ((hash(column + 7, row) % 5) << 1) |
       ((hash(row, column) % 4) << 8),
   };
 }

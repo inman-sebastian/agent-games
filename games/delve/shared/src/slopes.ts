@@ -298,3 +298,70 @@ export function smoothWorld(grid: SmoothGrid, next: (maximum: number) => number)
     }
   }
 }
+
+// ---- geometry --------------------------------------------------------------------------------------------------
+
+export type Side = 'up' | 'down' | 'left' | 'right';
+
+/** Whether a cell of this shape is solid along the whole of that side (Tile.topSlope/bottomSlope/leftSlope/rightSlope). */
+export function covers(shape: number, side: Side): boolean {
+  if (shape === FULL) return true;
+  if (shape === OPEN) return false;
+  switch (side) {
+    case 'up':
+      return shape === SLOPE_UP_RIGHT || shape === SLOPE_UP_LEFT;
+    case 'down':
+      return shape === SLOPE_DOWN_RIGHT || shape === SLOPE_DOWN_LEFT;
+    case 'left':
+      return shape === SLOPE_DOWN_RIGHT || shape === SLOPE_UP_RIGHT;
+    case 'right':
+      return shape === SLOPE_DOWN_LEFT || shape === SLOPE_UP_LEFT;
+  }
+}
+
+/** Whether pixel (x, y) of a `size`-pixel cell of this shape is solid: a slope's diagonal belongs to its solid half. */
+export function insideShape(shape: number, x: number, y: number, size: number): boolean {
+  switch (shape) {
+    case OPEN:
+      return false;
+    case SLOPE_DOWN_RIGHT:
+      return y >= x;
+    case SLOPE_DOWN_LEFT:
+      return y >= size - 1 - x;
+    case SLOPE_UP_RIGHT:
+      return y <= size - 1 - x;
+    case SLOPE_UP_LEFT:
+      return y <= x;
+    default:
+      return true;
+  }
+}
+
+/**
+ * How far pixel (x, y)'s centre lies inside a slope's diagonal edge, in pixels, measured like a straight edge's
+ * (the pixel on the diagonal is half a pixel in). Infinity for a full cell, which has no diagonal.
+ */
+export function diagonalDistance(shape: number, x: number, y: number, size: number): number {
+  switch (shape) {
+    case SLOPE_DOWN_RIGHT:
+      return (y - x) / Math.SQRT2 + 0.5;
+    case SLOPE_DOWN_LEFT:
+      return (y - (size - 1 - x)) / Math.SQRT2 + 0.5;
+    case SLOPE_UP_RIGHT:
+      return (size - 1 - x - y) / Math.SQRT2 + 0.5;
+    case SLOPE_UP_LEFT:
+      return (x - y) / Math.SQRT2 + 0.5;
+    default:
+      return Infinity;
+  }
+}
+
+/**
+ * The lowest row that shows sky in a column: the row above its first full cell. World smoothing moves the surface
+ * by a cell either way, and a slope on it shows sky in its open corner, so the sky reaches down past both.
+ */
+export function skyRowAt(seed: number, column: number): number {
+  let row = surfaceAt(seed, column) - 2;
+  while (shapeAt(seed, column, row + 1) !== FULL) row++;
+  return row;
+}
