@@ -105,9 +105,8 @@ frame back and diffs it for probe.
 
 ### Renderer core in the game (#71)
 
-The game can render through the GPU, behind **`?renderer=gpu`**. Canvas 2D stays the default until the
-material shaders are ported, because the GPU path draws ores as plain rock. If WebGPU is unavailable
-the flag falls back to Canvas 2D, and the debug overlay says why.
+The game can render through the GPU, behind **`?renderer=gpu`**. Canvas 2D is still the default. If
+WebGPU is unavailable the flag falls back to Canvas 2D, and the debug overlay says why.
 
 **The world lives on the GPU as a window, not per frame.** `gpu/world-window.ts` keeps a CPU mirror of
 cell solidity and surface heights for the view plus a margin, and uploads it whole. The upload is tens
@@ -155,9 +154,19 @@ Two things the integration turned up, both fixed:
 The debug overlay's `renderer` line names the path and adapter, the GPU finish time, and the world
 window's size and version.
 
+**Ores are on the GPU too** ([#73](https://github.com/inman-sebastian/agent-games/issues/73)):
+
+- **Every material has a WGSL twin**, and the compositor ports the feathered material blend; see
+  MATERIALS.md's _GPU twins_.
+- **Parity, measured with `gpu-lab` (lighting off) at seven depths covering every ore band:**
+  99.94–99.99% of pixels identical and ~99.99% within 8 levels, with 12–16 threshold-flip outliers per
+  130,560 pixels, the same float32 cause as the rock alone.
+- **GPU validation errors surface.** A shader that fails to compile doesn't throw, it just draws
+  nothing. The renderer keeps the first error, and both the debug overlay's `renderer` line and the lab
+  HUD show it, so `probe` can read it.
+
 **Known differences from Canvas 2D, each a later child of #68:**
 
-- **Ores draw as rock** until the materials are ported.
 - **Twinkle adds light in Canvas 2D** (`lighter`) but reaches the GPU through the overlay, composited
   source-over, until twinkle is its own pass.
 - **Sprites and particles are rasterised by Canvas 2D** and uploaded, not drawn by the GPU.

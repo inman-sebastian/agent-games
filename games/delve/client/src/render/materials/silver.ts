@@ -6,13 +6,21 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { drawGlint, twinkleFlash } from './fx';
+import wgsl from './silver.wgsl?raw';
 
 // bright, clean, faintly-blue cool white — the crisp "shiny silver" reference the others diverge from.
-const COLORS = colorsFor(['#282a34', '#414653', '#666d7c', '#98a0b0', '#c9cfdc', '#f4f8ff']);
-const SHEEN: Rgb = hexRgb('#f8fbff');
-const GLINT: Rgb = hexRgb('#ffffff');
+const PALETTE = ['#282a34', '#414653', '#666d7c', '#98a0b0', '#c9cfdc', '#f4f8ff'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { sheen: '#f8fbff', glint: '#ffffff' } as const;
+const SHEEN: Rgb = hexRgb(ACCENTS.sheen);
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(4, {
+  name: 'silver',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.8,
   shade(ctx: ShadeCtx): Rgb {
     // a brighter, tighter sheen than iron (silver catches light harder)

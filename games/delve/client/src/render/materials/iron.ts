@@ -5,13 +5,21 @@ import { TEX, hexRgb, colorsFor, metalSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx } from './types';
+import wgsl from './iron.wgsl?raw';
 
 // dull, dark gunmetal — the cheap base metal: low, muted values and a duller (non-white) sheen,
 // so it reads distinctly darker/flatter than bright silver, warm platinum, or icy quartz.
-const COLORS = colorsFor(['#1e2024', '#33373d', '#4b525a', '#686f78', '#878e98', '#a8b0ba']);
-const SHEEN: Rgb = hexRgb('#c6ccd4');
+const PALETTE = ['#1e2024', '#33373d', '#4b525a', '#686f78', '#878e98', '#a8b0ba'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { sheen: '#c6ccd4' } as const;
+const SHEEN: Rgb = hexRgb(ACCENTS.sheen);
 
 registerOreMaterial(3, {
+  name: 'iron',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.6,
   shade(ctx: ShadeCtx): Rgb {
     if (ctx.brightness > 0.78 && vnoise(ctx.worldX * 0.55, ctx.worldY * 0.55, TEX + 33) > 0.9)

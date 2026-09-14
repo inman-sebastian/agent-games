@@ -17,7 +17,9 @@ import type { LightField } from '../lighting';
 import type { WorldWindow } from './world-window';
 import { CONSTANTS_WGSL } from './constants';
 import noiseWgsl from './noise.wgsl?raw';
+import surfacesWgsl from './surfaces.wgsl?raw';
 import rockWgsl from './rock.wgsl?raw';
+import { materialsWgsl } from './materials';
 import presentWgsl from './present.wgsl?raw';
 import blitWgsl from './blit.wgsl?raw';
 
@@ -82,6 +84,9 @@ export interface GpuRenderer {
   /** Milliseconds from submitting the last frame to the GPU reporting it done. */
   readonly gpuMs: number;
   readonly adapter: string;
+  /** The first GPU validation error, or null. Errors surface asynchronously — a shader that fails to
+   *  compile doesn't throw, it just draws nothing — so this is how a HUD, or probe, gets to see one. */
+  readonly lastError: string | null;
 }
 
 /** Why a renderer couldn't be made, as a sentence for the page. */
@@ -94,6 +99,14 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
   const adapter = await navigator.gpu.requestAdapter();
   if (!adapter) throw new GpuUnavailable('WebGPU is present but no GPU adapter was offered.');
   const device = await adapter.requestDevice();
+  let lastError: string | null = null;
+  device.addEventListener('uncapturederror', (event) => {
+    const message = (event as GPUUncapturedErrorEvent).error.message;
+    console.error(`DELVE GPU: ${message}`);
+    // Keep the FIRST: one bad shader invalidates every command buffer after it, and those follow-on
+    // errors say nothing about the cause.
+    lastError ??= message;
+  });
   const context = canvas.getContext('webgpu');
   if (!context) throw new GpuUnavailable('The canvas refused a WebGPU context.');
   const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
@@ -101,7 +114,10 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
 
   const shader = (label: string, code: string): GPUShaderModule =>
     device.createShaderModule({ label, code });
-  const rockModule = shader('rock', CONSTANTS_WGSL + noiseWgsl + rockWgsl);
+  const rockModule = shader(
+    'rock',
+    CONSTANTS_WGSL + noiseWgsl + surfacesWgsl + materialsWgsl() + rockWgsl,
+  );
   const presentModule = shader('present', CONSTANTS_WGSL + noiseWgsl + presentWgsl);
   const blitModule = shader('blit', blitWgsl);
   const computePipeline = (entryPoint: string): GPUComputePipeline =>
@@ -493,6 +509,9 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     readback,
     get gpuMs() {
       return gpuMs;
+    },
+    get lastError() {
+      return lastError;
     },
     adapter:
       [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') ||

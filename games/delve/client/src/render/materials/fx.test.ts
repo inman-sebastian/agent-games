@@ -26,8 +26,9 @@ describe('pickAway', () => {
 });
 
 describe('collectTwinkleEdges', () => {
-  const twinkler: Material = { shade: () => [0, 0, 0], twinkle: () => {} };
-  const plain: Material = { shade: () => [0, 0, 0] }; // no twinkle → never an edge
+  const base = { name: 'test', palette: [], wgsl: '' };
+  const twinkler: Material = { ...base, shade: () => [0, 0, 0], twinkle: () => {} };
+  const plain: Material = { ...base, shade: () => [0, 0, 0] }; // no twinkle → never an edge
 
   // row 5 = a horizontal vein (cols 2..5) with open space above; col 3 is a different plain material.
   const vein = new Set(['2,5', '3,5', '4,5', '5,5']);

@@ -5,11 +5,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './mythril.wgsl?raw';
 
-const COLORS = colorsFor(['#1c1630', '#33265a', '#553a86', '#7d54b3', '#a884f3', '#e0c9ff']);
-const GLINT: Rgb = hexRgb('#f6ecff');
+const PALETTE = ['#1c1630', '#33265a', '#553a86', '#7d54b3', '#a884f3', '#e0c9ff'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#f6ecff' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(9, {
+  name: 'mythril',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     return (

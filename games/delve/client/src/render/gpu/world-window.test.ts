@@ -28,11 +28,16 @@ function fakeWorld(seed: number) {
         surfaceQueries++;
         return (hash(column, 99) % 5) - 2;
       },
+      material: (column: number, row: number): number => hash(row, column) % 4,
     },
     queries: () => ({ solid: solidQueries, surface: surfaceQueries }),
     truth: (column: number, row: number): boolean =>
       hash(column, row) > 1 && !dug.has(`${column},${row}`),
     truthSurface: (column: number): number => (hash(column, 99) % 5) - 2,
+    /** The packed cell the window stores: bit 0 solid, bits 8–15 the static material id. */
+    truthCell: (column: number, row: number): number =>
+      (hash(column, row) > 1 && !dug.has(`${column},${row}`) ? 1 : 0) |
+      ((hash(row, column) % 4) << 8),
   };
 }
 
@@ -84,7 +89,7 @@ describe('the GPU world window', () => {
         }
         for (let row = 0; row < window.rows; row++) {
           for (let column = 0; column < window.cols; column++) {
-            const expected = world.truth(window.left + column, window.top + row) ? 1 : 0;
+            const expected = world.truthCell(window.left + column, window.top + row);
             expect(
               window.cells[row * window.cols + column],
               `cell ${window.left + column},${window.top + row}`,
@@ -158,6 +163,6 @@ describe('the GPU world window', () => {
     world.dug.add('5,5');
     window.dig(5, 5);
     expect(window.version).toBeGreaterThan(version);
-    expect(window.cells[(5 - window.top) * window.cols + (5 - window.left)]).toBe(0);
+    expect(window.cells[(5 - window.top) * window.cols + (5 - window.left)] & 1).toBe(0);
   });
 });

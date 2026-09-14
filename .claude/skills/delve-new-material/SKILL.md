@@ -26,20 +26,20 @@ append-only (saves reference them) — never renumber. Then add one import line 
 `shared/src/resources/index.ts`.
 
 ```ts
-import { register } from '../registry';
-import type { OreResource } from '../types';
+import { register } from "../registry";
+import type { OreResource } from "../types";
 
 register({
-  type: 'ore',
+  type: "ore",
   id: 10,
-  name: 'Cobalt',
+  name: "Cobalt",
   band: [200, 340], // [minRow, maxRow] depth range it spawns in
   weight: 6, // spawn share within the band (rarer = smaller)
   hp: 7, // toughness ON TOP of rock hp (deeper/rarer = higher)
   rarity: 4, // reward TIER, 0..RARITY_MAX — see below; ties are fine
-  color: '#4d65b4', // single colour for particles / HUD floaties
-  desc: 'A cold blue metal from the deep stone.',
-  art: { shape: 'nugget', c: ['#26305a', '#4d65b4', '#8fd3ff'] }, // icon shape + [dark,mid,hi] triad
+  color: "#4d65b4", // single colour for particles / HUD floaties
+  desc: "A cold blue metal from the deep stone.",
+  art: { shape: "nugget", c: ["#26305a", "#4d65b4", "#8fd3ff"] }, // icon shape + [dark,mid,hi] triad
 } satisfies OreResource);
 ```
 
@@ -65,22 +65,41 @@ Build a 6-stop **Resurrect-64** ramp (shadow→rim) via `colorsFor`, then `shade
 **Metal (`metalSurface` + sheen, no twinkle)** — copper/iron/silver/platinum style:
 
 ```ts
-import { vnoise } from '@delve/shared';
-import { TEX, hexRgb, colorsFor, metalSurface } from '../palette';
-import type { Rgb } from '../palette';
-import { registerOreMaterial } from './types';
-import type { ShadeCtx } from './types';
+import { vnoise } from "@delve/shared";
+import { TEX, hexRgb, colorsFor, metalSurface } from "../palette";
+import type { Rgb } from "../palette";
+import { registerOreMaterial } from "./types";
+import type { ShadeCtx } from "./types";
 
-const COLORS = colorsFor(['#101a30', '#26305a', '#3a4f8a', '#4d65b4', '#7aa0e0', '#bfe0ff']);
-const SHEEN: Rgb = hexRgb('#eaf3ff');
+const COLORS = colorsFor([
+  "#101a30",
+  "#26305a",
+  "#3a4f8a",
+  "#4d65b4",
+  "#7aa0e0",
+  "#bfe0ff",
+]);
+const SHEEN: Rgb = hexRgb("#eaf3ff");
 
 registerOreMaterial(14, {
   feather: 2.8,
   shade(ctx: ShadeCtx): Rgb {
-    if (ctx.brightness > 0.74 && vnoise(ctx.worldX * 0.55, ctx.worldY * 0.55, TEX + 34) > 0.88)
+    if (
+      ctx.brightness > 0.74 &&
+      vnoise(ctx.worldX * 0.55, ctx.worldY * 0.55, TEX + 34) > 0.88
+    )
       return SHEEN;
     // blotch = low-freq patchiness, streak = fine brushing; lower both for a mirror finish
-    return metalSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 0.4, 0.12);
+    return metalSurface(
+      ctx.worldX,
+      ctx.worldY,
+      ctx.px,
+      ctx.py,
+      ctx.brightness,
+      COLORS,
+      0.4,
+      0.12,
+    );
   },
 });
 ```
@@ -88,25 +107,44 @@ registerOreMaterial(14, {
 **Gem (`facetSurface` + baked sparkle + animated twinkle)** — emerald/ruby/diamond/quartz style:
 
 ```ts
-import { hexRgb, colorsFor, facetSurface } from '../palette';
-import type { Rgb } from '../palette';
-import { registerOreMaterial } from './types';
-import type { ShadeCtx, TwinkleCtx } from './types';
-import { sparkle, drawGlint, twinkleFlash } from './fx';
+import { hexRgb, colorsFor, facetSurface } from "../palette";
+import type { Rgb } from "../palette";
+import { registerOreMaterial } from "./types";
+import type { ShadeCtx, TwinkleCtx } from "./types";
+import { sparkle, drawGlint, twinkleFlash } from "./fx";
 
-const COLORS = colorsFor(['#0b241a', '#124430', '#1b6543', '#2c9660', '#57c584', '#a9eec6']);
-const GLINT: Rgb = hexRgb('#eafff4');
+const COLORS = colorsFor([
+  "#0b241a",
+  "#124430",
+  "#1b6543",
+  "#2c9660",
+  "#57c584",
+  "#a9eec6",
+]);
+const GLINT: Rgb = hexRgb("#eafff4");
 
 registerOreMaterial(14, {
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     return (
       sparkle(ctx, { color: GLINT, chance: 0.22, minLit: 0.56 }) ??
-      facetSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx.brightness, COLORS, 5) // facet px
+      facetSurface(
+        ctx.worldX,
+        ctx.worldY,
+        ctx.px,
+        ctx.py,
+        ctx.brightness,
+        COLORS,
+        5,
+      ) // facet px
     );
   },
   twinkle(ctx: TwinkleCtx): void {
-    const f = twinkleFlash(ctx.time, ctx.seed, { period: 1.3, density: 0.6, gap: 0.45 });
+    const f = twinkleFlash(ctx.time, ctx.seed, {
+      period: 1.3,
+      density: 0.6,
+      gap: 0.45,
+    });
     if (f.alpha <= 0) return;
     const x = ctx.x0 + (ctx.x1 - ctx.x0) * f.offset;
     const y = ctx.y0 + (ctx.y1 - ctx.y0) * f.offset;
@@ -119,6 +157,52 @@ For **glass**, swap in `glassSurface(ctx.worldX, ctx.worldY, ctx.px, ctx.py, ctx
 (see `obsidian.ts`); for **ore-in-rock**, use `stoneSurface(…, COLORS)` (see `copper.ts`).
 
 Then **register it**: add `import './<name>';` to `client/src/render/materials/index.ts`.
+
+**Every material also needs its WGSL twin** for the WebGPU renderer (#73; see MATERIALS.md's _GPU
+twins_). Register the palette ramp and accent colours instead of only baking them into constants, so
+the WGSL side gets them generated, and write `client/src/render/materials/<name>.wgsl`:
+
+```ts
+import wgsl from "./<name>.wgsl?raw";
+
+const PALETTE = [
+  "#0b241a",
+  "#124430",
+  "#1b6543",
+  "#2c9660",
+  "#57c584",
+  "#a9eec6",
+];
+const GLINT = "#eafff4";
+const COLORS = colorsFor(PALETTE);
+const GLINT_RGB: Rgb = hexRgb(GLINT);
+
+registerOreMaterial(14, {
+  name: "jade",
+  palette: PALETTE,
+  accents: { glint: GLINT },
+  wgsl,
+  feather: 2.2,
+  shade(ctx) {
+    /* …the JavaScript shader, reading COLORS and GLINT_RGB… */
+  },
+});
+```
+
+```wgsl
+// jade.wgsl — the WGSL twin of jade.ts. JADE_BANDS, JADE_RIM_B, JADE_RIM_ROCK and JADE_GLINT are
+// generated from the TypeScript registration.
+fn shade_jade(ctx: ShadeCtx) -> vec3f {
+  let glint = sparkle(ctx, JADE_GLINT, 0.22, 0.56);
+  if (glint.a > 0.0) { return glint.rgb; }
+  return facet_surface(ctx, JADE_BANDS, 5.0);
+}
+```
+
+The surfaces are `stone_surface(ctx, bands, rim_b, rim_rock)`, `metal_surface(ctx, bands, blotch,
+streak)`, `facet_surface(ctx, bands, facet)`, `glass_surface(ctx, bands)` and
+`sparkle(ctx, colour, chance, min_lit)`, which returns alpha 1 on a hit. The WGSL noise helpers are
+`vnoise`, `hash_xy` and `floor_div`, with seeds as `TEX + Nu`.
 
 Rules that keep it cohesive (see MATERIALS.md):
 
@@ -163,7 +247,11 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
    selected material at a depth inside its band:
    `WATCHDOG=8 SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=cave&ui=0&mat=<slug>&depth=<bandMid>&w=14&h=10&scale=3' /tmp/mat-cave.png labs/material-lab.html`.
    (Change `seed=<n>` to see a different cave shape; drop `lit=0` to kill the lamp and see the raw surface.)
-5. Judge it against the value-gradient + surface-class conventions; tune the ramp/FX and re-shot. The
+5. **GPU parity.** With `pnpm dev` running,
+   `pnpm probe 'labs/gpu-lab.html?light=0&r=<a row in its band>' --wait 3000 --eval "gpuLab.runDiff().then(s => JSON.stringify({...s, outliers: s.outliers.length}))"`.
+   Over 99.9% identical is the bar the ported materials hold. A block of red in `?mode=diff` means
+   the twins disagree.
+6. Judge it against the value-gradient + surface-class conventions; tune the ramp/FX and re-shot. The
    interactive lab (`ui=1`, the default) shows twinkle animating — reach for Playwright only for that
    live feel, never for a still a `shot.sh` crop can answer.
 

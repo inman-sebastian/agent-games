@@ -20,6 +20,8 @@ import {
   BG_SILHOUETTE_FREQ_X,
   BG_SILHOUETTE_FREQ_Y,
   BG_SILHOUETTE_THRESHOLD,
+  FEATHER_FREQ,
+  BLEND_WIDTH,
 } from '../cave-render';
 import {
   DITHER_STEPS,
@@ -52,6 +54,8 @@ const declarations: readonly string[] = [
   `const BG_SILHOUETTE_FREQ_X: f32 = ${float(BG_SILHOUETTE_FREQ_X)};`,
   `const BG_SILHOUETTE_FREQ_Y: f32 = ${float(BG_SILHOUETTE_FREQ_Y)};`,
   `const BG_SILHOUETTE_THRESHOLD: f32 = ${float(BG_SILHOUETTE_THRESHOLD)};`,
+  `const FEATHER_FREQ: f32 = ${float(FEATHER_FREQ)};`,
+  `const BLEND_WIDTH: f32 = ${float(BLEND_WIDTH)};`,
   `const DITHER_STEPS: i32 = ${DITHER_STEPS};`,
   `const SCRIM = vec3f(${SCRIM.map(float).join(', ')});`,
   `const LIGHT_FLOOR: f32 = ${float(LIGHT_FLOOR)};`,

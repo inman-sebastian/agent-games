@@ -5,13 +5,21 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './quartz.wgsl?raw';
 
 // milky ICY cyan-white — a cold crystalline tint (plus its sparkle, vs the metals' sheen) sets it
 // apart from the greys; far paler than diamond's saturated teal.
-const COLORS = colorsFor(['#2c3138', '#45505a', '#657782', '#93aab4', '#c6dde2', '#ffffff']);
-const GLINT: Rgb = hexRgb('#eaffff');
+const PALETTE = ['#2c3138', '#45505a', '#657782', '#93aab4', '#c6dde2', '#ffffff'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#eaffff' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(12, {
+  name: 'quartz',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     // faceted crystal — cut planes instead of craggy rock

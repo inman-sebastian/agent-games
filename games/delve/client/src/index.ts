@@ -183,7 +183,15 @@ function chunkWorker(): ChunkWorker | null {
 
 // The GPU renderer's mirror of the world around the view: it asks the world only about cells scrolling
 // into view and cells a dig changes (render/gpu/world-window.ts). Fed by the same hooks as the chunks.
-const worldWindow = createWorldWindow({ solid: solidTile, surface: (column) => surfaceOf(column) });
+const worldWindow = createWorldWindow({
+  solid: solidTile,
+  // a cell's material id: its ore, where that ore has a registered material — the same test materialAt makes
+  material: (column, row) => {
+    const ore = engine.oreAt(s.world.seed, column, row);
+    return oreMaterial(ore) ? ore : 0;
+  },
+  surface: (column) => surfaceOf(column),
+});
 
 /**
  * A cell changed in the world: tell whichever renderer is drawing the rock.
@@ -856,7 +864,7 @@ function updateDebug(): void {
     `depth ${metres(s.player.depth)}m (cell row ${s.player.depth})\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
-    `renderer ${rendererNote}${gpu ? `  gpu done ${gpu.gpuMs.toFixed(1)}ms  window ${worldWindow.cols}×${worldWindow.rows} v${worldWindow.version}` : ''}\n` +
+    `renderer ${rendererNote}${gpu ? `  gpu done ${gpu.gpuMs.toFixed(1)}ms  window ${worldWindow.cols}×${worldWindow.rows} v${worldWindow.version}${gpu.lastError ? `  GPU ERROR ${gpu.lastError}` : ''}` : ''}\n` +
     `phase ${Object.entries(phaseMs)
       .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
       .join('  ')}\n` +

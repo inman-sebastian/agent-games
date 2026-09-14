@@ -8,11 +8,19 @@
 //
 // Pure and DOM-free, so it's tested without a GPU.
 
-/** What the window mirrors: the world's current solidity (static rock minus digs) and surface heights. */
+/**
+ * What the window mirrors: the world's current solidity (static rock minus digs), each cell's material id
+ * (static — an ore id with a registered material, else 0 for the strata stone), and surface heights.
+ */
 export interface WorldSource {
   solid(column: number, row: number): boolean;
+  material(column: number, row: number): number;
   surface(column: number): number;
 }
+
+/** A packed window cell: bit 0 is solidity, bits 8–15 the material id. */
+export const SOLID_BIT = 1;
+export const MATERIAL_SHIFT = 8;
 
 export interface WorldWindow {
   /** World cell of the window's top-left, and its size in cells. */
@@ -20,7 +28,7 @@ export interface WorldWindow {
   readonly top: number;
   readonly cols: number;
   readonly rows: number;
-  /** 1 where the cell is solid, row-major. */
+  /** Row-major packed cells: `SOLID_BIT` where solid, the material id at `MATERIAL_SHIFT`. */
   readonly cells: Uint32Array<ArrayBuffer>;
   /** Each window column's surface row. Static, but it scrolls with the window. */
   readonly surface: Float32Array<ArrayBuffer>;
@@ -53,7 +61,8 @@ export function createWorldWindow(source: WorldSource): WorldWindow {
   let version = 0;
   let built = false;
 
-  const query = (column: number, row: number): number => (source.solid(column, row) ? 1 : 0);
+  const query = (column: number, row: number): number =>
+    (source.solid(column, row) ? SOLID_BIT : 0) | (source.material(column, row) << MATERIAL_SHIFT);
 
   /** Place the window around the view, reusing every cell the old window already knew. */
   function place(nextLeft: number, nextTop: number, nextCols: number, nextRows: number): void {
@@ -107,7 +116,10 @@ export function createWorldWindow(source: WorldSource): WorldWindow {
     const localRow = row - top;
     if (!built || localColumn < 0 || localColumn >= cols || localRow < 0 || localRow >= rows)
       return;
-    cells[localRow * cols + localColumn] = query(column, row);
+    // A dig changes solidity only; a cell's material is static, so it isn't asked again.
+    const index = localRow * cols + localColumn;
+    const material = cells[index] & ~SOLID_BIT;
+    cells[index] = material | (source.solid(column, row) ? SOLID_BIT : 0);
     version++;
   }
 

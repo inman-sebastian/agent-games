@@ -5,11 +5,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './diamond.wgsl?raw';
 
-const COLORS = colorsFor(['#0a2f33', '#124a52', '#1c7d80', '#2fb6ad', '#79ead9', '#d6fff4']);
-const GLINT: Rgb = hexRgb('#f0ffff');
+const PALETTE = ['#0a2f33', '#124a52', '#1c7d80', '#2fb6ad', '#79ead9', '#d6fff4'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#f0ffff' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(8, {
+  name: 'diamond',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.0, // crisp, faceted — blends into rock less than the softer gems
   shade(ctx: ShadeCtx): Rgb {
     return (
