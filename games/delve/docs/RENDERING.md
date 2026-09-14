@@ -27,8 +27,9 @@ the device's own pixel density. Do **not** render the whole scene at the device 
 that would multiply the (per-pixel) lighting cost for no visual gain.
 
 The canvas **fills the viewport edge-to-edge**: `fit()` sizes it to the window in whole cells (plus
-one of overscan), centred, so cells stay square with no letterboxing. The world is unbounded, so the
-canvas is a camera window onto it, not a view of a fixed field; its size is capped
+one of overscan), centred, so cells stay square with no letterboxing. The world renders past its
+playable edges (DESIGN.md: the player never sees an edge), so the canvas is a camera window onto it,
+not a view of a fixed field; its size is capped
 (`MAX_VIEW_TILES`, in cells) only so a huge window can't ask for an unbounded canvas. The HUD floats as an **overlay** on top, not in a chrome bar.
 
 ## Layers (composited bottom-to-top)

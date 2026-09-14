@@ -143,9 +143,9 @@ the single place capability is resolved. See [Progression](#progression).
   verifiable at all (see [TESTING.md](TESTING.md)), so nothing may make generation depend on
   who is looking at it.
 
-  _The world is currently **infinite** horizontally, which is being reversed: it becomes large
-  but **bounded**, with hard edges and a bedrock floor. Only infinity is dropped; determinism
-  stays. See [Direction & roadmap](#direction--roadmap)._
+  The world is **bounded**: a width set by its [size preset](#the-world) and a bedrock floor.
+  Only infinity was dropped (it shipped in #1); determinism stays — the generator is still
+  defined everywhere, and only the sim's rules know where the edge is.
 
 - **One saturated element.** Ore is the only vivid colour against deliberately muted
   rock, and depth reads by palette (see [PALETTE.md](PALETTE.md)).
@@ -253,6 +253,23 @@ The death timer is the Destiny pattern: reach the true edge and a countdown says
 **Legible, recoverable, and fair.** The world must also **extend visually past the playable limit**,
 so the player never sees an edge.
 
+**Built: the bounds, not yet the layers** ([#57](https://github.com/inman-sebastian/agent-games/issues/57),
+[#58](https://github.com/inman-sebastian/agent-games/issues/58),
+[#61](https://github.com/inman-sebastian/agent-games/issues/61)). The playable world is columns
+`[0, width)` and rows above `FLOOR` (block 700). One shared rule, `mineable(world, c, r)`, is what the
+sim, the server and the client's reticle all ask.
+
+- **Below the floor is bedrock** — the one tile nothing breaks. It continues indefinitely downward
+  and renders as its own stratum with no blend into the basalt above, so crossing onto it reads as a
+  moment rather than a slow darkening.
+- **Past the side edges, the generator keeps going.** Hills, strata and ore render exactly as they
+  would anywhere — there is no wall to see — but none of it can be mined.
+- **The edge itself is, for now, a plain collision stop.** That is precisely the traversal
+  constraint the layers above warn against, and it's acceptable only because nothing in the game can
+  defeat it yet. The ocean ([#59](https://github.com/inman-sebastian/agent-games/issues/59)) needs
+  water and breath; the death timer ([#60](https://github.com/inman-sebastian/agent-games/issues/60))
+  needs health and death, and **replaces the stop** when it lands.
+
 **The surface is real content**, Terraria-like — subordinate to the mine, but not a barren flat
 plane. That makes surface height a function of column rather than a constant.
 
@@ -286,6 +303,21 @@ reason to descend that isn't greed. Night is a threat, not a meter.
 
 **Size presets, fixed at creation.** A world's size — and therefore its player cap — is chosen once
 and never changes. A fifth friend can't join a Small world; they make a new one.
+
+**Built** ([#63](https://github.com/inman-sebastian/agent-games/issues/63)) as `WORLD_SIZES` in
+`blocks.ts`, stored on the world as `WorldState.size` and chosen from the pause menu when starting a
+new mine. The widths follow Terraria's 1 : 1.5 : 2 and are a starting point to tune by playing:
+
+| Preset     | Width (blocks) | Player cap | Walk, spawn → edge |
+| ---------- | -------------- | ---------- | ------------------ |
+| **Small**  | 1600           | 4          | ~2¼ minutes        |
+| **Medium** | 2400           | 8          | ~3⅓ minutes        |
+| **Large**  | 3200           | 16         | ~4½ minutes        |
+
+**Depth does not scale.** Strata and ore bands are absolute depths, so every preset shares one floor;
+a bigger world is wider, not deeper. **The cap is recorded, not enforced** — one world still belongs
+to one player until shared worlds exist ([#13](https://github.com/inman-sebastian/agent-games/issues/13)).
+A save from before presets loads as Medium.
 
 **Buried structures are tool-gated, not sealed.** Their walls break with the right or upgraded
 tools, so a structure you can't open yet is a **promise the world makes and later keeps**. The gate

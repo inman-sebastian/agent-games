@@ -8,10 +8,12 @@
 //   • The server owns the shared world + each player, steps the sim, and streams authoritative
 //     snapshots. The client predicts its OWN avatar and reconciles against the server (it does not
 //     depend on cross-machine determinism — a misprediction is a small self-correcting nudge).
-import type { Input, PlayerState, Session } from './types';
+import type { Input, PlayerState, Session, WorldSize } from './types';
 
-/** Bumped on any breaking wire change; a join with a mismatched version is rejected. */
-export const PROTOCOL_VERSION = 3;
+/** Bumped on any breaking wire change; a join with a mismatched version is rejected. 4: the world is
+ * bounded (#26) — snapshots carry `world.size`, and a client predicting an infinite world would
+ * mispredict at every edge. */
+export const PROTOCOL_VERSION = 4;
 
 /** The WebSocket endpoint path (Vite proxies this to the Node server in dev). */
 export const WS_PATH = '/ws';
@@ -37,7 +39,12 @@ export interface InputMessage {
 }
 
 /** A discrete, non-realtime action the server applies authoritatively (validated server-side). */
-export type ClientCommand = { kind: 'newGame'; seed: number };
+export type ClientCommand = {
+  kind: 'newGame';
+  seed: number;
+  /** The new world's size preset, fixed from here on (#63). Anything but a real preset is the default. */
+  size?: WorldSize;
+};
 
 export interface CommandMessage {
   t: 'command';

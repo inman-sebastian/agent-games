@@ -4,7 +4,7 @@
 // shake), the HUD/inventory/codex DOM, and save/load. Every world and gameplay rule is imported —
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
-import type { Session, Input, TileCoord, SimEvent, StateMessage } from '@delve/shared';
+import type { Session, Input, TileCoord, SimEvent, StateMessage, WorldSize } from '@delve/shared';
 import { T, setStrata as setRenderStrata, mix, hashXY } from './render/cave-render';
 import {
   CHUNK_COLS,
@@ -378,7 +378,7 @@ function render(t: number): void {
   // why it dimmed cells the miner could reach.
   if (curTarget) {
     const { column, row } = curTarget;
-    const ok = engine.solidCell(s.world, column, row) && engine.withinReach(s.player, column, row);
+    const ok = engine.mineable(s.world, column, row) && engine.withinReach(s.player, column, row);
     ctx.globalAlpha = ok ? 0.85 : 0.22;
     ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
     ctx.strokeRect(column * T + 0.5, row * T + 0.5, T - 1, T - 1);
@@ -880,10 +880,11 @@ muteBtn.onclick = () => {
   muteBtn.textContent = muted ? '♪̸' : '♪';
   muteBtn.style.opacity = muted ? '0.5' : '1';
 };
-function newGame(): void {
-  if (!confirm('Start a new mine? Your current progress is lost.')) return;
-  s = fresh();
-  net.sendCommand({ kind: 'newGame', seed: s.world.seed }); // server resets its world too (→ hello)
+function newGame(size: WorldSize): void {
+  if (!confirm(`Start a new ${size} mine? Your current progress is lost.`)) return;
+  s = fresh(size);
+  // server resets its world too (→ hello), at the same size
+  net.sendCommand({ kind: 'newGame', seed: s.world.seed, size });
   prediction.reset();
   snapCam();
   chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
@@ -891,7 +892,8 @@ function newGame(): void {
   refreshInventory();
   resume(); // close any open menu and hand control back to the mine
 }
-el('newBtn').onclick = newGame;
+// A new mine needs a size, and the sizes live on the pause panel — so the header button opens it.
+el('newBtn').onclick = () => openMenu(pauseOverlay);
 
 // ---- title / pause screens --------------------------------------------------------------
 el('startBtn').onclick = () => {
@@ -903,7 +905,10 @@ el('startBtn').onclick = () => {
 // NOT unlock audio: that needs a genuine user gesture, and a headless capture has none.
 if (/(\?|&)play\b/.test(location.search)) app.send('start');
 el('resumeBtn').onclick = resume;
-el('pauseNewBtn').onclick = newGame;
+for (const button of el('newMineSizes').querySelectorAll<HTMLButtonElement>('button[data-size]')) {
+  const size = button.dataset.size;
+  if (engine.isWorldSize(size)) button.onclick = () => newGame(size);
+}
 // Escape toggles the pause menu while playing, and backs out of any open menu while paused.
 addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.code !== 'Escape') return;

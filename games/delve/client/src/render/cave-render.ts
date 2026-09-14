@@ -6,7 +6,7 @@
 // Many of the numbers in shadeRock/buildMask are hand-tuned noise octave frequencies/amplitudes
 // and brightness thresholds — a "family of coefficients" (see CODE-STYLE.md) kept inline with a
 // note rather than atomised into dozens of names that would obscure the pipeline.
-import { vnoise, mulberry, hashXY } from '@delve/shared';
+import { vnoise, mulberry, hashXY, SUB } from '@delve/shared';
 import type { StrataResource } from '@delve/shared';
 import { T, TEX, clamp01, rgbHex, mix, desat, colorsFor, stoneSurface } from './palette';
 import type { Rgb, RockColors } from './palette';
@@ -32,14 +32,22 @@ export function setStrata(strata: readonly StrataResource[]): void {
 
 const smoothstep = (t: number): number => (t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t));
 
-/** The 6-stop colour ramp for a world row, interpolated smoothly between adjacent strata. */
+/**
+ * The 6-stop colour ramp for a world CELL row, interpolated smoothly between adjacent strata — unless
+ * the next one is `hard`, which holds this stratum's ramp right up to its top.
+ *
+ * Strata tops are authored in BLOCKS, like everything world-gen decides, so the cell row converts
+ * first. It compared cells to blocks directly until #57, which put every stratum's colour at half its
+ * authored depth after the 2x2 split and disagreed with the sim's own `strataIndexAt`.
+ */
 export function rampAt(row: number): string[] {
+  const block = row / SUB;
   let index = 0;
-  while (index < STRATA.length - 1 && row >= STRATA[index + 1].top) index++;
+  while (index < STRATA.length - 1 && block >= STRATA[index + 1].top) index++;
   const near = STRATA[index];
   const far = STRATA[Math.min(index + 1, STRATA.length - 1)];
-  if (near === far) return near.ramp.slice();
-  const t = smoothstep((row - near.top) / (far.top - near.top));
+  if (near === far || far.hard) return near.ramp.slice();
+  const t = smoothstep((block - near.top) / (far.top - near.top));
   return near.ramp.map((hex, stop) => mix(hex, far.ramp[stop], t));
 }
 

@@ -60,12 +60,18 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
   conservation** (everything broken is exactly what's in the inventory + codex log). Plus targeted
   ore-break conservation, `mineTile` mechanics (including that an already-dug cell pays nothing),
   reach — one `withinReach` rule, agreeing cell for cell with what `physicsStep` mines — `isRich`,
-  facing as the movement rule alone, and the #8 unbounded-movement regression.
+  facing as the movement rule alone, and the #8 regression (the old view span is not a wall).
   **Movement feel is stated in world units**: seconds to top speed, blocks of skid, lamp reach in
   blocks, `unstick`'s search in blocks. Those exist because the 2x2 split left a dozen lengths in the
   wrong unit and not one pre-existing test noticed — every invariant held while the game felt
   different. An invariant proves the sim is consistent; only a world-unit assertion proves it still
   feels the way it was tuned.
+- **The world's bounds** (`shared/src/bounds.test.ts`, #26) — size presets, the bedrock floor and
+  the side edges: nothing out of bounds or below the floor is ever `mineable` or broken by
+  `mineTile`, a body walking into either edge stops inside the world, every ore band ends above the
+  floor, and a save from the infinite world is rescued back inside. The render side's
+  `client/src/render/cave-render.test.ts` holds the strata ramp to the sim's `strataIndexAt` and
+  checks bedrock's hard top.
 - **Restoring a save** (`shared/src/hydrate.test.ts`) — old formats, fields added since, a body
   wedged in rock rescued (or respawned on the save's OWN world), junk that isn't a save at all, and
   the `SAVE_FORMAT` stamp. Pure and in the shared ruleset, because the server applies the same rule.

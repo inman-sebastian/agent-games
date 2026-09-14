@@ -41,13 +41,19 @@ so **depth reads by colour**. Each stratum is its own resource file under `share
 (type `strata`); the rock renderer reads the ramps from the registry (see
 [ARCHITECTURE.md](ARCHITECTURE.md#entity-resources)).
 
-| Stratum    | Top row | Identity       | Ramp                                              | Notes                                                        |
-| ---------- | ------- | -------------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| Topsoil    | 2       | red-brown      | `#2e222f #45293f #7a3045 #9e4539 #cd683d #e6904e` | all R64                                                      |
-| Clay       | 24      | warm ochre/tan | `#2a2018 #48371f #6d5230 #8f6b3c #b28a4e #d0aa66` | R64-_spirit_ derivation — R64 has no clean warm-tan mid-ramp |
-| Stone      | 84      | cool gray      | `#2e222f #3e3546 #625565 #7f708a #9babb2 #c7dcd0` | all R64                                                      |
-| Deep Stone | 190     | blue           | `#2e222f #323353 #484a77 #4d65b4 #4d9be6 #8fd3ff` | all R64                                                      |
-| Basalt     | 370     | violet         | `#2e222f #45293f #6b3e75 #905ea9 #a884f3 #eaaded` | all R64                                                      |
+| Stratum    | Top row | Identity       | Ramp                                              | Notes                                                              |
+| ---------- | ------- | -------------- | ------------------------------------------------- | ------------------------------------------------------------------ |
+| Topsoil    | 2       | red-brown      | `#2e222f #45293f #7a3045 #9e4539 #cd683d #e6904e` | all R64                                                            |
+| Clay       | 24      | warm ochre/tan | `#2a2018 #48371f #6d5230 #8f6b3c #b28a4e #d0aa66` | R64-_spirit_ derivation — R64 has no clean warm-tan mid-ramp       |
+| Stone      | 84      | cool gray      | `#2e222f #3e3546 #625565 #7f708a #9babb2 #c7dcd0` | all R64                                                            |
+| Deep Stone | 190     | blue           | `#2e222f #323353 #484a77 #4d65b4 #4d9be6 #8fd3ff` | all R64                                                            |
+| Basalt     | 370     | violet         | `#2e222f #45293f #6b3e75 #905ea9 #a884f3 #eaaded` | all R64                                                            |
+| Bedrock    | 700     | near-black     | `#2e222f #2e222f #313638 #3e3546 #374e4a #625565` | all R64. The floor; **hard** — no blend from basalt (`hard: true`) |
+
+Strata normally cross-fade into the next one across the whole band above it. A stratum marked
+`hard` doesn't: the ramp above holds until its top row, then switches. Bedrock uses it because the
+floor is a boundary the player should notice the moment they reach it, not a colour that creeps in
+over three hundred rows.
 
 Ramps use `#2e222f` (R64's darkest) as the shadow step. The background wall is
 derived per-stratum: `desat(mix(ramp[1], '#4a4864', .64), .52)` — a lighter, cooler,
@@ -126,7 +132,7 @@ are faceted/airier by design.
 | Emerald      | `#165a4c #1ebc73 #91db69` | prism          | 132–240     |
 | Ruby         | `#831c5d #f04f78 #f68181` | cluster        | 216–370     |
 | Diamond      | `#0b8a8f #30e1b9 #8ff8e2` | gem            | 330–530     |
-| Mythril      | `#484a77 #905ea9 #a884f3` | shard          | 480+        |
+| Mythril      | `#484a77 #905ea9 #a884f3` | shard          | 480–699     |
 | Quartz       | `#6f6d78 #c9c7d0 #ffffff` | prism          | 95–210      |
 | Platinum     | `#5f6b7e #bcc9d6 #f0f6ff` | nugget         | 210–360     |
 | Obsidian     | `#17151f #33304a #8a86b0` | shard          | 430–650     |

@@ -13,7 +13,10 @@ import type { PlayerState } from './types';
 const STATES: MinerState[] = ['idle', 'run', 'jump', 'fall', 'mine'];
 
 // Build a physics snapshot with just the fields the derivation reads.
-const snapshot = (over: Partial<PlayerState>): PlayerState => ({ ...newPlayer(), ...over });
+const snapshot = (over: Partial<PlayerState>): PlayerState => ({
+  ...newPlayer(newSession(1).world),
+  ...over,
+});
 
 describe('desiredMinerState — priority rules', () => {
   it('mine overrides everything while digging', () => {

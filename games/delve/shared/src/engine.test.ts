@@ -20,6 +20,7 @@ import {
   PHYS,
   TICK_DT,
   WIDTH,
+  worldColumns,
   SURFACE_BASE,
   SUB,
   surfaceAt,
@@ -138,7 +139,10 @@ describe('mining mechanics', () => {
     );
     const breaks = events.filter((e) => e.type === 'break');
     expect(breaks.length).toBeGreaterThan(0);
-    expect(session.player.depth).toBeGreaterThan(1); // actually descended
+    // This used to also claim the shaft "actually descended" via `depth > 1`. It never did: mining the
+    // single cell under the centre can't open a hole a three-cell-wide body falls through (#53). The
+    // assertion passed only because the old spawn column's ground sat below row 1, and it went red the
+    // moment spawn moved to the centre of a bounded world (#63). Descent belongs to #53's fix.
     // every ore break credited the inventory
     const oreBreaks = breaks.filter((e) => e.ore).reduce((s, e) => s + (e.qty ?? 0), 0);
     expect(invCount(session.player)).toBe(oreBreaks);
@@ -259,11 +263,15 @@ describe('rich veins (isRich)', () => {
   });
 });
 
-describe('#8 regression — horizontal movement is unbounded', () => {
-  it('walks far past the old WIDTH bound both directions', () => {
+// #8's regression — movement stopped at the old 0-80 view span — now reads against the REAL bound:
+// the world is finite again (#58), so the player must walk far past the dev-tools span, and stop only
+// at the world's own edges (bounds.test.ts).
+describe('#8 regression — the old view span is not a wall', () => {
+  it('walks far past WIDTH in both directions', () => {
     const session = newSession(999);
-    let maxX = session.player.x;
-    let minX = session.player.x;
+    const start = session.player.x;
+    let maxX = start;
+    let minX = start;
     for (let i = 0; i < 3000; i++) {
       physicsStep(session, { right: true }, TICK_DT);
       maxX = Math.max(maxX, session.player.x);
@@ -272,8 +280,8 @@ describe('#8 regression — horizontal movement is unbounded', () => {
       physicsStep(session, { left: true }, TICK_DT);
       minX = Math.min(minX, session.player.x);
     }
-    expect(maxX).toBeGreaterThan(WIDTH + 20);
-    expect(minX).toBeLessThan(-20);
+    expect(maxX - start).toBeGreaterThan(WIDTH + 20);
+    expect(start - minX).toBeGreaterThan(WIDTH + 20);
   });
 });
 
@@ -626,7 +634,8 @@ describe('walking over terrain (#44)', () => {
     // possible — the first version of this test "walled off" columns that were never dug, so
     // nothing changed and the player strolled past it.
     const ROW = SURFACE_BASE + 30;
-    const COL = 0;
+    // Inside the world: column 0 is its left edge now (#58), and past it every cell blocks the body.
+    const COL = worldColumns('medium') >> 1;
     const session = newSession(4242);
     // A corridor running right, whose floor rises by TWO CELLS half way along — one more than the
     // assist may climb. After the split a cell is half a block, so this is a half-block wall.

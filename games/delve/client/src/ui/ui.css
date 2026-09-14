@@ -443,6 +443,19 @@ button:disabled {
   margin-top: var(--s3);
 }
 
+/* the new-mine size presets on the pause panel (#63) */
+.newmine {
+  margin-top: var(--s4);
+  margin-bottom: var(--s2);
+}
+.sizes {
+  display: flex;
+  gap: var(--s2);
+}
+.sizes button {
+  flex: 1;
+}
+
 /* debug overlay (F3 / ?debug) */
 #dbg {
   position: fixed;

@@ -6,6 +6,7 @@ import './clay';
 import './stone';
 import './deepstone';
 import './basalt';
+import './bedrock';
 import './dirt';
 import './copper';
 import './iron';

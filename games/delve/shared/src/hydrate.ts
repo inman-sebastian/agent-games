@@ -7,7 +7,7 @@
 // the first dig (`player.tech.lantern` of undefined), and the #47 rescue of a player wedged in rock
 // only ever ran on the client: the server kept the wedged player and the next snapshot yanked the
 // client straight back into the rock.
-import { newSession, newPlayer, unstick } from './engine';
+import { newSession, newPlayer, unstick, isWorldSize, DEFAULT_WORLD_SIZE } from './engine';
 import type { Session } from './types';
 
 /**
@@ -37,11 +37,14 @@ export function hydrate(raw: unknown): Session {
   // eslint-free `any`: external data, and every read below tolerates a missing field
   const saved: any = typeof raw === 'object' && raw !== null ? raw : {};
   const seed = saved.world?.seed ?? saved.seed;
-  const base = newSession(seed);
+  // The size preset is fixed at creation (#63). A save from before presets has none, and a save is
+  // untrusted data, so anything that isn't a real preset loads as the default.
+  const size = isWorldSize(saved.world?.size) ? saved.world.size : DEFAULT_WORLD_SIZE;
+  const base = newSession(seed, size);
   const s: Session =
     saved.world && saved.player
       ? {
-          world: { ...base.world, ...saved.world },
+          world: { ...base.world, ...saved.world, size },
           player: {
             ...base.player,
             ...saved.player,
@@ -78,8 +81,11 @@ export function hydrate(raw: unknown): Session {
   // out. Lift it into the nearest gap that fits; failing that, a fresh spawn beats a save that
   // cannot be played. On THIS world's ground: `newPlayer()` with no seed used to spawn on seed 1's
   // heightmap, which is a different world's surface — mid-air or inside rock.
+  //
+  // The same rescue brings back a player the infinite world (#1) let wander past what is now the edge
+  // (#58): past it every cell blocks the body, so there is nothing to lift into and they go to spawn.
   if (!unstick(s.world, s.player)) {
-    const spawn = newPlayer(s.world.seed);
+    const spawn = newPlayer(s.world);
     s.player.x = spawn.x;
     s.player.y = spawn.y;
   }

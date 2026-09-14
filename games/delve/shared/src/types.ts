@@ -35,6 +35,12 @@ export interface StrataResource {
   readonly top: number;
   /** Six hex stops, shadow → rim. */
   readonly ramp: readonly string[];
+  /**
+   * A HARD top: the stratum above keeps its own ramp right up to this one's top row instead of
+   * cross-fading into it. For a boundary the player should notice the moment they reach it —
+   * bedrock (#57). See PALETTE.md.
+   */
+  readonly hard?: boolean;
 }
 
 /** An ore item definition — the single gameplay source of truth for a mineable ore. */
@@ -103,12 +109,20 @@ export interface TechOwned {
 export type OreLog = Record<number, { mined: number; deepest: number }>;
 
 /**
+ * A world's size preset, chosen at creation and never changed (#63). Sets the world's width and its
+ * player cap — see `WORLD_SIZES` and DESIGN.md.
+ */
+export type WorldSize = 'small' | 'medium' | 'large';
+
+/**
  * The SHARED, mutable world — the part every player in a session digs together (Terraria-style).
  * The static world is a pure function of `seed`; this holds only the mutations. In multiplayer
  * one WorldState is shared across all players; the server owns it and streams deltas.
  */
 export interface WorldState {
   seed: number;
+  /** Fixed at creation. With `seed`, the only static facts about a world. */
+  size: WorldSize;
   /** `"column,row"` → excavated. */
   dug: Record<string, boolean>;
   /** `"column,row"` → hp already dealt to a not-yet-broken cell (shared tile-break progress). */

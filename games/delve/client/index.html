@@ -74,7 +74,13 @@
         <h2>Paused</h2>
         <div class="sub">The mine waits.</div>
         <button class="bigbtn" id="resumeBtn">Resume</button>
-        <button class="close" id="pauseNewBtn">Abandon &amp; start a new mine</button>
+        <!-- The size is fixed for the world's whole life (#63), so it's chosen here, at creation. -->
+        <div class="sub newmine">Abandon &amp; start a new mine</div>
+        <div class="sizes" id="newMineSizes">
+          <button data-size="small" title="Up to 4 players">Small</button>
+          <button data-size="medium" title="Up to 8 players">Medium</button>
+          <button data-size="large" title="Up to 16 players">Large</button>
+        </div>
       </div>
     </div>
 

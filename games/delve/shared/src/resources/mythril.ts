@@ -6,7 +6,7 @@ register({
   type: 'ore',
   id: 9,
   name: 'Mythril',
-  band: [480, 99999],
+  band: [480, 699],
   weight: 2,
   hp: 15,
   // the top tier, held alone — nothing else in the game should ever feel this good to break

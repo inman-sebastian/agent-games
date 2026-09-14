@@ -106,7 +106,7 @@ describe('hydrate', () => {
     // until unstick's range was restored to six blocks, at which point the sky was within reach.)
     const seed = 5;
     const s = hydrate({ seed, c: 40, r: 200 });
-    const spawn = engine.newPlayer(seed);
+    const spawn = engine.newPlayer(s.world);
     expect(s.player.x).toBe(spawn.x);
     expect(s.player.y).toBe(spawn.y);
     // and that spawn genuinely stands on this world: feet on the ground, body clear of rock

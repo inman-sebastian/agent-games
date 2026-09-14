@@ -26,16 +26,18 @@ module graph is the source of truth. Coding standards live in [CODE-STYLE.md](CO
 
 ## The world model
 
-The mine is **open and unbounded in every direction** — every cell below the surface is
-rock until you dig it (issue #1). Each cell's _static_ contents are a **pure function of
-`(seed, c, r)`**, so the world is never stored, only regenerated on demand. Only the
-**dynamic** state is held, split for multiplayer (P3, #12) into a shared **`WorldState`**
-`{ seed, dug, dmg }` — the terrain everyone digs together, tile-break damage included — and
+Each cell's _static_ contents are a **pure function of `(seed, c, r)`**, so the world is never
+stored, only regenerated on demand — and that function is **defined everywhere**, so the terrain
+renders past the playable edge. **The bounds are a sim rule, not a generator rule** (#26): a world is
+columns `[0, worldColumns(world.size))` above the bedrock `FLOOR`, and `mineable(world, c, r)` plus the
+body's collision are the only code that knows it. Only the **dynamic** state is held, split for
+multiplayer (P3, #12) into a shared **`WorldState`** `{ seed, size, dug, dmg }` — the terrain
+everyone digs together, tile-break damage included, plus the size preset fixed at creation — and
 a per-player **`PlayerState`** (continuous position/velocity + collected-material inventory +
 upgrade levels; there is no money). A **`Session`** bundles one world + one player; in multiplayer many Sessions
 share one `WorldState`. See [`blocks.ts`](#modules) for the static query and
-`newWorld`/`newPlayer`/`newSession` in `engine.ts` for the shapes. (`WIDTH` still exists as
-the default spawn column, not a wall.)
+`newWorld`/`newPlayer`/`newSession` in `engine.ts` for the shapes. (`WIDTH` is only the dev
+tools' default view span; spawn is the centre of the world's own width.)
 
 Movement is a **gravity platformer** (issue #2): you fall, jump, and run, and mining is a
 separate aim/target action (#3). There is **no economy** — everything mined goes into the
@@ -152,7 +154,7 @@ validate the schema and that the index matches the directory (no drift).
 ## The rock chunk pipeline
 
 The rock field is expensive, so it's cached as world-anchored **chunks** (`CHUNK_COLS`×`CHUNK_ROWS`
-cells on a 2D grid, since the world is unbounded in both axes). All of it lives in
+cells on a 2D grid, since the terrain renders past the world's edges in every direction). All of it lives in
 `client/src/render/chunks.ts`: the geometry, the one `bakeChunk` that the main thread, the Worker and
 the lab all call, the rule for what a dig invalidates, and the cache itself (`createChunkCache`).
 Before that module the geometry was written three times, and the lab that "checked" it was checking a
