@@ -5,15 +5,15 @@
 // never re-implemented here — so the game, the labs, and the tools all obey one ruleset.
 import * as engine from '@delve/shared';
 import type { Session, Input, TileCoord, SimEvent, StateMessage } from '@delve/shared';
+import { T, setStrata as setRenderStrata, mix, hashXY } from './render/cave-render';
 import {
-  T,
-  setStrata as setRenderStrata,
-  composeBand,
-  mix,
-  hashXY,
-  SHADE_INFLUENCE_CELLS,
-  TOP_LIGHT_ROWS,
-} from './render/cave-render';
+  CHUNK_COLS,
+  CHUNK_ROWS,
+  chunkX,
+  chunkY,
+  createChunkCache,
+  type ChunkWorker,
+} from './render/chunks';
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
@@ -35,29 +35,10 @@ let VIEW_COLS = 21;
 let VIEW_ROWS = 15;
 let LW = VIEW_COLS * T;
 let LH = VIEW_ROWS * T;
-// Cached rock CHUNK size (tiles) + a shading-context margin so chunk seams are invisible.
-const CW = 12;
-const CH = 6;
-// Context a chunk bake needs around itself, in CELLS. The shading reads a falloff range sideways
-// and seeds the top-light from above, so a chunk rendered with less context than that disagrees
-// with a whole-region render at its seams. Measured in labs/patch-lab: at MARGIN 1 the worst pixel
-// is off by 207 (of 1020 across 4 channels); at the influence radius it is off by 5, i.e. nothing.
-// It was 1 when a cell was a whole block and there was slack; the 2x2 split (#44) removed it.
-const MARGIN = SHADE_INFLUENCE_CELLS;
 const CAMERA_LERP = 0.16; // per-frame fraction the camera closes on its target (smooth follow)
-const CHUNK_CACHE_LIMIT = 400; // start evicting far chunks once the cache grows past this
-const CHUNK_EVICT_MARGIN = 12; // keep chunks within this many chunk-cells of the view
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
-
-// Scratch buffer: renders one chunk (+margin) at a time when baking rock. A dig re-bakes whole
-// chunks through this same path, so there is no separate patch-window size to keep in step.
-const fieldBuf = document.createElement('canvas');
-fieldBuf.width = (CW + 2 * MARGIN) * T;
-fieldBuf.height = (CH + 2 * MARGIN) * T;
-const lb = fieldBuf.getContext('2d')!;
-lb.imageSmoothingEnabled = false;
 
 // ---- state / persistence ----------------------------------------------------------------
 // load/save (the localStorage cache) live in ./save; turning a save back into a Session is
@@ -220,218 +201,49 @@ function floaty(x: number, y: number, text: string, col: string, big = false): v
   floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big });
 }
 
-// ---- layered pixel-art cave renderer ----------------------------------------------------
-// The rock (a per-pixel top-lit field, see cave-render) is cached as world-anchored CW×CH tile
-// CHUNKS on a 2D grid (the world is unbounded in both axes). A chunk is generated once the first
-// time it scrolls into view — OFF THE MAIN THREAD via a Worker so moving into fresh world never
-// stalls — and kept, so scrolling back is a cheap blit. Digging re-renders only a small window
-// around the changed tile (synchronously; cheap, no dig latency) and patches it into the affected
-// chunk(s). Chunks render with a MARGIN of context so seams are invisible; fieldBuf is the
-// main-thread scratch for patches / the sync fallback.
-interface Chunk {
-  cv: HTMLCanvasElement;
-  ctx: CanvasRenderingContext2D;
-}
-const chunks = new Map<string, Chunk>();
-const chunkX = (column: number): number => Math.floor(column / CW);
-const chunkY = (row: number): number => Math.floor(row / CH);
-const ckey = (cx: number, cy: number): string => cx + ',' + cy;
+// ---- rock chunks ------------------------------------------------------------------------
+// The rock is cached as world-anchored chunks, baked off-thread as they come into view and re-baked
+// when a dig makes them stale. The cache, its Worker protocol and the rules for what a dig invalidates
+// live in render/chunks.ts, where they are tested; this is only what the game plugs into it.
 
-// A tile is solid rock when it's below the surface and not yet dug. The world is unbounded — every
+// A cell is solid rock when it's below the surface and not yet dug. The world is unbounded — every
 // column below the surface is rock until you dig it (no side walls).
 const solidTile = (column: number, row: number): boolean =>
   engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
-// a tile's ore material (if it sits in an ore pocket), baked into the rock band by composeBand so
-// veins feather into the strata. Same lookup the worker uses; null → the tile renders as plain rock.
+// a cell's ore material (if it sits in an ore pocket), baked into the rock by composeBand so veins
+// feather into the strata. The same lookup the Worker uses; null → the cell renders as plain rock.
 const materialAt = (column: number, row: number) =>
   oreMaterial(engine.oreAt(s.world.seed, column, row));
 
-function newChunkCanvas(): Chunk {
-  const cv = document.createElement('canvas');
-  cv.width = CW * T;
-  cv.height = CH * T;
-  return { cv, ctx: cv.getContext('2d')! };
-}
-
-// draw an ore's authored crystal/nugget art into a small canvas — used as its item icon in the
-// inventory and the collection codex (so ores read as distinct collectibles).
-
-// ---- off-thread chunk generation (Worker) with a synchronous fallback -------------------
-interface ChunkResult {
-  cx: number;
-  cy: number;
-  bmp: ImageBitmap;
-}
-let worker: Worker | null = null;
-const pending = new Map<string, Array<[number, number]> | null>(); // key -> dig patches queued while generating
-let rebuildCount = 0;
-let lastRebuildMs = 0;
-// Worker bake accounting. The 2x2 split (#44) left CW/CH in CELLS, so a chunk covers a quarter of
-// the world it used to and the bake RATE quadrupled while moving. Rate is the number that matters
-// (each bake is a quarter the pixels), so count them and time the round trip.
-let bakeCount = 0;
-let bakeMsEMA = 0;
-const bakeSentAt = new Map<string, number>();
-
-const canOffloadChunks =
-  typeof Worker !== 'undefined' &&
-  typeof OffscreenCanvas !== 'undefined' &&
-  !!OffscreenCanvas.prototype.transferToImageBitmap;
-if (canOffloadChunks) {
+/** The off-thread baker, where the browser can transfer an OffscreenCanvas back; otherwise null. */
+function chunkWorker(): ChunkWorker | null {
+  const canOffload =
+    typeof Worker !== 'undefined' &&
+    typeof OffscreenCanvas !== 'undefined' &&
+    !!OffscreenCanvas.prototype.transferToImageBitmap;
+  if (!canOffload) return null;
   try {
-    worker = new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
-    worker.postMessage({
-      type: 'init',
-      cfg: { T, CW, CH, MARGIN, strata: engine.STRATA },
-    });
-    worker.postMessage({ type: 'world', seed: s.world.seed }); // seed to bake ore into chunks
-    worker.onmessage = (e: MessageEvent<ChunkResult>) => {
-      const { cx, cy, bmp } = e.data;
-      const key = ckey(cx, cy);
-      const sentAt = bakeSentAt.get(key);
-      if (sentAt !== undefined) {
-        bakeSentAt.delete(key);
-        bakeCount++;
-        const ms = performance.now() - sentAt;
-        bakeMsEMA = bakeMsEMA === 0 ? ms : bakeMsEMA + (ms - bakeMsEMA) * FPS_EMA_ALPHA;
-      }
-      const queued = pending.get(key);
-      pending.delete(key);
-      const chunk = chunks.get(key) || newChunkCanvas();
-      chunk.ctx.clearRect(0, 0, CW * T, CH * T);
-      chunk.ctx.drawImage(bmp, 0, 0);
-      bmp.close();
-      chunks.set(key, chunk);
-      // Digs that landed while this bake was in flight: the live dug set is complete now, so one
-      // more bake settles it — no need to replay them individually.
-      if (queued && queued.length) rebakeChunk(cx, cy);
-    };
-    worker.onerror = () => {
-      worker = null; // fall back to sync on failure
-    };
+    // `new URL(..., import.meta.url)` has to stay in this file for Vite to bundle the Worker.
+    return new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
   } catch {
-    worker = null;
-  }
-}
-
-// dug cells overlapping a chunk's render region — extended TOP_LIGHT_ROWS up so the Worker has the
-// openings that feed top-light seeding (usually empty for fresh depth).
-const TOP_LIGHT_LOOKUP_ROWS = TOP_LIGHT_ROWS;
-function dugInRegion(cx: number, cy: number): string[] {
-  const left = cx * CW - MARGIN;
-  const right = cx * CW + CW - 1 + MARGIN;
-  const top = cy * CH - MARGIN - TOP_LIGHT_LOOKUP_ROWS;
-  const bottom = cy * CH + CH - 1 + MARGIN;
-  const out: string[] = [];
-  for (const k in s.world.dug) {
-    const comma = k.indexOf(',');
-    const c = +k.slice(0, comma);
-    const r = +k.slice(comma + 1);
-    if (c >= left && c <= right && r >= top && r <= bottom) out.push(k);
-  }
-  return out;
-}
-function requestChunk(cx: number, cy: number): void {
-  const key = ckey(cx, cy);
-  if (chunks.has(key) || pending.has(key)) return;
-  pending.set(key, null);
-  bakeSentAt.set(key, performance.now());
-  worker!.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
-}
-
-// Re-post the world seed to the Worker so it bakes ore with the current seed. Call whenever the
-// world changes (new game / server hello) — right where the chunk cache is cleared.
-function syncWorkerWorld(): void {
-  worker?.postMessage({ type: 'world', seed: s.world.seed });
-}
-
-// Synchronous chunk render (fallback when no Worker) — uses the shared renderer.
-function renderChunkSync(cx: number, cy: number): Chunk {
-  const start = performance.now();
-  composeBand(
-    lb,
-    solidTile,
-    cx * CW - MARGIN,
-    cy * CH - MARGIN,
-    CW + 2 * MARGIN,
-    CH + 2 * MARGIN,
-    surfaceOf,
-    materialAt,
-  );
-  const key = ckey(cx, cy);
-  const chunk = chunks.get(key) || newChunkCanvas();
-  chunk.ctx.clearRect(0, 0, CW * T, CH * T);
-  chunk.ctx.drawImage(fieldBuf, MARGIN * T, MARGIN * T, CW * T, CH * T, 0, 0, CW * T, CH * T);
-  chunks.set(key, chunk);
-  lastRebuildMs = performance.now() - start;
-  rebuildCount++;
-  return chunk;
-}
-// Get a chunk for blitting, or null while it's being generated off-thread.
-function getChunk(cx: number, cy: number): Chunk | null {
-  const chunk = chunks.get(ckey(cx, cy));
-  if (chunk) return chunk;
-  if (worker) {
-    requestChunk(cx, cy);
     return null;
   }
-  return renderChunkSync(cx, cy);
 }
 
-// A dig changes one tile → re-render only a small window around it (a few ms, on the main thread —
-// no latency on digs) and patch it into the cached chunk(s) it overlaps. If a chunk is still being
-// generated, queue the patch to re-apply when it arrives.
-function patchDig(c: number, r: number): void {
-  const start = performance.now();
-  // A dig REBAKES the chunks it can affect rather than patching a window around it. A chunk bake is
-  // exact by construction — it reads live world state and takes its own context, including the rows
-  // above that seed the top-light — while a patch window has to predict how far the shading moved.
-  // That distance is not a disc: `topDist` walks DOWN from an opening, so a dig re-shades everything
-  // beneath it for TOP_LIGHT_ROWS cells. The old 3x3-cell window covered it back when a cell was
-  // twice as big and there was slack; after the 2x2 split (#44) it left a ring of stale rock around
-  // every fresh tunnel, which read as the lamp light sticking to the one cell that got redrawn.
-  const ownCx = chunkX(c);
-  const ownCy = chunkY(r);
-  for (let cy = chunkY(r - SHADE_INFLUENCE_CELLS); cy <= chunkY(r + TOP_LIGHT_ROWS); cy++) {
-    for (
-      let cx = chunkX(c - SHADE_INFLUENCE_CELLS);
-      cx <= chunkX(c + SHADE_INFLUENCE_CELLS);
-      cx++
-    ) {
-      const key = ckey(cx, cy);
-      if (!chunks.has(key)) {
-        // Not baked yet. If a bake is already in flight it may have been requested with a dug set
-        // from before this dig, so mark it to be rebaked the moment it lands.
-        if (pending.has(key)) pending.set(key, [...(pending.get(key) ?? []), [c, r]]);
-        continue;
-      }
-      // The chunk under the pick is redrawn synchronously so digging stays instant; the rest only
-      // change shading a few cells away and can land a frame or two later, off-thread.
-      if (cx === ownCx && cy === ownCy) renderChunkSync(cx, cy);
-      else rebakeChunk(cx, cy);
-    }
-  }
-  lastRebuildMs = performance.now() - start;
-  rebuildCount++;
-}
-
-/** Re-bake an ALREADY cached chunk off-thread, keeping the current pixels visible until it lands. */
-function rebakeChunk(cx: number, cy: number): void {
-  if (!worker) {
-    renderChunkSync(cx, cy);
-    return;
-  }
-  const key = ckey(cx, cy);
-  if (pending.has(key)) {
-    // A bake is in flight with a possibly-stale dug set — flag it so it rebakes again on arrival.
-    pending.set(key, [...(pending.get(key) ?? []), [cx, cy]]);
-    return;
-  }
-  pending.set(key, null);
-  bakeSentAt.set(key, performance.now());
-  worker.postMessage({ type: 'chunk', cx, cy, dug: new Set(dugInRegion(cx, cy)) });
-}
+const chunkCache = createChunkCache({
+  sources: () => ({ solid: solidTile, surfaceAt: surfaceOf, materialAt }),
+  dugKeys: () => Object.keys(s.world.dug),
+  worker: chunkWorker(),
+  seed: () => s.world.seed,
+  strata: engine.STRATA,
+  makeCanvas: (width, height) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return { canvas, ctx: canvas.getContext('2d')! };
+  },
+});
 
 // ---- lighting ---------------------------------------------------------------------------
 // The geometry-aware lighting system lives in render/lighting (shared with the labs, so they
@@ -500,61 +312,11 @@ function render(t: number): void {
   const colR = Math.floor(camX / T) + VIEW_COLS + 2;
   const rowT = Math.floor(camY / T) - 2;
   const rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
-  // blit the cached rock chunks spanning the view; a not-yet-generated chunk (Worker in flight)
-  // shows a flat bg placeholder for the frame or two until it arrives.
-  const cx0 = chunkX(colL);
-  const cx1 = chunkX(colR);
-  const cy0 = chunkY(rowT);
-  const cy1 = chunkY(rowB);
-  for (let cy = cy0; cy <= cy1; cy++) {
-    for (let cx = cx0; cx <= cx1; cx++) {
-      const chunk = getChunk(cx, cy);
-      if (chunk) {
-        ctx.drawImage(chunk.cv, cx * CW * T, cy * CH * T);
-      } else {
-        ctx.fillStyle = '#0b0e13';
-        ctx.fillRect(cx * CW * T, cy * CH * T, CW * T, CH * T);
-      }
-    }
-  }
-  // prefetch a ring of chunks around the view so they're ready before they scroll in
-  if (worker) {
-    for (let cy = cy0 - 1; cy <= cy1 + 1; cy++)
-      for (let cx = cx0 - 1; cx <= cx1 + 1; cx++) requestChunk(cx, cy);
-  } else {
-    // sync fallback: bake at most one missing chunk per frame so a resize/teleport can't hitch
-    for (let cy = cy0; cy <= cy1; cy++) {
-      let baked = false;
-      for (let cx = cx0; cx <= cx1; cx++) {
-        if (!chunks.has(ckey(cx, cy))) {
-          renderChunkSync(cx, cy);
-          baked = true;
-          break;
-        }
-      }
-      if (baked) break;
-    }
-  }
-  // bound memory: drop chunks well outside the view (both axes)
-  if (chunks.size > CHUNK_CACHE_LIMIT) {
-    for (const key of [...chunks.keys()]) {
-      const comma = key.indexOf(',');
-      const kx = +key.slice(0, comma);
-      const ky = +key.slice(comma + 1);
-      if (
-        kx < cx0 - CHUNK_EVICT_MARGIN ||
-        kx > cx1 + CHUNK_EVICT_MARGIN ||
-        ky < cy0 - CHUNK_EVICT_MARGIN ||
-        ky > cy1 + CHUNK_EVICT_MARGIN
-      ) {
-        chunks.delete(key);
-      }
-    }
-  }
-
+  // the cached rock chunks spanning the view (placeholders while a bake is in flight), plus prefetch
+  // and eviction around it
+  chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
   endPhase('chunks');
 
-  // lamp falloff at a tile: full within 1 tile, easing to a 0.14 floor by the lamp's reach
   // Distances in CELLS: full brightness within one block of the lamp, easing out over its reach. Both
   // were bare tile counts (1 and 0.5) that the 2x2 split halved in world terms.
   const lightAt = (c: number, r: number): number => {
@@ -928,7 +690,7 @@ function onEvent(ev: SimEvent): void {
     return;
   }
   if (ev.type !== 'break') return;
-  patchDig(ev.c, ev.r); // tile became open → patch the cached chunk(s)
+  chunkCache.dig(ev.c, ev.r); // the cell opened → re-bake the chunks that read it
   // Every reward cue scales by NORMALISED rarity rather than by the tier number, so adding an ore
   // never re-tunes the feedback for the ores already there — which is the mistake this whole thing
   // came from (#46). The coefficients are chosen so the top tier lands exactly where mythril landed
@@ -1009,7 +771,7 @@ function reconcile(msg: StateMessage): void {
     if (!s.world.dug[cellKey]) {
       s.world.dug[cellKey] = true;
       const comma = cellKey.indexOf(',');
-      patchDig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1));
+      chunkCache.dig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1));
     }
   }
   s.world.dmg = msg.dmg;
@@ -1111,6 +873,7 @@ for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
 }
 
 function updateDebug(): void {
+  const chunkStats = chunkCache.stats();
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const netInfo = net.netStatus();
@@ -1125,8 +888,8 @@ function updateDebug(): void {
       .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
       .join('  ')}\n` +
     `light field ${lighting.fieldMs.toFixed(1)}ms  scrim ${lighting.scrimMs.toFixed(1)}ms\n` +
-    `bakes ${bakeCount}  ${bakeMsEMA.toFixed(1)}ms round trip  inflight ${bakeSentAt.size}  chunk ${CW}x${CH} cells\n` +
-    `chunks cached ${chunks.size}  renders ${rebuildCount}  last ${lastRebuildMs.toFixed(2)}ms\n` +
+    `bakes ${chunkStats.bakes}  ${chunkStats.bakeMs.toFixed(1)}ms round trip  inflight ${chunkStats.inflight}  chunk ${CHUNK_COLS}x${CHUNK_ROWS} cells\n` +
+    `chunks cached ${chunkStats.cached}  sync bakes ${chunkStats.syncBakes}  last ${chunkStats.lastSyncBakeMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
     `held  ${engine.invCount(s.player)} materials\n` +
@@ -1239,9 +1002,7 @@ function newGame(): void {
   pendingInputs.length = 0;
   inputSeq = 0;
   snapCam();
-  chunks.clear();
-  pending.clear();
-  syncWorkerWorld();
+  chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
   save(s);
   refreshInventory();
   resume(); // close any open menu and hand control back to the mine
@@ -1356,9 +1117,7 @@ net.connect({
     inputSeq = 0;
     correctionX = 0;
     correctionY = 0;
-    chunks.clear();
-    pending.clear(); // chunk-generation queue
-    syncWorkerWorld();
+    chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
     snapCam();
     refreshInventory();
     updateHUD();
