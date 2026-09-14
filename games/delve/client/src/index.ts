@@ -20,6 +20,8 @@ import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/p
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import * as net from './net';
 import { load, save, fresh } from './save';
+import { createPrediction } from './prediction';
+import { unlockAudio, sfx, toggleMute, audioStatus } from './audio';
 import { buildInventoryGrid } from './ui/inventory';
 import { defineSlot, type DelveSlot } from './ui/slot';
 import { installSurfaces } from './ui/surface';
@@ -60,96 +62,6 @@ function snapCam(): void {
   camX = s.player.x * T - LW / 2 + T / 2;
   camY = s.player.y * T - LH / 2 + T / 2;
 }
-
-// ---- audio (synth) ----------------------------------------------------------------------
-// One AudioContext, unlocked lazily on the first gesture (browsers keep it suspended until
-// then). Everything routes through a single master gain so mute is instant and total. Timbres
-// follow the design convention: rising pitch = good, noise = friction, low body = heavy.
-const MASTER_VOLUME = 0.5;
-let AC: AudioContext | null = null;
-let muted = false;
-let master: GainNode | null = null;
-
-function audio(): AudioContext | null {
-  if (AC) return AC;
-  try {
-    const Ctor =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    AC = new Ctor();
-    master = AC.createGain();
-    master.gain.value = muted ? 0 : MASTER_VOLUME;
-    master.connect(AC.destination);
-  } catch {
-    AC = null;
-  }
-  return AC;
-}
-// A short attack→decay envelope: silence → peak over `attack`, then exponential fall over `decay`.
-function env(node: GainNode, gain: number, attack: number, decay: number): void {
-  const now = AC!.currentTime;
-  node.gain.setValueAtTime(0, now);
-  node.gain.linearRampToValueAtTime(gain, now + attack);
-  node.gain.exponentialRampToValueAtTime(0.0001, now + attack + decay);
-}
-function tone(
-  freq: number,
-  attack: number,
-  decay: number,
-  type: OscillatorType = 'square',
-  gain = 0.3,
-): void {
-  if (!audio() || muted) return;
-  const osc = AC!.createOscillator();
-  const gainNode = AC!.createGain();
-  osc.type = type;
-  osc.frequency.value = freq;
-  osc.connect(gainNode);
-  gainNode.connect(master!);
-  env(gainNode, gain, attack, decay);
-  osc.start();
-  osc.stop(AC!.currentTime + attack + decay + 0.02);
-}
-function noise(duration: number, cutoff: number, gain = 0.4): void {
-  if (!audio() || muted) return;
-  const source = AC!.createBufferSource();
-  const buffer = AC!.createBuffer(1, AC!.sampleRate * duration, AC!.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1; // white noise
-  source.buffer = buffer;
-  const filter = AC!.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = cutoff;
-  const gainNode = AC!.createGain();
-  source.connect(filter);
-  filter.connect(gainNode);
-  gainNode.connect(master!);
-  env(gainNode, gain, 0.002, duration);
-  source.start();
-}
-// SFX bank — the frequencies/durations below are a synth coefficient family, tuned by ear.
-const sfx = {
-  dig(depth: number): void {
-    noise(0.06, 800 - Math.min(600, depth * 2), 0.18); // deeper rock reads as duller/lower
-  },
-  chip(): void {
-    noise(0.04, 1200, 0.12);
-  },
-  // `prize` is NORMALISED rarity, 0 (worthless) .. 1 (the rarest thing in the game) — not a tier
-  // index. The tier count is a content decision that changes whenever an ore is added, and reward
-  // pitch should not move when it does (#46).
-  break(prize: number): void {
-    noise(0.12, 500 + prize * 960, 0.4);
-  },
-  ore(prize: number): void {
-    const base = 520 + prize * 720;
-    tone(base, 0.005, 0.14, 'triangle', 0.28);
-    setTimeout(() => tone(base * 1.5, 0.005, 0.16, 'triangle', 0.22), 60); // a bright rising fifth
-  },
-  land(impact: number): void {
-    noise(0.09, 300 - impact * 130, 0.18 + impact * 0.26); // heavier fall → lower, louder thud
-  },
-};
 
 // ---- juice (particles / floaties / shake) -----------------------------------------------
 interface Particle {
@@ -293,8 +205,8 @@ const motes = Array.from({ length: 10 }, () => ({
 function render(t: number): void {
   beginPhases();
   ctx.clearRect(0, 0, LW, LH);
-  const px = s.player.x + correctionX; // continuous player centre (tile units) + reconciliation smoothing
-  const py = s.player.y + correctionY;
+  const px = s.player.x + prediction.offsetX; // player centre (cells) + reconciliation smoothing
+  const py = s.player.y + prediction.offsetY;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
   const targetCamX = px * T - LW / 2 + T / 2;
   const targetCamY = py * T - LH / 2 + T / 2;
@@ -589,7 +501,7 @@ addEventListener('keydown', (e: KeyboardEvent) => {
   if (!key) return;
   e.preventDefault();
   held[key] = true;
-  audio();
+  unlockAudio();
 });
 addEventListener('keyup', (e: KeyboardEvent) => {
   const key = KEYMAP[e.code];
@@ -608,7 +520,7 @@ function setAim(e: PointerEvent): void {
 canvas.addEventListener('pointerdown', (e) => {
   if (!simRunning()) return;
   e.preventDefault();
-  audio();
+  unlockAudio();
   setAim(e);
   aim.down = true;
 });
@@ -659,17 +571,14 @@ const FPS_EMA_ALPHA = 0.1; // smoothing for the debug fps / frame-time readouts
 const TICK_DT = engine.TICK_DT;
 
 // ---- client prediction / reconciliation state ----
-let inputSeq = 0; // monotonic input counter; the server echoes the last-applied one as ackSeq
-const pendingInputs: { seq: number; input: Input }[] = []; // un-acked inputs, replayed after each snapshot
-let correctionX = 0; // reconciliation error, absorbed into the render offset and decayed to 0
-let correctionY = 0;
+// Predict locally, reconcile against the server without the avatar popping — see prediction.ts.
+const prediction = createPrediction();
 // Ground covered, in tiles. The walk cycle is phase-locked to this rather than to the clock, so the
 // feet turn over with the floor instead of skating across it (see STRIDE_TILES).
 let walked = 0;
 // A step-up the sim has already resolved, being carried up visually. `tiles` is how far it rose.
 let stepTiles = 0;
 let stepAge = 0;
-const CORRECTION_RETAIN = 0.0025; // fraction of the correction kept per second (fast; invisible on LAN)
 
 // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and the
 // cached-chunk patch when a tile breaks.
@@ -744,10 +653,7 @@ function sampleInput(): Input {
 function tick(): void {
   const input = sampleInput();
   if (net.isOnline()) {
-    inputSeq++;
-    net.sendInput(inputSeq, input);
-    pendingInputs.push({ seq: inputSeq, input });
-    if (pendingInputs.length > 256) pendingInputs.shift(); // safety bound against an unresponsive server
+    net.sendInput(prediction.record(input), input);
   }
   lastFallSpeed = s.player.vy; // pre-step descent speed (vy>0 = falling); the landing hook reads it
   const res = engine.physicsStep(s, input, TICK_DT);
@@ -761,27 +667,10 @@ function tick(): void {
 // apply the world deltas, then replay inputs the server hasn't acked yet to re-predict "now".
 // Any residual difference is absorbed into a decaying render offset so corrections never pop.
 function reconcile(msg: StateMessage): void {
-  const shownX = s.player.x + correctionX; // where the avatar currently appears (pre-reconcile)
-  const shownY = s.player.y + correctionY;
-
-  s.player = msg.player; // server is the source of truth for the player
-
-  // world deltas: newly-dug tiles (patch the rock the first time we hear of them) + tile damage
-  for (const cellKey of msg.dugAdded) {
-    if (!s.world.dug[cellKey]) {
-      s.world.dug[cellKey] = true;
-      const comma = cellKey.indexOf(',');
-      chunkCache.dig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1));
-    }
+  for (const cellKey of prediction.reconcile(s, msg)) {
+    const comma = cellKey.indexOf(',');
+    chunkCache.dig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1)); // a dig the server saw first
   }
-  s.world.dmg = msg.dmg;
-
-  // drop acked inputs, replay the rest (silently — their juice already played when first predicted)
-  while (pendingInputs.length && pendingInputs[0].seq <= msg.ackSeq) pendingInputs.shift();
-  for (const p of pendingInputs) engine.physicsStep(s, p.input, TICK_DT);
-
-  correctionX = shownX - s.player.x; // absorb the correction; the frame loop decays it to 0
-  correctionY = shownY - s.player.y;
   if (!simRunning()) updateHUD(); // no tick loop while paused/title → refresh HUD for command results
 }
 
@@ -816,10 +705,7 @@ function frame(now: number): void {
   }
 
   // decay the reconciliation correction toward 0 (framerate-independent)
-  correctionX *= Math.pow(CORRECTION_RETAIN, dt);
-  correctionY *= Math.pow(CORRECTION_RETAIN, dt);
-  if (Math.abs(correctionX) < 1e-3) correctionX = 0;
-  if (Math.abs(correctionY) < 1e-3) correctionY = 0;
+  prediction.decay(dt);
 
   // update particles / floaties / shake
   for (const p of particles) {
@@ -895,8 +781,8 @@ function updateDebug(): void {
     `held  ${engine.invCount(s.player)} materials\n` +
     `stats interval ${st.interval.toFixed(0)}ms  lamp ${st.lamp.toFixed(1)}  fortune ${(st.fortune * 100).toFixed(0)}%\n` +
     `up    pick ${s.player.up.pick} · speed ${s.player.up.speed} · fortune ${s.player.up.fortune}   tech ${s.player.tech.lantern ? 'lantern' : '—'}\n` +
-    `audio ${AC ? (muted ? 'muted' : AC.state) : 'locked'}\n` +
-    `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${pendingInputs.length}  seq ${inputSeq}`;
+    `audio ${audioStatus()}\n` +
+    `net   ${netInfo.status}  ackSeq ${netInfo.ackSeq}  pending ${prediction.pendingCount}  seq ${prediction.seq}`;
 }
 
 // ---- HUD / inventory --------------------------------------------------------------------
@@ -918,7 +804,7 @@ function closeMenus(): void {
   pauseOverlay.classList.remove('on');
 }
 function openMenu(node: HTMLElement): void {
-  audio();
+  unlockAudio();
   closeMenus();
   node.classList.add('on');
   app.send('pause'); // no-op if already paused
@@ -990,8 +876,7 @@ codexOverlay.addEventListener('click', (e) => {
 
 const muteBtn = el('muteBtn');
 muteBtn.onclick = () => {
-  muted = !muted;
-  if (master) master.gain.value = muted ? 0 : MASTER_VOLUME;
+  const muted = toggleMute();
   muteBtn.textContent = muted ? '♪̸' : '♪';
   muteBtn.style.opacity = muted ? '0.5' : '1';
 };
@@ -999,8 +884,7 @@ function newGame(): void {
   if (!confirm('Start a new mine? Your current progress is lost.')) return;
   s = fresh();
   net.sendCommand({ kind: 'newGame', seed: s.world.seed }); // server resets its world too (→ hello)
-  pendingInputs.length = 0;
-  inputSeq = 0;
+  prediction.reset();
   snapCam();
   chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
   save(s);
@@ -1011,7 +895,7 @@ el('newBtn').onclick = newGame;
 
 // ---- title / pause screens --------------------------------------------------------------
 el('startBtn').onclick = () => {
-  audio(); // first user gesture unlocks the AudioContext
+  unlockAudio(); // first user gesture unlocks the AudioContext
   app.send('start');
 };
 // `?play` skips the title screen, so `shot.sh index.html` can capture the actual game instead of
@@ -1083,7 +967,7 @@ if (matchMedia('(pointer: coarse)').matches) {
     const on = (e: Event): void => {
       e.preventDefault();
       held[key] = true;
-      audio();
+      unlockAudio();
     };
     const off = (e: Event): void => {
       e.preventDefault();
@@ -1113,10 +997,7 @@ net.connect({
   getSeed: () => s.world.seed,
   onHello: (snapshot) => {
     s = engine.hydrate(snapshot);
-    pendingInputs.length = 0;
-    inputSeq = 0;
-    correctionX = 0;
-    correctionY = 0;
+    prediction.reset();
     chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
     snapCam();
     refreshInventory();
