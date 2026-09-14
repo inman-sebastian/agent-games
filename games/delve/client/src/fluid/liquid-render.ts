@@ -47,6 +47,21 @@ export const WATER_STYLE: LiquidStyle = {
   fallSpeed: 90,
 };
 
+/** Lava: opaque, hot at the surface and edges, dark at depth (docs/FLUIDS.md, "Palette"). */
+export const LAVA_STYLE: LiquidStyle = {
+  deep: hex('#6e2727'),
+  body: hex('#ae2334'),
+  mid: hex('#e83b3b'),
+  light: hex('#fb6b1d'),
+  surface: hex('#f9c22b'),
+  foam: hex('#fbff86'),
+  specular: hex('#ffffff'),
+  opacity: 0.95,
+  fallOpacity: 1,
+  depthRange: 48,
+  fallSpeed: 30,
+};
+
 /** The teal alternative, for strata whose rock already uses the blue ramp. */
 export const TEAL_WATER_STYLE: LiquidStyle = {
   ...WATER_STYLE,
@@ -82,6 +97,11 @@ const STREAK_LENGTH = 11;
 const MOUTH_ROWS = 2;
 /** Foam at a fall's landing spreads this far past the fall on each side, art px. */
 const FOAM_SPREAD = 3;
+/** Idle surface motion: art px/s, the two wavelengths, and a half-amplitude that rounds to at most 1 px. */
+const IDLE_SPEED = 10;
+const IDLE_WAVELENGTH_SHORT = 60;
+const IDLE_WAVELENGTH_LONG = 140;
+const IDLE_AMPLITUDE = 0.34;
 /** The splash crown re-rolls this many times a second: chaotic effects may flip-book. */
 const CROWN_RATE = 15;
 
@@ -98,6 +118,8 @@ export interface LiquidFrame {
   readonly originX: number;
   readonly originY: number;
   readonly time: number;
+  /** Idle surface motion speed, 1 for water; lava moves slower. */
+  readonly idle?: number;
 }
 
 function hash(x: number, y: number): number {
@@ -174,6 +196,21 @@ function continuation(
   return null;
 }
 
+/**
+ * Still water is never frozen: two slow sines travelling in opposite directions, summed and rounded, move
+ * a 1 px kink along the surface. The kinks travel; flat stretches never bob up and down (Celeste's idle
+ * surface), which is how pixel-art water moves without stepping as a whole.
+ */
+function idleOffset(worldX: number, time: number, speedScale: number): number {
+  const first = Math.sin(
+    ((worldX - time * IDLE_SPEED * speedScale) / IDLE_WAVELENGTH_SHORT) * Math.PI * 2,
+  );
+  const second = Math.sin(
+    ((worldX + time * IDLE_SPEED * 0.8 * speedScale) / IDLE_WAVELENGTH_LONG) * Math.PI * 2,
+  );
+  return IDLE_AMPLITUDE * (first + second);
+}
+
 /** Surface row (whole art px) at each art column across a pool's cell column, joined to its neighbours. */
 function surfaceRows(frame: LiquidFrame, pools: Pool[][], column: number, pool: Pool): Int32Array {
   const { cell } = frame;
@@ -188,6 +225,8 @@ function surfaceRows(frame: LiquidFrame, pools: Pool[][], column: number, pool: 
     if (neighbour && !neighbour.capped && !pool.capped) {
       height += (neighbour.surface - pool.surface) * Math.abs(offset);
     }
+    if (!pool.capped)
+      height += idleOffset(frame.originX + column * cell + local, frame.time, frame.idle ?? 1);
     rows[local] = Math.round(height);
   }
   return rows;
@@ -209,11 +248,11 @@ function wetDepths(frame: LiquidFrame, pools: Pool[][]): { depth: Int16Array; to
   for (let column = 0; column < liquid.width; column++) {
     for (const pool of pools[column]) {
       const rows = surfaceRows(frame, pools, column, pool);
-      const leftOpen =
-        column > 0 && !liquid.isSolid(pool.run.bottomRow * liquid.width + column - 1);
-      const rightOpen =
-        column + 1 < liquid.width &&
-        !liquid.isSolid(pool.run.bottomRow * liquid.width + column + 1);
+      /** Rock in the neighbouring column at an art-px row: only rock has eroded pixels to wet. */
+      const rockBeside = (neighbour: number, y: number): boolean =>
+        neighbour < 0 ||
+        neighbour >= liquid.width ||
+        liquid.isSolid(Math.floor(y / cell) * liquid.width + neighbour);
       for (let local = 0; local < cell; local++) {
         const x = column * cell + local;
         const surfaceRow = rows[local];
@@ -227,10 +266,12 @@ function wetDepths(frame: LiquidFrame, pools: Pool[][]): { depth: Int16Array; to
       const edgeRows = [rows[0], rows[cell - 1]];
       for (let reach = 1; reach <= WET_EROSION_REACH; reach++) {
         for (let y = Math.max(0, edgeRows[0]); y < pool.floor; y++) {
-          if (!leftOpen) markWet(column * cell - reach, y, edgeRows[0], pool.capped);
+          if (rockBeside(column - 1, y))
+            markWet(column * cell - reach, y, edgeRows[0], pool.capped);
         }
         for (let y = Math.max(0, edgeRows[1]); y < pool.floor; y++) {
-          if (!rightOpen) markWet((column + 1) * cell - 1 + reach, y, edgeRows[1], pool.capped);
+          if (rockBeside(column + 1, y))
+            markWet((column + 1) * cell - 1 + reach, y, edgeRows[1], pool.capped);
         }
       }
       // a flooded passage wets the eroded ceiling

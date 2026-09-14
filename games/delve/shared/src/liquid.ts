@@ -38,7 +38,7 @@ export interface LiquidParams {
 }
 
 /** Twenty percent of a face's velocity survives a second: a breach surges and settles within seconds. */
-const WATER_VELOCITY_KEPT_PER_SUBSTEP = 0.9933161993; // 0.2^(1/240), baked: Math.pow isn't bit-portable
+const WATER_VELOCITY_KEPT_PER_SUBSTEP = 0.9933164437; // 0.2^(1/240), baked: Math.pow isn't bit-portable
 
 export const WATER_PARAMS: LiquidParams = {
   gravity: 92, // the player's 736 art px/s² in 8 px cells
@@ -47,6 +47,16 @@ export const WATER_PARAMS: LiquidParams = {
   velocityKept: WATER_VELOCITY_KEPT_PER_SUBSTEP,
   film: 0.02,
   pressureVelocityKept: 0.9,
+};
+
+/** Two percent of a face's velocity survives a second: lava creeps, heaps a little and settles slowly. */
+const LAVA_VELOCITY_KEPT_PER_SUBSTEP = 0.9838320318; // 0.02^(1/240), baked
+
+/** Lava: the same model, thick. Viscosity is slowness in time, never shorter reach (docs/FLUIDS.md). */
+export const LAVA_PARAMS: LiquidParams = {
+  ...WATER_PARAMS,
+  velocityKept: LAVA_VELOCITY_KEPT_PER_SUBSTEP,
+  film: 0.08,
 };
 
 /** Faces move at most this much of a cell per substep: the explicit step's stability limit. */

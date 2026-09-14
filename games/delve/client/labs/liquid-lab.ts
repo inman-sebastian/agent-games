@@ -14,6 +14,7 @@ import {
   createLiquid,
   UNIT,
   WATER_PARAMS,
+  LAVA_PARAMS,
   type Liquid,
 } from '@delve/shared';
 import {
@@ -24,7 +25,10 @@ import {
   SHADE_INFLUENCE_CELLS,
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
-import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE } from '../src/fluid/liquid-render';
+import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
+
+/** Lava's idle surface moves at this fraction of water's speed. */
+const LAVA_IDLE = 0.3;
 
 setStrata(STRATA);
 
@@ -70,12 +74,24 @@ interface Scene {
   setup(): {
     water: [number, number, number, number][];
     breach?: [number, number, number, number][];
+    /** Lava instead of water. */
+    lava?: boolean;
   };
 }
 
 const wallColumn = (): number => Math.floor(cols * 0.42);
 
 const SCENES: Scene[] = [
+  {
+    name: 'reservoir',
+    hint: 'a reservoir behind a one-cell wall — right-drag through it however you like',
+    setup() {
+      const wall = wallColumn();
+      carve(3, 3, cols - 3, rows - 3);
+      build(wall, 3, wall + 1, rows - 3);
+      return { water: [[3, 6, wall, rows - 3]] };
+    },
+  },
   {
     name: 'full breach',
     hint: 'a reservoir whose wall is dug away top to bottom',
@@ -130,6 +146,17 @@ const SCENES: Scene[] = [
       carve(mid - 10, 4, mid + 10, 11);
       carve(4, rows - 12, cols - 4, rows - 3);
       return { water: [[mid - 10, 6, mid + 10, 11]], breach: [[mid, 11, mid + 1, rows - 12]] };
+    },
+  },
+  {
+    name: 'lava breach',
+    hint: 'the partial breach in lava: the same model, thick and slow',
+    setup() {
+      const wall = wallColumn();
+      carve(3, 3, cols - 3, rows - 3);
+      build(wall, 3, wall + 1, rows - 3);
+      const half = Math.floor(rows / 2);
+      return { water: [[3, 6, wall, rows - 3]], breach: [[wall, 3, wall + 1, half]], lava: true };
     },
   },
   {
@@ -229,6 +256,7 @@ function refreshRockAround(column: number, row: number): void {
 
 let liquid: Liquid = createLiquid(cols, rows, new Uint8Array(cols * rows));
 let sceneIndex = 0;
+let lava = false;
 let pendingBreach: [number, number, number, number][] = [];
 let breachAt = 0;
 let elapsed = 0;
@@ -248,7 +276,8 @@ function loadScene(index: number): void {
   built.clear();
   const setup = SCENES[sceneIndex].setup();
   refreshRock();
-  liquid = createLiquid(cols, rows, cellSolidity(), WATER_PARAMS);
+  lava = setup.lava === true;
+  liquid = createLiquid(cols, rows, cellSolidity(), lava ? LAVA_PARAMS : WATER_PARAMS);
   for (const [c0, r0, c1, r1] of setup.water) {
     for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) liquid.add(r * cols + c, UNIT);
   }
@@ -364,9 +393,10 @@ function frame(now: number): void {
       originX: bandLeft * T,
       originY: bandTop * T,
       time: elapsed,
+      idle: lava ? LAVA_IDLE : 1,
     },
     image.data,
-    teal ? TEAL_WATER_STYLE : WATER_STYLE,
+    lava ? LAVA_STYLE : teal ? TEAL_WATER_STYLE : WATER_STYLE,
   );
   context.putImageData(image, 0, 0);
   drawMs = performance.now() - drawStart;
@@ -389,6 +419,7 @@ Object.assign(window, {
     stats: () => ({ cells: liquid.total() / UNIT, elapsed, simMs, drawMs, sceneIndex }),
     cols,
     rows,
+    wall: wallColumn(),
   },
 });
 

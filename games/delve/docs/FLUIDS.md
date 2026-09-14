@@ -160,34 +160,49 @@ The style spec. Everything is drawn into the art-resolution layer and snaps to w
 The Deep Stone stratum's ramp is this same blue, so water may vanish against it. The lab compares it
 with the teal ramp `#0b5e65 #0b8a8f #0eaf9b #30e1b9 #8ff8e2` before this is final.
 
-**From cells to pixels.**
+**From cells to pixels** (`client/src/fluid/liquid-render.ts`, over the rock already drawn).
 
-- **A column's surface** comes from the total volume of its connected water, not its cells (see
-  compression above).
-- Surface heights are joined between cell centres and **quantised to whole art pixels.**
-- **Eroded rock is wet.** The rock mask opens pixels of solid cells along their edges; water fills those
-  below its surface, so there's no dry gap between water and rock.
-- **Gap fill and minimum thickness** (after Terraria): a dry cell between two wet ones is drawn wet, and
-  a sliver under 2 px isn't drawn at all; a flowing film isn't worth a line.
+- **Pools** are each column's resting water (`waterRuns`): the surface from volume, joined between cell
+  centres, quantised to whole art pixels. A pool with moving water right on top of it is drawn full to its
+  cell top, or a pocket of air shows between them.
+- **Eroded rock is wet.** The rock mask opens pixels of solid cells along their edges (at most ~3 px);
+  water wets those beside and under it, per row, so there's no dry gap between water and rock.
+- **Masses:** moving water with wet cells beside it (a surge, water spilling across a floor) is filled from
+  below, and drawn full wherever water is on top of it (Terraria draws its tiles fuller than they hold).
+  Drawn at their own heights, stacked partly full cells read as stripes; drawn as columns, a surge front
+  read as a row of spikes.
+- **Streams:** falling water with nothing beside it is a column (below).
+- **One silhouette.** Depth is measured down from open air over every wet pixel, whatever drew it, so a
+  pool, the mass on it and the fall into it are one body with one outline.
 
 **Still water.**
 
-- **Surface:** an opaque 1 px line of Surface over a row of Light.
-- **Body:** a see-through tint over what's behind; darker with depth by world-anchored Bayer dithering.
-- **Life:** glints are short horizontal dashes that grow and shrink in place and drift a few px/s.
-  Ripples from the spring surface, rounded to whole pixels.
+- **Outline:** the Surface colour on every wet pixel touching open air above or beside it, so a steep
+  surface stays one continuous line instead of a stair of loose dots. Light on the row under a surface.
+- **Body:** Mid over what's behind at 45%, darker with depth by world-anchored Bayer dithering toward Deep.
+- **Life:** two slow sines travelling opposite ways move a 1 px kink along the surface (Celeste's idle
+  surface; flat stretches never bob). Sparse glints grow and shrink in place and drift.
 
-**Falls and pours.** A cell whose water is moving down through air is a fall.
+**Falls and pours.**
 
-- **A whole-pixel column**, at least 3 px wide (Light edges, Mid core), wider as more flows.
-- **Streaks** from noise stretched vertically and scrolled down at the fall's speed, sampled per art
-  pixel. Never bands across the flow.
-- **Edge wobble** of ±1 px in 3 px rows, travelling down.
-- **Mouth:** Surface and a few Specular pixels where water turns over a lip.
-- **Splash:** a crown of light spikes, a foam row wider than the fall, droplets.
+- **Inside a body,** water moving down faster than 6 cells/s and not inside a resting pool is drawn as a
+  fall: Mid at 85% with light streaks scrolling down at the fall's speed. A thick pour over a lip then
+  reads as falling water, not a standing slab. Inside a pool it isn't, or a pool's churn showed as blocks
+  of streaks.
+- **A stream** is a whole-pixel column at least 3 px wide, hugging the wall it pours off, with Light edges,
+  streaks, a ±1 px edge wobble travelling down, a mouth of Surface and Specular where it starts, and a
+  gap a cell long in the sim's stream drawn wet.
+- **Splash** where a stream lands on water: foam on the surface wider than the stream, and a crown of light
+  spikes re-rolled at 15 fps.
 
-**Lava** follows the same rules: opaque, 0.3× the speed, a bright band against rock and surface,
-bubbles.
+**Lava** is the same renderer with the lava palette: 95% opaque, its fall fully opaque, streaks at a third
+of water's speed, idle motion at 0.3×. In the sim it keeps 2% of its face velocity per second (water 20%),
+with a film threshold of 8%: it creeps and settles slowly, but reaches just as far.
+
+**The lab** (`client/labs/liquid-lab.html`) runs the cases the earlier reviews found broken: a reservoir to
+dig freely, a full and a partial breach, three gaps, a gap under water, a pool over a cave, a lava breach,
+a U-bend, and terraces to pour into. Right-drag digs, shift-drag builds, W pours, T compares teal water.
+The sim costs 0.2–0.6 ms a frame there and the renderer 1–4 ms.
 
 ## Verification
 
@@ -209,6 +224,10 @@ frame strips.
 - All three gaps poured at once; a floor hole kept a connected stream.
 - 0.03–0.05 ms per substep over 1,000 cells.
 
+**Renderer tests** (`client/src/fluid/liquid-render.test.ts`), each red-checked: it never paints rock
+however the water moves; a still pool's surface is exactly one line; a stream from a hole is drawn with
+no dry row between the hole and where it lands.
+
 **Tests** (`shared/src/liquid.test.ts`), each red-checked against a broken rule:
 
 - conserves every unit and never goes negative, through random caves, pours and digs (property);
@@ -220,7 +239,9 @@ frame strips.
 - no wall of water beside a breach: the step is under two cells in 1.5 s, flat in 7.5;
 - a pool drains through a floor hole as a connected stream, at most one dry cell in it;
 - a settled pool stops moving (fails without the pressure damping);
-- a deep pool's surface is drawn from its volume (fails when drawn from cells).
+- a deep pool's surface is drawn from its volume (fails when drawn from cells);
+- a stream falling into a pool isn't part of the pool's surface (fails when resting runs climb through
+  partly full cells).
 
 ## Not built yet
 
