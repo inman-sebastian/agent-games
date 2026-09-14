@@ -5,7 +5,8 @@
 //
 // Mouse: right-drag digs · shift-drag builds · hold W to pour water at the cursor.
 // Keys: N next scene · R reset · space pause · T teal water · G grid (Terraria-style) or smooth drawing ·
-//       1–9 jump to a scene. `?render=tiles` starts on the grid.
+//       S Terraria-style sim or cell pipes · 1–9 jump to a scene. Both start Terraria-style;
+//       `?render=smooth` and `?sim=pipes` start on the earlier ones, for comparison.
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
   STRATA,
@@ -16,6 +17,9 @@ import {
   UNIT,
   WATER_PARAMS,
   LAVA_PARAMS,
+  createGridLiquid,
+  GRID_WATER_PARAMS,
+  GRID_LAVA_PARAMS,
   type Liquid,
 } from '@delve/shared';
 import {
@@ -257,6 +261,10 @@ function refreshRockAround(column: number, row: number): void {
 // ---- the liquid -------------------------------------------------------------------------------------------------
 
 let liquid: Liquid = createLiquid(cols, rows, new Uint8Array(cols * rows));
+/** Move the water Terraria's way (grid-liquid.ts) or with the cell pipes (liquid.ts). */
+let gridSim = new URLSearchParams(location.search).get('sim') !== 'pipes';
+/** Steps per second of whichever sim is running. */
+let stepsPerSecond = WATER_PARAMS.substepsPerSecond;
 let sceneIndex = 0;
 let lava = false;
 let pendingBreach: [number, number, number, number][] = [];
@@ -279,7 +287,15 @@ function loadScene(index: number): void {
   const setup = SCENES[sceneIndex].setup();
   refreshRock();
   lava = setup.lava === true;
-  liquid = createLiquid(cols, rows, cellSolidity(), lava ? LAVA_PARAMS : WATER_PARAMS);
+  if (gridSim) {
+    const params = lava ? GRID_LAVA_PARAMS : GRID_WATER_PARAMS;
+    liquid = createGridLiquid(cols, rows, cellSolidity(), params);
+    stepsPerSecond = params.ticksPerSecond;
+  } else {
+    const params = lava ? LAVA_PARAMS : WATER_PARAMS;
+    liquid = createLiquid(cols, rows, cellSolidity(), params);
+    stepsPerSecond = params.substepsPerSecond;
+  }
   for (const [c0, r0, c1, r1] of setup.water) {
     for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) liquid.add(r * cols + c, UNIT);
   }
@@ -335,7 +351,7 @@ const held = new Set<string>();
 let paused = false;
 let teal = false;
 /** Draw on the dig grid (Terraria-style blocks) or as the smooth density field. */
-let tiles = new URLSearchParams(location.search).get('render') === 'tiles';
+let tiles = new URLSearchParams(location.search).get('render') !== 'smooth';
 addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.code === 'KeyW') held.add(event.code);
   else if (event.code === 'KeyN') loadScene(sceneIndex + 1);
@@ -343,7 +359,10 @@ addEventListener('keydown', (event: KeyboardEvent) => {
   else if (event.code === 'Space') paused = !paused;
   else if (event.code === 'KeyT') teal = !teal;
   else if (event.code === 'KeyG') tiles = !tiles;
-  else if (/^Digit[1-9]$/.test(event.code)) loadScene(Number(event.code.slice(5)) - 1);
+  else if (event.code === 'KeyS') {
+    gridSim = !gridSim;
+    loadScene(sceneIndex);
+  } else if (/^Digit[1-9]$/.test(event.code)) loadScene(Number(event.code.slice(5)) - 1);
   else return;
   event.preventDefault();
 });
@@ -379,7 +398,7 @@ function frame(now: number): void {
     elapsed += dt;
     if (pendingBreach.length > 0 && elapsed >= breachAt) breachNow();
     applyInput(dt);
-    owedSubsteps += dt * WATER_PARAMS.substepsPerSecond;
+    owedSubsteps += dt * stepsPerSecond;
     const substeps = Math.min(MAX_SUBSTEPS_PER_FRAME, Math.floor(owedSubsteps));
     owedSubsteps -= substeps;
     const simStart = performance.now();
@@ -408,7 +427,7 @@ function frame(now: number): void {
   hud.innerHTML =
     `<b>DELVE · liquid lab</b> — ${sceneIndex + 1}. ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
     `water ${(liquid.total() / UNIT).toFixed(2)} cells   sim ${simMs.toFixed(1)} ms   draw ${drawMs.toFixed(1)} ms\n` +
-    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · G ${tiles ? '<b>grid</b>' : 'smooth'}`;
+    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · G ${tiles ? '<b>grid</b>' : 'smooth'} · S ${gridSim ? '<b>grid sim</b>' : 'pipes'}`;
   requestAnimationFrame(frame);
 }
 
@@ -422,6 +441,10 @@ Object.assign(window, {
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
     tiles: (value: boolean) => (tiles = value),
+    gridSim: (value: boolean) => {
+      gridSim = value;
+      loadScene(sceneIndex);
+    },
     /** Cells in a rectangle, for probes: [column, row, fill, down velocity, right velocity, solid]. */
     cells: (c0: number, r0: number, c1: number, r1: number) => {
       const out: (number | boolean)[][] = [];

@@ -33,7 +33,7 @@ const VISIBLE_FLOW = 0.05;
 const STREAM_LEVEL = 0.375;
 const LEVEL_PER_FLOW = 0.04;
 /** The trail under water hanging over air: this many cells, each drawn fainter. */
-const TRAIL_CELLS = 3;
+const TRAIL_CELLS = 4;
 /** A cell below this full counts as air for holding up the water above it. */
 const HOLDS_UP = 0.9;
 /** Eroded rock this close to a wet cell, art px, is wet. The rock mask never erodes deeper. */
@@ -126,7 +126,11 @@ function buildTiles(frame: LiquidFrame): Tiles {
     if (flow >= VISIBLE_FLOW)
       shown = Math.max(shown, Math.min(1, STREAM_LEVEL + flow * LEVEL_PER_FLOW));
     level[index] = shown;
-    if (speed > FALLING_SPEED && aboveHolds) falling[index] = 1;
+    // falling: moving down fast under more water, or hanging over air that isn't full (a trickle falls as
+    // packets a few cells apart; each one is falling, and its trail joins it to the next)
+    const below = index + width;
+    const overAir = row + 1 < height && !liquid.isSolid(below) && volume[below] < UNIT;
+    if ((speed > FALLING_SPEED && aboveHolds) || (overAir && !resting[below])) falling[index] = 1;
   }
   // anchors: held up from below sits on the floor; water under water over air hangs from the ceiling
   for (let index = 0; index < count; index++) {
@@ -137,7 +141,7 @@ function buildTiles(frame: LiquidFrame): Tiles {
     const heldUp =
       row + 1 >= height || liquid.isSolid(below) || (level[below] >= HOLDS_UP && !falling[below]);
     const wetAbove = row > 0 && level[index - width] > 0;
-    anchor[index] = !heldUp && wetAbove ? Anchor.Top : Anchor.Bottom;
+    anchor[index] = !heldUp && (wetAbove || falling[index]) ? Anchor.Top : Anchor.Bottom;
   }
   // gap fill: a dry cell between two wet ones is drawn at their mean (sideways between resting water, or
   // down a stream between two falling cells)
@@ -157,7 +161,7 @@ function buildTiles(frame: LiquidFrame): Tiles {
   }
   // the trail: under water hanging over air, a few cells of fainter water, so a pour reads as falling
   for (let index = 0; index < count - width; index++) {
-    if (level[index] <= 0 || anchor[index] !== Anchor.Top || !falling[index]) continue;
+    if (level[index] <= 0 || !falling[index]) continue;
     for (let step = 1; step <= TRAIL_CELLS; step++) {
       const below = index + step * width;
       if (below >= count || liquid.isSolid(below) || level[below] > 0) break;

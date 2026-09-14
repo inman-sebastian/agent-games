@@ -11,3 +11,4 @@ export * from './protocol';
 export * from './engine'; // re-exports ./blocks (blockAt, solidAt, STRATA, ORES, …)
 export * from './hydrate';
 export * from './liquid';
+export * from './grid-liquid';

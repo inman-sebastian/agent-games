@@ -100,7 +100,51 @@ frames and a mock-up), and the engineering around them. Tags: **[S]** read in so
 - **Saint11, Slynyrd** [V]: 3-colour falls with random-length vertical streaks, a bright mouth, a jagged
   crown and a foam row wider than the fall. "Never move stuff more than 1 pixel."
 
-## The model — cell pipes
+## The grid liquid — Terraria's model (the direction)
+
+`shared/src/grid-liquid.ts`. **Decided by the author (2026-09-14):** emulate Terraria's liquid as closely as
+possible, in DELVE's art direction. Pressure, momentum and levelling passes are the complexity to avoid:
+the cell pipes below behaved physically, and still snapped and rubber-banded where pools drained into each
+other, and never felt like Terraria.
+
+Every tick (30 a second, as Terraria updates its liquid), cell by cell from the bottom row up, alternating
+left-to-right and right-to-left each tick:
+
+1. **Fall:** move everything that fits into the cell below.
+2. **Even out along the row** (only if held up, below): average with the open cells beside it — the next
+   ones always, two and three away only if they're already wet (Terraria's reach of 3).
+
+That's the whole model. Lava is the same rules at 6 ticks a second (Terraria moves lava on every sixth visit).
+
+**Where it differs from Terraria, and why:**
+
+- **Volume is exact.** Terraria writes rounded averages and deletes thin films, and players duplicate water
+  with it; here an average's remainder is handed out unit by unit, and nothing is deleted. A film under a
+  64th of a cell just doesn't spread.
+- **Water spreads sideways only when held up** — by rock, or by full water below that isn't falling this
+  tick. Spreading from falling water sprayed a stream sideways into the air beside it; Terraria's own guard
+  (a cell that fell this tick doesn't spread) stalled flood fronts here, where every cell updates every tick
+  rather than from an active list.
+
+**What it doesn't do, like Terraria:** U-bends don't level, and nothing climbs. A pool draining slopes a
+cell or two toward its outlet while it flows.
+
+**Tried and dropped** (on the author's direction): Dwarf Fortress-style pressure pushing stuck water through
+full cells, and letting a row reach dry cells. Both fixed a symptom (water stacking into a tower where a
+fast stream landed) by adding a mechanism Terraria doesn't have; at Terraria's 30 ticks a second the tower
+doesn't form.
+
+**Tests** (`shared/src/grid-liquid.test.ts`, red-checked): conservation and non-negativity (property);
+deterministic; a dropped block falls and lands flat; a breached reservoir levels flat; a floor hole drains as
+one stream with no spray beside it (fails without the held-up rule); a settled pool stops changing.
+
+**Drawn with the grid renderer** (below), which is the lab's default with this sim. **S** in the lab (or
+`?sim=pipes`) switches to the cell pipes and **G** (or `?render=smooth`) to the smooth renderer, for
+comparison.
+
+## The model — cell pipes (superseded)
+
+Kept for comparison in the lab while the Terraria-style liquid is judged.
 
 `shared/src/liquid.ts`. Side view, rows grow downward, one cell is 8 art px.
 
