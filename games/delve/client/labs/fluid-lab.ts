@@ -49,7 +49,7 @@ interface Kind {
   surface: SurfaceParams;
   /** Look uniforms: surface line, body tint (rgb 0–255, a = tint opacity). */
   colours: number[][];
-  /** waver amplitude px, frequency, speed, shimmer density */
+  /** waver amplitude px (0: off), frequency, speed, glint density */
   waver: number[];
   droplet: string;
 }
@@ -60,7 +60,7 @@ const WATER: Kind = {
     [143, 211, 255, 1], // #8fd3ff surface line
     [77, 101, 180, 0.55], // #4d65b4 body, see-through
   ],
-  waver: [1, 0.35, 3, 0.012],
+  waver: [0, 0.35, 3, 0.012],
   droplet: '#8fd3ff',
 };
 
@@ -71,7 +71,7 @@ const LAVA: Kind = {
     [251, 255, 134, 1], // #fbff86 surface line
     [232, 59, 59, 0.92], // #e83b3b body, nearly opaque
   ],
-  waver: [1, 0.2, 1.2, 0.02],
+  waver: [0, 0.2, 1.2, 0.012],
   droplet: '#f9c22b',
 };
 

@@ -92,8 +92,11 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   - The surface is a line one art pixel thick: water `#8fd3ff`, lava `#fbff86`.
   - Below it, one see-through tint over the rock behind: water `#4d65b4` at 55%, lava `#e83b3b` at 92%.
   - The first version stepped through shallow, deep and deepest tints; the author found the bands odd.
-- **Life:** the rock behind wavers by a whole art pixel over time, and sparse shimmer pixels drift under
-  the surface.
+- **Life:** short glints glide continuously along just under the surface, fading in and out.
+  - Everything that moves moves every frame. The first shimmer stepped 6 times a second, and the rock
+    behind wavered a whole art pixel at a time. At a measured steady 60 fps the author still read the
+    surface as choppy.
+  - Wavering is off by default: pixel art can only waver in whole-pixel jumps.
 
 ## Verification
 

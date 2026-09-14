@@ -3,7 +3,10 @@
 //
 //   the surface line  one art pixel thick, following the surface smoothly between columns
 //   the body          one see-through tint over the rock behind, which wavers
-//   near the top      sparse shimmer pixels drifting along
+//   near the top      glints gliding along the surface, fading in and out
+//
+// Everything that moves moves continuously. An earlier version stepped the shimmer 6 times a second and
+// wavered the rock a whole art pixel at a time, and the surface read as choppy at a steady 60 fps.
 //
 // The rock stays pixelated (sampled per art pixel). Only the water's position is smooth: snapped to whole art
 // pixels, a 1–3 px ripple stepped a pixel at a time and read as a low frame rate. `snap` restores that for
@@ -19,11 +22,16 @@ struct Look {
   pad2: u32,
   // per kind (0 water, 1 lava): surface line rgb; body tint rgb, a = opacity
   colours: array<vec4f, 4>,
-  // per kind: x waver amplitude px, y frequency along y, z speed, w shimmer density (0..1)
+  // per kind: x waver amplitude px (0 = off: pixel art can only waver in whole-pixel jumps), y frequency
+  // along y, z speed, w glint density (0..1)
   waver: array<vec4f, 2>,
 }
 
 @group(0) @binding(0) var<uniform> look: Look;
+
+const GLINT_SPEED: f32 = 7.0;          // art px/s
+const GLINT_SPACING: f32 = 26.0;       // art px between glint slots
+const GLINT_HALF_LENGTH: f32 = 1.5;    // art px
 @group(0) @binding(1) var rock: texture_2d<f32>;
 @group(0) @binding(2) var<storage, read> columns: array<vec4f>;   // per art column: top, bottom (top > bottom: dry), kind
 @group(0) @binding(3) var<storage, read> open: array<u32>;        // per art pixel: 1 where not rock
@@ -87,12 +95,22 @@ fn water_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let body = look.colours[kind * 2u + 1u];
   var colour = mix(behind, body.rgb / 255.0, body.a);
 
-  // shimmer: sparse light pixels drifting along just under the surface
-  let depth = i32(floor(art.y - top));
-  if (depth < 7) {
-    let drift = i32(floor(look.time * 6.0));
-    let roll = f32(hash((x + drift * (1 - 2 * (depth % 2))) / 2, y) % 1000u) / 1000.0;
-    if (roll < waver.w) { colour = mix(colour, look.colours[kind * 2u].rgb / 255.0, 0.5); }
+  // glints: short light dashes gliding along just under the surface, each fading in and out. Rows alternate
+  // direction; each row is split into slots GLINT_SPACING wide, and a slot's glint slides smoothly through it.
+  let depth = art.y - top;
+  if (depth >= 1.0 && depth < 5.0) {
+    let row = i32(floor(depth));
+    let direction = f32(1 - 2 * (row % 2));
+    let travel = art.x - direction * look.time * GLINT_SPEED;
+    let slot = i32(floor(travel / GLINT_SPACING));
+    let seed = hash(slot, row + 17 * i32(kind));
+    let centre = (f32(slot) + 0.2 + 0.6 * f32(seed % 1000u) / 1000.0) * GLINT_SPACING;
+    let alive = sin(look.time * 1.7 + f32(seed % 628u) / 100.0);
+    let present = f32((seed >> 10u) % 1000u) / 1000.0 < waver.w * 40.0;
+    let along = abs(travel - centre);
+    if (present && alive > 0.0 && along < GLINT_HALF_LENGTH) {
+      colour = mix(colour, look.colours[kind * 2u].rgb / 255.0, 0.55 * alive);
+    }
   }
   return vec4f(colour, 1.0);
 }
