@@ -69,9 +69,10 @@ In the running game, the **`?debug`** panel (F3) has live toggle buttons — **l
 twinkle / damage** — to isolate a render pass, and a **per-pass frame breakdown** (`phase …`,
 `light field … scrim …`, `bakes …`) to read before optimising anything.
 
-**A rendering invariant with a text verdict:** `labs/patch-lab.html` renders a carved region as one
-bake and again from chunk bakes, and prints `PASS`/`FAIL` (also the page title). Run it after touching
-`cave-render` or the chunk geometry — it is not in `pnpm test`, because it needs a canvas.
+**The chunk-context invariant is in `pnpm test`** (`client/src/render/chunks.test.ts`, via a software
+canvas). `labs/patch-lab.html` repeats it through Chrome's real canvas with a text `PASS`/`FAIL`
+verdict — worth a look after changing how `cave-render` composites, since the test double only models
+the canvas calls the renderer makes today.
 
 ## 4. Last resort — live feel only (Playwright/MCP)
 

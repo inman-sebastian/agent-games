@@ -172,7 +172,7 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
 - **Icons are separate.** Inventory/codex icons use the authored `art.shape` + triad from step 1
   (via `ore-art.ts`), not the material shader — set both.
 - **No render wiring.** Ore bakes into chunks by id (game, worker, labs) once registered; don't
-  touch `index.ts`/`chunk-worker.ts`.
+  touch `index.ts`, `render/chunks.ts` or `chunk-worker.ts`.
 - **Strata** (a depth stratum, not an ore) is the simpler sibling: just a 6-stop ramp + `top` row
   as a `type: 'strata'` resource — no shader. Same palette rules.
 - Commit gameplay data (`@delve/shared`) and the shader (`@delve/client`) together; scope the

@@ -130,24 +130,23 @@ Headless Chrome starts on a fresh profile, so this is always a new world at the 
 checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
 audio; that needs a real user gesture.
 
-## `client/labs/patch-lab.html` — does the rock bake the same in chunks as in one piece?
+## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
 
-Rock is cached as chunks and re-baked when you dig, which is only correct if a chunk carries enough
-context to shade identically to a whole-region render: the shading reads a falloff range sideways
-and seeds its top-light from the rows above. Render both ways, diff, report as **text** (also the
-page `<title>`, so a headless check never looks at pixels):
+The gate already runs this (`client/src/render/chunks.test.ts`, through a software canvas). The lab
+runs the identical check through **Chrome's own 2D canvas**, with a picture, so a canvas difference
+can't hide behind the test double: every chunk in a carved region is baked with the game's
+`bakeChunk`, and again with more context than anything reads, and the two must match **exactly**.
+Text verdict (also the page `<title>`), so a headless check never reads pixels:
 
 ```
-SHOT_BASE=http://localhost:5173 tools/shot.sh 'w=1&h=1' /dev/null labs/patch-lab.html  # or just open it
-PASS chunk-bake matches whole-bake (worst 5 <= 12)
+PASS every chunk matches unlimited context exactly (margin 3 vs 16)
+differing pixels 0
 ```
 
-Read **`worst`**, not the percentage. A broad, tiny difference is expected: `composeBand` picks its
-strata ramp from the middle row of whatever band it is handed, so a chunk and a whole region choose
-marginally different rock colours — about a fifth of the pixels, invisibly. A context failure looks
-nothing like that: a few pixels wrong by a lot, at the seams. `?margin=1` reproduces the bug this
-was written for (worst 207 of 1020); `?margin`, `?cw`, `?ch`, `?nx`, `?ny`, `?c`, `?r`, `?seed`
-override the geometry.
+Exact is possible because a chunk's band centre doesn't move with its margin, so both bakes share a
+strata ramp (the per-band ramp difference, #54, never enters). `?margin=1` reproduces the #44 seam bug
+(443 differing pixels); `?cx`, `?cy`, `?nx`, `?ny`, `?seed` move the region — keep `cy` below the
+surface, since the sky gradient is normalised per band.
 
 ## `client/labs/material-lab.html` — per-material inspector
 

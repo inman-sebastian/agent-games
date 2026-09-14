@@ -80,6 +80,17 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
   down outright when it was written. (Slowest suite; isolated port + temp dir keep it hermetic.)
 - **Save store** (`server/src/store.test.ts`) — hostile player ids can't read or write outside
   `DATA_DIR`; a corrupt file loads as null. Goes red when the id sanitizing is removed.
+- **Rock chunks** (`client/src/render/chunks.test.ts`) — a rendering invariant, in the gate: every
+  chunk baked the way the Worker bakes it matches the same chunk baked with unlimited context
+  EXACTLY, and digs re-baking only what `chunksReading` names leave nothing stale. Plus the cache: a
+  bake that lands after a world reset is dropped (the stale-world bug), a dig re-bakes the chunk under
+  the pick at once and sends neighbours to the Worker, and a dig during an in-flight bake bakes once
+  more. Node has no 2D canvas, so it renders through `soft-canvas.ts` — a test double that only has
+  to be deterministic, since both sides of every comparison go through it; `labs/patch-lab.html`
+  repeats the check through Chrome's real canvas.
+- **Prediction** (`client/src/prediction.test.ts`) — the client half of the authoritative contract,
+  against the real engine: replaying un-acked inputs lands exactly on the prediction, a correction
+  never pops the avatar and settles, world deltas apply once, the buffer is bounded.
 - **Network status** (`client/src/net.test.ts`) — a fake WebSocket asserts "online" means the server
   accepted the join: not on socket open, not after a rejection, and no gameplay traffic before it.
 - **Client cache + DOM** (`client/src/save.test.ts`, `client/src/ui/inventory.test.ts`) — the
@@ -163,10 +174,8 @@ discovered ahead of its fix.
 ## Not covered here
 
 - **How it looks** — canvas rendering isn't pixel-asserted in Vitest. Use `tools/shot.sh` for tight
-  cropped renders (see [tools/README.md](../tools/README.md)). One rendering INVARIANT does have a
-  check, in the browser rather than the gate: `client/labs/patch-lab.html` asserts chunk bakes match a
-  whole-region bake, reporting PASS/FAIL as text. It is not in `pnpm test` because it needs a canvas —
-  run it after touching `cave-render` or the chunk geometry. Real-browser E2E (Playwright driving
+  cropped renders (see [tools/README.md](../tools/README.md)). The exception is a rendering
+  _invariant_ — see the chunk pipeline above, which is in the gate through a software canvas. Real-browser E2E (Playwright driving
   the page) is intentionally out of scope for now; it could be added as its own project later.
 - **Interactive inspection** — `tools/sim.ts` (`pnpm sim map/probe/play`) stays as a CLI for
   eyeballing world-gen and scripted playthroughs; it's a tool, not a gate.

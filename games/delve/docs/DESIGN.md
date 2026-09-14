@@ -728,8 +728,8 @@ region two ways and diffs them.
   several signals, then decides contents. `strata.top` and per-material `band` ranges become
   obsolete.
 - **Rendering perf** — the per-frame passes are done (above); what's left is the chunk BAKE rate.
-  Chunks are still `CW`×`CH` in cells, so they cover a quarter of the world area they used to and
+  Chunks are still `CHUNK_COLS`×`CHUNK_ROWS` in cells, so they cover a quarter of the world area they used to and
   the worker bakes four times as many while you move. `MARGIN` also went from 1 to 3 cells for
   correctness, which roughly doubles each bake's area. It keeps up (bakes are off-thread, the blits
-  cost 0.4ms), so this is a queued tidy, not a problem: doubling `CW`/`CH` restores the old world
+  cost 0.4ms), so this is a queued tidy, not a problem: doubling them restores the old world
   area per chunk and makes the fixed margin a smaller share of every bake.

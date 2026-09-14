@@ -69,23 +69,26 @@ modules (`@delve/client`, under `client/src/render/`) draw to a canvas.
 Generated from the actual exports rather than from memory, which is how the previous version of this
 table came to list a `sprites.ts` / `drawMiner` that had not existed for a while.
 
-| Module                                  | Key exports                                                                     | Responsibility                                                                                                                                                                                                              |
-| --------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `render/palette.ts`                     | `T`, `UPSCALE`, `TEX`, `R64`, colour helpers                                    | The art grid (`T` = 8 art px per **cell**, a block is 2x2 cells) and the Resurrect-64 palette.                                                                                                                              |
-| `render/cave-render.ts`                 | `composeBand`, `setStrata`, `NO_SKY`, `SHADE_INFLUENCE_CELLS`, `TOP_LIGHT_ROWS` | The **rock renderer**. Reads the depth `STRATA` ramps via `setStrata`. Used by the main thread, the Worker, and the labs. Also owns how far a dig changes the baked shading — see [the pipeline](#the-rock-chunk-pipeline). |
-| `render/chunk-worker.ts`                | (module worker)                                                                 | Off-thread rock-chunk baker; imports `composeBand`/`setStrata` from `cave-render`.                                                                                                                                          |
-| `render/materials/`                     | `oreMaterial`, `collectTwinkleEdges`, `drawDamage`                              | One procedural **material shader** per ore, plus the shared FX (twinkle, damage). See [MATERIALS.md](MATERIALS.md).                                                                                                         |
-| `render/ore-art.ts`                     | `drawOreBlock`, `ORE_ART`                                                       | Ore-**block** art (cluster-aware) over the registry's shapes.                                                                                                                                                               |
-| `render/lighting.ts`                    | `create`, `LAMP_COLOR`, `lampReachBlocks`                                       | The geometry-aware **lighting system**: `create()` → `addLight()` → `render(cfg)`. See [LIGHTING.md](LIGHTING.md).                                                                                                          |
-| `render/entity/player.ts`               | `drawPlayer`, `poseFor`, `stepLift`                                             | The **player**: picks the animation from the miner state and distance walked, draws it, carries a step-up lift. See [SPRITES.md](SPRITES.md).                                                                               |
-| `render/entity/sprite.ts`               | `drawSprite`, `frameAt`, `spriteMask`                                           | Index-mapped sprite frames → pixels through a skin.                                                                                                                                                                         |
-| `render/entity/skin.ts`                 | `buildSkin`, `MINER_SKIN`, `MINER_RAMPS`, `HANA_SKIN`                           | Skins: the colour and material ramps imported frames are painted with.                                                                                                                                                      |
-| `render/entity/surface.ts`, `attach.ts` | `surfaceOf`, `partCtx` / `anchorPixel`, `BACKPACK`                              | Per-part surface normals and lighting for sprite materials; equipment anchoring.                                                                                                                                            |
-| `render/entity/sprites/`                | (generated)                                                                     | Committed frames written by `tools/import-aseprite.ts`. Not hand-edited, not formatted (`.prettierignore`).                                                                                                                 |
-| `net.ts`                                | `connect`, `sendInput`, `sendCommand`, `isOnline`                               | The client side of the authoritative boundary. **Online means the server accepted the join** (a hello arrived), not that a socket opened.                                                                                   |
-| `save.ts`                               | `load`, `save`, `fresh`                                                         | The localStorage **cache** — I/O only. Restoring a save is `hydrate`, in the shared ruleset.                                                                                                                                |
-| `ui/`                                   | `defineSlot`, `installSurfaces`, `materialIcon`, `buildInventoryGrid`           | The DOM chrome: the `<delve-slot>` element, nine-slice frames, item icons, the inventory grid. See [UI.md](UI.md).                                                                                                          |
-| `index.ts`                              | (entry)                                                                         | The game: glue and the frame loop — see [Who composes what](#who-composes-what).                                                                                                                                            |
+| Module                                  | Key exports                                                                         | Responsibility                                                                                                                                                                                                              |
+| --------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `render/palette.ts`                     | `T`, `UPSCALE`, `TEX`, `R64`, colour helpers                                        | The art grid (`T` = 8 art px per **cell**, a block is 2x2 cells) and the Resurrect-64 palette.                                                                                                                              |
+| `render/cave-render.ts`                 | `composeBand`, `setStrata`, `NO_SKY`, `SHADE_INFLUENCE_CELLS`, `TOP_LIGHT_ROWS`     | The **rock renderer**. Reads the depth `STRATA` ramps via `setStrata`. Used by the main thread, the Worker, and the labs. Also owns how far a dig changes the baked shading — see [the pipeline](#the-rock-chunk-pipeline). |
+| `render/chunks.ts`                      | `createChunkCache`, `bakeChunk`, `chunksReading`, `chunkReadRegion`, `CHUNK_MARGIN` | The **rock chunk pipeline**: geometry, the one bake every caller uses, what a dig invalidates, and the live cache with its Worker protocol. Tested in the gate (`chunks.test.ts`).                                          |
+| `render/chunk-worker.ts`                | (module worker)                                                                     | Off-thread rock-chunk baker; calls `bakeChunk` and imports the geometry from `chunks.ts`.                                                                                                                                   |
+| `render/materials/`                     | `oreMaterial`, `collectTwinkleEdges`, `drawDamage`                                  | One procedural **material shader** per ore, plus the shared FX (twinkle, damage). See [MATERIALS.md](MATERIALS.md).                                                                                                         |
+| `render/ore-art.ts`                     | `drawOreBlock`, `ORE_ART`                                                           | Ore-**block** art (cluster-aware) over the registry's shapes.                                                                                                                                                               |
+| `render/lighting.ts`                    | `create`, `LAMP_COLOR`, `lampReachBlocks`                                           | The geometry-aware **lighting system**: `create()` → `addLight()` → `render(cfg)`. See [LIGHTING.md](LIGHTING.md).                                                                                                          |
+| `render/entity/player.ts`               | `drawPlayer`, `poseFor`, `stepLift`                                                 | The **player**: picks the animation from the miner state and distance walked, draws it, carries a step-up lift. See [SPRITES.md](SPRITES.md).                                                                               |
+| `render/entity/sprite.ts`               | `drawSprite`, `frameAt`, `spriteMask`                                               | Index-mapped sprite frames → pixels through a skin.                                                                                                                                                                         |
+| `render/entity/skin.ts`                 | `buildSkin`, `MINER_SKIN`, `MINER_RAMPS`, `HANA_SKIN`                               | Skins: the colour and material ramps imported frames are painted with.                                                                                                                                                      |
+| `render/entity/surface.ts`, `attach.ts` | `surfaceOf`, `partCtx` / `anchorPixel`, `BACKPACK`                                  | Per-part surface normals and lighting for sprite materials; equipment anchoring.                                                                                                                                            |
+| `render/entity/sprites/`                | (generated)                                                                         | Committed frames written by `tools/import-aseprite.ts`. Not hand-edited, not formatted (`.prettierignore`).                                                                                                                 |
+| `net.ts`                                | `connect`, `sendInput`, `sendCommand`, `isOnline`                                   | The client side of the authoritative boundary. **Online means the server accepted the join** (a hello arrived), not that a socket opened.                                                                                   |
+| `prediction.ts`                         | `createPrediction`                                                                  | **Client prediction + reconciliation**: buffer inputs, adopt a snapshot, replay the un-acked, smooth the residual. Tested.                                                                                                  |
+| `audio.ts`                              | `unlockAudio`, `sfx`, `toggleMute`                                                  | The synthesized sound: one lazily-unlocked AudioContext, a master gain, the SFX bank.                                                                                                                                       |
+| `save.ts`                               | `load`, `save`, `fresh`                                                             | The localStorage **cache** — I/O only. Restoring a save is `hydrate`, in the shared ruleset.                                                                                                                                |
+| `ui/`                                   | `defineSlot`, `installSurfaces`, `materialIcon`, `buildInventoryGrid`               | The DOM chrome: the `<delve-slot>` element, nine-slice frames, item icons, the inventory grid. See [UI.md](UI.md).                                                                                                          |
+| `index.ts`                              | (entry)                                                                             | The game: glue and the frame loop — see [Who composes what](#who-composes-what).                                                                                                                                            |
 
 ## State machines
 
@@ -131,14 +134,16 @@ validate the schema and that the index matches the directory (no drift).
 
 ## Who composes what
 
-- **`client/src/index.ts`** (the game, loaded by `client/index.html`) keeps only _glue_: input, HUD,
-  save, audio, camera, the `requestAnimationFrame` loop — and composes the frame from the modules.
+- **`client/src/index.ts`** (the game, loaded by `client/index.html`) is the glue: input, HUD and
+  menus, camera, juice, the `requestAnimationFrame` loop — and composes the frame from the modules.
+  The subsystems that grew inside it moved out in #55 once they had a reason to be tested on their
+  own: the chunk cache (`render/chunks.ts`), prediction (`prediction.ts`) and the synth (`audio.ts`).
 - **`client/labs/`** — the browser dev sandboxes, each rendering **through the same modules the
   game uses** so they can't drift. Iterate a module and the game and the labs move together. The
   ones that answer a verification question are listed with their queries in
   [`tools/README.md`](../tools/README.md): `render` (the one-region harness `shot.sh` captures),
   `material-lab`, `light-lab`, `style-lab`, `sprite-lab`, `char-lab` (characters against real
-  collision), `patch-lab` (chunk bakes vs a whole-region bake), plus the UI and font benches
+  collision), `patch-lab` (the chunk-context check through a real canvas), plus the UI and font benches
   (`ui-lab`, `panel-lab`, `ui-concepts`, `ui-iron`, `font-lab`, `font-metrics`).
 - **`tools/`** — the interactive CLI dev tools (`sim.ts`, `shot.sh`) read the same modules
   for cheap headless inspection — see [`tools/README.md`](../tools/README.md). Automated testing
@@ -146,17 +151,28 @@ validate the schema and that the index matches the directory (no drift).
 
 ## The rock chunk pipeline
 
-The rock field is expensive, so it's cached as world-anchored **chunks** (a `CW×CH` tile
-block on a 2D grid, since the world is unbounded in both axes). Each chunk is rendered once,
+The rock field is expensive, so it's cached as world-anchored **chunks** (`CHUNK_COLS`×`CHUNK_ROWS`
+cells on a 2D grid, since the world is unbounded in both axes). All of it lives in
+`client/src/render/chunks.ts`: the geometry, the one `bakeChunk` that the main thread, the Worker and
+the lab all call, the rule for what a dig invalidates, and the cache itself (`createChunkCache`).
+Before that module the geometry was written three times, and the lab that "checked" it was checking a
+copy. Each chunk is rendered once,
 the first time it scrolls into view, and kept — so scrolling back over explored ground is a
 cheap blit. Chunk generation runs **off the main thread** in a module Web Worker
-(`chunk-worker.ts`, created with `new Worker(new URL('./render/chunk-worker.ts',
-import.meta.url), { type: 'module' })` so Vite bundles it): it renders into an
+(`chunk-worker.ts`, created in `index.ts` with `new Worker(new URL('./render/chunk-worker.ts',
+import.meta.url), { type: 'module' })` — that expression has to stay there for Vite to bundle it): it renders into an
 `OffscreenCanvas` and ships the result back as a transferable `ImageBitmap`, so descending
 into fresh depth never stalls the loop (a not-yet-arrived chunk shows a flat-bg placeholder
 for a frame or two). If Workers/OffscreenCanvas are unavailable, it falls back to a
-synchronous main-thread render. **Digging re-bakes the chunks the dig can affect** — the chunk
-under the pick synchronously, so mining stays instant, and the rest off-thread.
+synchronous main-thread render. **Digging re-bakes every cached chunk whose bake reads the dug cell**
+(`chunksReading`, derived from `chunkReadRegion`) — the chunk under the pick synchronously, so mining
+stays instant, and the rest off-thread. A chunk still being baked is marked stale and bakes once more
+when it lands.
+
+**Every request carries an epoch.** A world reset (new game, server hello) bumps it, and a result from
+an earlier epoch is dropped. Clearing the cache alone wasn't enough: bakes already queued in the
+Worker landed afterwards and were stored as current, and since a chunk that exists is never re-baked,
+old-world rock stayed on screen in the new world.
 
 It used to repaint a small window around the dug cell instead, and that was wrong in a way worth
 remembering: a patch window has to predict how far the dig moved the shading, and that region is
@@ -166,10 +182,13 @@ while a cell was a whole block; after the 2x2 split it left a ring of stale rock
 tunnel, which read as the lamp light sticking to the one cell that got redrawn. A chunk bake is exact
 by construction, so digs use one.
 
-That makes the chunk's own context load-bearing: `MARGIN` must be at least the shading's influence
-radius (`SHADE_INFLUENCE_CELLS`), or a chunk disagrees with its neighbours at the seam.
-`client/labs/patch-lab.html` renders a region both ways and diffs them — at `MARGIN 1` the worst
-pixel is off by 207 of 1020; at the influence radius, by 5.
+That makes the chunk's own context load-bearing: `CHUNK_MARGIN` must be at least the shading's
+influence radius (`SHADE_INFLUENCE_CELLS`), or a chunk disagrees with its neighbours at the seam.
+**This is in `pnpm test`** (`chunks.test.ts`, through a small software canvas): every chunk, baked the
+way the Worker bakes it, must match the same chunk baked with unlimited context **exactly**, and a
+run of digs re-baking only what `chunksReading` names must leave nothing stale. Both fail on the
+configurations that shipped the #44 bugs. `client/labs/patch-lab.html` runs the same check through
+Chrome's real canvas, and agrees.
 
 Because the renderer lives in `cave-render.ts`, imported by _both_ the main thread and the
 Worker, the look can never drift between them, and all world-space noise is anchored to
@@ -205,7 +224,7 @@ perfect cross-machine determinism. The rationale + decision are on issue #12.
   took the server down (`msg.t` of null), and so did a save from before `tech` existed, on the
   first dig. As a backstop, each client's share of the tick, broadcast and persist timers runs
   through `isolated()`, which logs and drops that one client instead.
-- **The client predicts + reconciles.** It runs the sim locally each fixed `TICK_DT` for instant
+- **The client predicts + reconciles** (`client/src/prediction.ts`, tested in `prediction.test.ts`). It runs the sim locally each fixed `TICK_DT` for instant
   feel (movement + optimistic mining), buffering un-acked inputs. On each `state` it adopts the
   authoritative player, applies the world deltas, drops acked inputs, and **replays** the rest —
   re-predicting "now". Any residual difference is absorbed into a decaying render offset so
