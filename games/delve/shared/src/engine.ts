@@ -32,9 +32,13 @@ const HALF_HEIGHT = 0.91 * SUB;
 const GRAVITY = 46 * SUB;
 const MAX_FALL = 30 * SUB;
 const RUN_SPEED = 6 * SUB;
-const RUN_ACCEL = 85;
-const AIR_ACCEL = 46;
-const FRICTION = 60;
+// Accelerations are lengths per second squared, so they scale with the cell like every other length.
+// The 2x2 split (#44) scaled speed, gravity, jump and fall but left these three, which doubled the
+// time to reach top speed, doubled the skid after release and halved air control — see the
+// "movement feel is stated in world units" tests, which pin the pre-split feel in seconds and blocks.
+const RUN_ACCEL = 85 * SUB;
+const AIR_ACCEL = 46 * SUB;
+const FRICTION = 60 * SUB;
 // ~1.25 tiles of rise (v²/2g, g=46), UNCHANGED by the size change: jump height in tiles is a
 // property of this and gravity, not of the body, so the player still clears a one-tile step exactly
 // as before. What did change is headroom — a 1.82-tall body in a 2-tall tunnel has 0.18 tiles above

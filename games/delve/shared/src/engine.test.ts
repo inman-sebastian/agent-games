@@ -400,6 +400,37 @@ describe('derived stats at base levels', () => {
   });
 });
 
+describe('movement feel is stated in world units', () => {
+  // Acceleration and friction are lengths per second squared — lengths in disguise. The 2x2 split
+  // (#44) scaled run speed, gravity, jump and fall by SUB but not these three, so reaching top speed
+  // took twice as long, the skid after letting go ran twice as long and nearly twice as far, and air
+  // control halved. Nothing noticed, because nothing measured feel in units a player perceives.
+  // These are the pre-split values, as seconds and BLOCKS.
+  const runRight = { left: false, right: true, jump: false };
+  const release = { left: false, right: false, jump: false };
+
+  it('reaches top speed in about 70ms, from standing', () => {
+    const session = newSession(3);
+    let seconds = 0;
+    while (Math.abs(session.player.vx) < PHYS.RUN_SPEED * 0.999 && seconds < 2) {
+      physicsStep(session, runRight, TICK_DT);
+      seconds += TICK_DT;
+    }
+    expect(seconds).toBeLessThan(0.1);
+  });
+
+  it('skids about a third of a block after letting go at top speed', () => {
+    const session = newSession(3);
+    for (let i = 0; i < 30; i++) physicsStep(session, runRight, TICK_DT);
+    expect(Math.abs(session.player.vx)).toBeCloseTo(PHYS.RUN_SPEED, 5);
+    const from = session.player.x;
+    for (let i = 0; i < 60 && session.player.vx !== 0; i++) physicsStep(session, release, TICK_DT);
+    const skidBlocks = (session.player.x - from) / SUB;
+    expect(skidBlocks).toBeGreaterThan(0.2);
+    expect(skidBlocks).toBeLessThan(0.4);
+  });
+});
+
 describe('unstick searches a WORLD distance', () => {
   it('rescues a wedged player whose nearest room is five blocks up', () => {
     // The search range is a length. It was `maxTiles = 6` counted in cells, so the 2x2 split (#44)
