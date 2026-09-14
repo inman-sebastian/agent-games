@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — fluid lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #05060a;
+        overflow: hidden;
+        font:
+          12px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #cdd6e2;
+      }
+      canvas {
+        position: fixed;
+        left: 0;
+        top: 0;
+        image-rendering: pixelated;
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 10px;
+        z-index: 2;
+        white-space: pre;
+        line-height: 1.5;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+        background: rgba(5, 6, 10, 0.72);
+        padding: 6px 10px;
+      }
+      #hud b {
+        color: #f2c14e;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scene"></canvas>
+    <canvas id="sprites"></canvas>
+    <div id="hud"></div>
+    <!-- Interactive surface water (#89): flat water bodies in real rock with a spring-ripple surface,
+     splashes and a pixel water shader. Controls are in the HUD and the header of fluid-lab.ts. -->
+    <script type="module" src="./fluid-lab.ts"></script>
+  </body>
+</html>
