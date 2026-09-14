@@ -5,6 +5,38 @@ crystals on top. All art is drawn in code (canvas, no images/emoji/fonts-as-art)
 a **logical-resolution buffer that is upscaled with `image-rendering: pixelated`**,
 so every effect — including gradients, glows and vignette — stays chunky pixels.
 
+## Direction: WebGPU
+
+**Decided by the author (2026-09-13): rendering moves to WebGPU, with as much as possible on the GPU in
+shaders.** Tracked in [#68](https://github.com/inman-sebastian/agent-games/issues/68); the spike that
+measures it first is [#69](https://github.com/inman-sebastian/agent-games/issues/69).
+
+**Today everything described below runs on Canvas 2D**, and the expensive parts are hand-written
+per-pixel JavaScript loops into `ImageData`: the rock mask, its distance fields and top light, the
+stone surface and every material "shader", the lighting glow, the dithered scrim and the vignette. The
+chunk cache, the bake Worker and the lighting cost caps exist to make that affordable. Those loops are
+already pure functions of position, material, light and time, which is exactly what fragment and
+compute shaders run in parallel.
+
+What that does and doesn't change:
+
+- **The simulation stays on the CPU.** `@delve/shared` is the one ruleset the server also runs, with
+  no GPU; determinism and the client/server contract depend on it. That includes fluid. Only the
+  client's `render/` layer moves. UI chrome stays DOM and CSS.
+- **The look doesn't change.** Everything below — the layers, the per-pixel rock field, top light,
+  the Resurrect 64 palette, Bayer dithering, nearest-neighbour integer upscale — is the spec the GPU
+  renderer implements. The world-anchored hashes and noise (`rng.ts`) use 32-bit wrapping
+  arithmetic, which WGSL reproduces exactly; only the final float conversion can move a threshold by a
+  hair.
+- **What ports mechanically:** noise, the stone surface, quantize/dither, the background, the sky, the
+  stalactites, the scrim and the vignette. **What needs a GPU-native technique:** the chamfer distance
+  transforms (sequential two-pass sweeps; the GPU equivalent is jump flooding) and the order-dependent
+  light propagation.
+- **Tooling:** probe's headless Chrome exposes a real WebGPU adapter; `shot.sh` launches Chrome with
+  `--disable-gpu`, so WebGPU captures go through probe instead.
+
+The spike's findings get recorded here, and the sections below get rewritten as each part moves.
+
 ## Grounding
 
 Derived from studying real references the user vetted: **Dome Keeper**, **SteamWorld
