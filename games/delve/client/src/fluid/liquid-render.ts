@@ -218,14 +218,27 @@ function buildField(frame: LiquidFrame): Field {
     if (onRock && held * cell < MINIMUM_POOL_PX) continue;
     // how fast it's falling: only a fall is boosted. Boosting water flowing across a surface raised pointed
     // peaks above it at every lip.
-    const downIn = row > 0 ? downVelocity[index - width] : 0;
+    // (a face out of an empty cell carries a speed but no water: counted, it boosted surface cells into peaks)
+    const aboveHolds = row > 0 && volume[index - width] >= MOVING_MINIMUM;
+    const downIn = aboveHolds ? downVelocity[index - width] : 0;
     const speed = Math.max(0, downIn, downVelocity[index]);
     const flow = held * speed;
     let shown = held;
     if (flow >= VISIBLE_FLOW)
       shown = Math.max(shown, Math.min(1, THIN_STREAM_FILL + flow * FILL_PER_FLOW));
     fill[index] = Math.max(fill[index], shown);
-    if (Math.max(downIn, downVelocity[index]) > FALLING_SPEED) falling[index] = 1;
+    // shaded as falling only where it falls with something other than water beside it: water moving down
+    // inside a surge is part of the body, or its pockets hung under the surface as arrows
+    const waterLeft =
+      index % width > 0 && !liquid.isSolid(index - 1) && volume[index - 1] >= UNIT / 2;
+    const waterRight =
+      index % width < width - 1 && !liquid.isSolid(index + 1) && volume[index + 1] >= UNIT / 2;
+    const inBody = waterLeft && waterRight;
+    // and only where water comes down from above: a lone drop settling back onto a pool fuzzed its surface
+    const fedFromAbove =
+      row > 0 && !liquid.isSolid(index - width) && volume[index - width] >= MOVING_MINIMUM;
+    if (Math.max(downIn, downVelocity[index]) > FALLING_SPEED && !inBody && fedFromAbove)
+      falling[index] = 1;
   }
   // a trickle falls as packets with a dry cell between them: drawn wet, or the stream breaks into dashes
   for (let index = width; index < width * (height - 1); index++) {
@@ -361,7 +374,11 @@ export function drawLiquid(
       const index = y * width + x;
       if (!wet[index]) continue;
       if (y > 0 && depth[index - width] >= 0) depth[index] = depth[index - width] + 1;
-      else depth[index] = y > 0 && open[index - width] === 0 ? GLINT_BOTTOM : 0;
+      else {
+        // under rock (a flooded passage) or under a fall pouring into it, there's no surface here
+        const underCover = y > 0 && (open[index - width] === 0 || fallDensity[index - width] > 0);
+        depth[index] = underCover ? GLINT_BOTTOM : 0;
+      }
     }
   }
   for (let y = 0; y < height; y++) {

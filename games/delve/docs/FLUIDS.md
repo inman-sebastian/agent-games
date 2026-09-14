@@ -130,6 +130,20 @@ compressed by the weight above pushes back.
 4. Every transfer moves `floor(|T|·K·UNIT)` units from one cell to the other. Order-independent and
    exact.
 
+5. **Surfaces level** (after the pipes, every substep). Each group of connected free surfaces —
+   neighbouring columns whose resting water overlaps, not capped by rock — moves volume from columns above
+   the group's mean level to those below it: 2.5% of each difference per substep (most of it closed in a
+   sixth of a second), skipped once a group is within 1/32 of a cell, so still water sleeps. Taken from the
+   top of high columns, given to the top of low ones (past a full cell, held there as pressure). Exact.
+   - **Why:** the author wants surfaces almost completely flat. Momentum alone levels a surface no faster
+     than a gravity wave crosses it, so a breached reservoir stood as a long slope for seconds, with bulges
+     and dips; Terraria's water reads flat because its levelling averages seven cells at once. Pressure,
+     openings, falls and U-bends (whose legs don't share a surface) stay with the pipes.
+   - A breach's surface is within 6 art px of flat a second after it opens and within 1 by two seconds
+     (76 px at one second without this).
+   - Giving the excess to the open cell above a full top cell stood it up as a peak; held as pressure, it
+     spreads through the pipes.
+
 **Parameters (water).** `g = 92` cells/s² (the player's 736 art px/s²), `HZ = 240`, `ε = 0.01`,
 `keep` = 20% retained per second, film threshold 2% of a cell. Stable while `Δt·√(g/ε) ≤ 0.6`.
 
@@ -181,6 +195,8 @@ differs inside it is shading, blended per pixel.
   cell between two falling ones is drawn wet, so a trickle's packets don't break into dashes.
 - **Rock in a sample** takes the value of the water beside it in the same sample (across the row first,
   then up or down, then diagonally), so water meets walls and floors flush and never leaks through one.
+- **Flow is read from cells that hold water.** A face out of an empty cell still carries a speed (gravity
+  accelerates it with nothing to move); counted as flow, it boosted pool surface cells into peaks.
 - **Films** on rock under 1.5 px aren't drawn: a drained pool left hairlines along its floor.
 
 **Still water.**
@@ -195,7 +211,9 @@ differs inside it is shading, blended per pixel.
 Where the interpolated falling amount passes ½, it shows from a fill of 0.2 and is fully dense by 0.65; a
 thinner pixel is drawn only when noise sliding down at the fall's speed (in 2 px droplets) says so, so a
 trickle reads as droplets falling, a thick pour as solid water, with a few light streaks riding down it.
-Falling water isn't air to the pool's outline: the outline stops where a fall joins a pool instead of
+Only water falling with something other than water beside it, and fed from above, is falling water:
+shaded inside a surge, its pockets hung under the surface as arrows, and a lone drop settling onto a pool
+fuzzed the surface. Falling water isn't air to the pool's outline: the outline stops where a fall joins a pool instead of
 wrapping it. **Foam** flickers on a pool's outline where a fall comes into it.
 
 - **Why:** outlined like pools, falls read as separate ribbons and trickles as cartoon lines against the
@@ -242,6 +260,8 @@ no dry row between the hole and where it lands.
 - water falls: nothing stays resting on air for a tenth of a second (a landing's bounce may turn around
   there), and a dropped block lands;
 - a trickle falls fast, not in slow packets (fails when falling faces are braked by the limiter);
+- a breached reservoir stays nearly flat while it levels: within 6 art px at one second, 1 at two (fails
+  without surface levelling: 76 px);
 - a heap levels flat to within a pixel;
 - both legs of a U-bend level (fails without pressure);
 - every gap in a breached wall pours at once (fails when only a surface can spread);

@@ -59,6 +59,13 @@ export const LAVA_PARAMS: LiquidParams = {
   film: 0.08,
 };
 
+/** Surface levelling: how much of a column's difference from its group's mean level moves each substep
+ * (about a sixth of a second to close most of a difference), the difference under which a group counts as
+ * flat and is left alone (so still water can sleep), and the least water that counts as a surface. */
+const LEVEL_FRACTION_PER_SUBSTEP = 0.025;
+const LEVEL_DEAD_BAND = 1 / 32;
+const LEVEL_MINIMUM_UNITS = UNIT / 50;
+
 /** Faces move at most this much of a cell per substep: the explicit step's stability limit. */
 const MAX_CELLS_PER_SUBSTEP = 0.5;
 /**
@@ -238,6 +245,121 @@ export function createLiquid(
     planFlows();
     sumOutflows();
     moveVolume();
+    levelSurfaces();
+  }
+
+  /**
+   * Free surfaces stay nearly flat. Momentum alone levels a surface no faster than a gravity wave crosses
+   * it, so a breached pool stood as a long slope for seconds, with bulges and dips all over it; the author
+   * wants water that reads flat, as Terraria's does (its levelling averages across seven cells at once).
+   * Each group of connected surfaces — neighbouring columns whose resting water overlaps — moves volume
+   * from columns above the group's mean level to columns below it, a fraction of the difference each
+   * substep. Exact: what's taken from the high columns is exactly what's given to the low ones.
+   */
+  function levelSurfaces(): void {
+    const members: { column: number; run: WaterRun }[] = [];
+    const firstOfColumn = new Int32Array(width + 1);
+    for (let column = 0; column < width; column++) {
+      firstOfColumn[column] = members.length;
+      for (const run of waterRuns(self, column, LEVEL_MINIMUM_UNITS)) {
+        const aboveRow = run.topRow - 1;
+        const capped = aboveRow < 0 || rock[aboveRow * width + column] === 1;
+        if (!capped) members.push({ column, run });
+      }
+    }
+    firstOfColumn[width] = members.length;
+    if (members.length < 2) return;
+    // group members whose runs overlap in neighbouring columns
+    const parent = members.map((_, index) => index);
+    const find = (index: number): number => {
+      while (parent[index] !== index) {
+        parent[index] = parent[parent[index]];
+        index = parent[index];
+      }
+      return index;
+    };
+    for (let column = 0; column + 1 < width; column++) {
+      for (let a = firstOfColumn[column]; a < firstOfColumn[column + 1]; a++) {
+        for (let b = firstOfColumn[column + 1]; b < firstOfColumn[column + 2]; b++) {
+          const first = members[a].run;
+          const second = members[b].run;
+          const overlap =
+            Math.max(first.topRow, second.topRow) <= Math.min(first.bottomRow, second.bottomRow);
+          if (!overlap) continue;
+          const rootA = find(a);
+          const rootB = find(b);
+          if (rootA !== rootB) parent[Math.max(rootA, rootB)] = Math.min(rootA, rootB);
+        }
+      }
+    }
+    const groups = new Map<number, number[]>();
+    members.forEach((_, index) => {
+      const root = find(index);
+      const group = groups.get(root);
+      if (group) group.push(index);
+      else groups.set(root, [index]);
+    });
+    for (const group of groups.values()) {
+      if (group.length < 2) continue;
+      let sum = 0;
+      let highest = Infinity;
+      let lowest = -Infinity;
+      for (const index of group) {
+        const surface = members[index].run.surface;
+        sum += surface;
+        highest = Math.min(highest, surface);
+        lowest = Math.max(lowest, surface);
+      }
+      if (lowest - highest < LEVEL_DEAD_BAND) continue;
+      const target = sum / group.length;
+      // take from the columns standing above the target
+      let taken = 0;
+      for (const index of group) {
+        const { column, run } = members[index];
+        const excess = target - run.surface; // cells above the target
+        if (excess <= 0) continue;
+        taken += removeFromTop(column, run, Math.floor(excess * LEVEL_FRACTION_PER_SUBSTEP * UNIT));
+      }
+      if (taken === 0) continue;
+      // give it to the columns below it, in proportion to how far below; the remainder to the lowest
+      let deficitTotal = 0;
+      let lowestIndex = group[0];
+      for (const index of group) {
+        const deficit = members[index].run.surface - target;
+        if (deficit > 0) deficitTotal += deficit;
+        if (members[index].run.surface > members[lowestIndex].run.surface) lowestIndex = index;
+      }
+      let given = 0;
+      for (const index of group) {
+        const deficit = members[index].run.surface - target;
+        if (deficit <= 0) continue;
+        const units = Math.floor((taken * deficit) / deficitTotal);
+        addToTop(members[index].column, members[index].run, units);
+        given += units;
+      }
+      addToTop(members[lowestIndex].column, members[lowestIndex].run, taken - given);
+    }
+  }
+
+  /** Take up to `units` from the top of a run, top cell first. Returns what was taken. */
+  function removeFromTop(column: number, run: WaterRun, units: number): number {
+    let remaining = units;
+    for (let row = run.topRow; row <= run.bottomRow && remaining > 0; row++) {
+      const index = row * width + column;
+      const taken = Math.min(volume[index], remaining);
+      volume[index] -= taken;
+      remaining -= taken;
+    }
+    return units - remaining;
+  }
+
+  /**
+   * Add `units` to the top of a run. Past a full cell it's held there as pressure, which spreads it
+   * sideways through the pipes: put into the open cell above instead, it stood up as a peak on the surface.
+   */
+  function addToTop(column: number, run: WaterRun, units: number): void {
+    if (units <= 0) return;
+    volume[run.topRow * width + column] += units;
   }
 
   function stopFacesAround(index: number): void {
@@ -263,7 +385,7 @@ export function createLiquid(
     volume[index] = 0;
   }
 
-  return {
+  const self: Liquid = {
     width,
     height,
     volume,
@@ -281,6 +403,7 @@ export function createLiquid(
       return sum;
     },
   };
+  return self;
 }
 
 export interface WaterRun {

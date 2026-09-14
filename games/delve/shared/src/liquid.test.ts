@@ -212,6 +212,24 @@ describe('the cell-pipe liquid', () => {
     expect(Math.abs(surfaceAt(liquid, 36) - surfaceAt(liquid, 2)) * 8).toBeLessThan(1);
   });
 
+  it('keeps a breached reservoir nearly flat while it levels, not a long slope', () => {
+    const { liquid, at } = scene(
+      box(40, 20, (column, row) => (column === 16 ? '#' : column < 16 && row >= 6 ? '~' : '.')),
+    );
+    for (let row = 0; row < 19; row++) liquid.setSolid(at(16, row), false);
+    const spreads: number[] = [];
+    for (let tenth = 1; tenth <= 20; tenth++) {
+      run(liquid, 0.1);
+      const surfaces = Array.from({ length: 38 }, (_, index) =>
+        surfaceAt(liquid, index + 1),
+      ).filter((s) => !Number.isNaN(s));
+      spreads.push((Math.max(...surfaces) - Math.min(...surfaces)) * 8);
+    }
+    // a second after the breach, the whole surface is within a few art px of flat, and at two seconds within one
+    expect(spreads[9]).toBeLessThan(6);
+    expect(spreads[19]).toBeLessThan(1);
+  });
+
   it('drains a pool through a hole in its floor as a connected stream', () => {
     // a pool on a shelf over a cave, a one-cell hole dug in the middle of its floor
     const { liquid, at } = scene(
