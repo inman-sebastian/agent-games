@@ -13,9 +13,17 @@
 // `stats()`, but there is currently no way to RAISE them — the coin shop that used to has been
 // removed. A future progression pass will wire new (non-monetary) ways to level them up; the
 // plumbing is kept in place for that.
-import { blockAt, solidAt, WIDTH, surfaceAt, SUB } from './blocks';
+import {
+  blockAt,
+  solidAt,
+  surfaceAt,
+  worldColumns,
+  DEFAULT_WORLD_SIZE,
+  FLOOR,
+  SUB,
+} from './blocks';
 import { tileRand } from './rng';
-import type { Input, SimEvent, WorldState, PlayerState, Session } from './types';
+import type { Input, SimEvent, WorldState, PlayerState, Session, WorldSize } from './types';
 
 export * from './blocks';
 
@@ -93,9 +101,9 @@ export function isRich(seed: number, column: number, row: number, fortune: numbe
   return tileRand(seed ^ FORTUNE_SALT, column, row) < fortune;
 }
 
-/** A fresh shared world for `seed`. */
-export function newWorld(seed: number): WorldState {
-  return { seed: seed >>> 0 || 1, dug: {}, dmg: {} };
+/** A fresh shared world for `seed`, at a size preset fixed from here on. */
+export function newWorld(seed: number, size: WorldSize = DEFAULT_WORLD_SIZE): WorldState {
+  return { seed: seed >>> 0 || 1, size, dug: {}, dmg: {} };
 }
 
 /** The row the feet rest on at `x`: one below the highest surface the body spans. */
@@ -110,14 +118,18 @@ function groundUnder(seed: number, x: number, hw: number): number {
 }
 
 /**
- * A fresh player, standing on the surface at the centre column.
+ * A fresh player, standing on the surface at the world's centre column.
  *
- * Takes the seed because the surface is a heightmap: where the ground is depends on the world. (It
- * defaults to 1, which is a trap — a spawn for one world placed in another is mid-air or in rock.
- * hydrate's fallback fell into it; pass the world's seed.)
+ * Takes the world because the surface is a heightmap and the width is a preset: where the ground is,
+ * and where the centre is, both depend on it. (It used to default the seed to 1, which is a trap — a
+ * spawn for one world placed in another is mid-air or in rock. hydrate's fallback fell into it.)
  */
-export function newPlayer(seed = 1, body?: { hw: number; hh: number }): PlayerState {
-  const startColumn = (WIDTH - 1) >> 1;
+export function newPlayer(
+  world: Pick<WorldState, 'seed' | 'size'>,
+  body?: { hw: number; hh: number },
+): PlayerState {
+  const { seed } = world;
+  const startColumn = (worldColumns(world.size) - 1) >> 1;
   return {
     x: startColumn + 0.5, // player CENTRE (tile units); starts on the surface
     // Feet resting exactly on the first solid row, DERIVED from the body height rather than picked.
@@ -205,8 +217,9 @@ export function unstick(
 }
 
 /** A fresh single-player session (world + player) for `seed`. */
-export function newSession(seed: number): Session {
-  return { world: newWorld(seed), player: newPlayer(seed) };
+export function newSession(seed: number, size: WorldSize = DEFAULT_WORLD_SIZE): Session {
+  const world = newWorld(seed, size);
+  return { world, player: newPlayer(world) };
 }
 
 export const key = (column: number, row: number): string => `${column},${row}`;
@@ -214,9 +227,32 @@ export const key = (column: number, row: number): string => `${column},${row}`;
 export const isDug = (world: WorldState, column: number, row: number): boolean =>
   row <= surfaceAt(world.seed, column) || !!world.dug[key(column, row)];
 
-/** A cell blocks the player when it's static-solid and not yet dug. */
+/** Whether a column is inside the world's width (#58). */
+export const inColumns = (world: WorldState, column: number): boolean =>
+  column >= 0 && column < worldColumns(world.size);
+
+/**
+ * A cell blocks the player when it's static-solid and not yet dug — or when it lies past either edge
+ * of the world, sky included.
+ *
+ * ponytail: the edge is a plain collision wall for now. The design's boundary is layered (ocean,
+ * breath, a death timer at the true edge — DESIGN.md), and a wall is exactly the traversal constraint
+ * it warns equipment will defeat. It stands only because none of those layers exist yet and nothing
+ * can defeat it; the death timer (#60) replaces it.
+ */
 export const solidCell = (world: WorldState, column: number, row: number): boolean =>
-  solidAt(world.seed, column, row) && !isDug(world, column, row);
+  !inColumns(world, column) || (solidAt(world.seed, column, row) && !isDug(world, column, row));
+
+/**
+ * THE rule for whether a cell can be mined — the sim, the server and the client's reticle all ask this.
+ * Rock that is actually there, inside the world's width and above the bedrock floor (#57, #58). Past
+ * the edges the terrain still renders, and below the floor bedrock does; neither ever breaks.
+ */
+export const mineable = (world: WorldState, column: number, row: number): boolean =>
+  inColumns(world, column) &&
+  row < FLOOR * SUB &&
+  solidAt(world.seed, column, row) &&
+  !isDug(world, column, row);
 
 interface Stats {
   power: number;
@@ -254,8 +290,9 @@ export function mineTile(
   const { world, player } = session;
   // Only rock that is actually there: not open sky (the surface is a heightmap, so that is not one
   // row), and not a cell already dug — which this used to break again, minting its ore a second time.
-  // The one caller checked first, but a guard every caller must remember isn't a guard.
-  if (!solidCell(world, column, row)) return false;
+  // The one caller checked first, but a guard every caller must remember isn't a guard. Nor bedrock,
+  // nor anything past the world's edge (#57, #58).
+  if (!mineable(world, column, row)) return false;
   const block = blockAt(world.seed, column, row);
   const cellKey = key(column, row);
   if (player.digKey !== cellKey) {
@@ -443,7 +480,7 @@ export function physicsStep(
   // exactly.
   if (input.mine) {
     const { column, row } = input.mine;
-    if (withinReach(player, column, row) && solidCell(world, column, row)) mine(column, row);
+    if (withinReach(player, column, row) && mineable(world, column, row)) mine(column, row);
   }
 
   // --- jump (after ground state is known this frame) ---

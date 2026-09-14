@@ -4,13 +4,13 @@
 // exactly the same rule to its save of record.
 import * as engine from '@delve/shared';
 import { hydrate, toSave } from '@delve/shared';
-import type { Session } from '@delve/shared';
+import type { Session, WorldSize } from '@delve/shared';
 
 export const SAVE_KEY = 'delve.save.v1';
 
-/** A brand-new session on a random seed. */
-export function fresh(): Session {
-  return engine.newSession((Math.random() * 2 ** 31) >>> 0);
+/** A brand-new session on a random seed, at a size preset (the default when not chosen). */
+export function fresh(size?: WorldSize): Session {
+  return engine.newSession((Math.random() * 2 ** 31) >>> 0, size);
 }
 
 export function load(): Session | null {

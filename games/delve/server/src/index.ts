@@ -27,7 +27,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer, WebSocket } from 'ws';
 import sirv from 'sirv';
-import { newSession, physicsStep, TICK_DT } from '@delve/shared';
+import { newSession, physicsStep, isWorldSize, TICK_DT } from '@delve/shared';
 import { WS_PATH, PROTOCOL_VERSION } from '@delve/shared';
 import type { ClientMessage, ServerMessage, Input, Session, PlayerState } from '@delve/shared';
 import { loadSave, persistSave } from './store';
@@ -183,7 +183,8 @@ function parseClientMessage(raw: string): ClientMessage | null {
     const command = m.command as Record<string, unknown> | null | undefined;
     if (typeof command !== 'object' || command === null) return null;
     if (command.kind === 'newGame' && finiteNumber(command.seed)) {
-      return { t: 'command', command: { kind: 'newGame', seed: command.seed >>> 0 } };
+      const size = isWorldSize(command.size) ? command.size : undefined;
+      return { t: 'command', command: { kind: 'newGame', seed: command.seed >>> 0, size } };
     }
     return null;
   }
@@ -377,7 +378,7 @@ wss.on('connection', (ws) => {
       const command = msg.command;
       client.dirty = true; // ensure the resulting state change is broadcast even with no inputs in flight
       if (command.kind === 'newGame') {
-        attachSession(newSession(command.seed), true); // client re-hydrates from the hello
+        attachSession(newSession(command.seed, command.size), true); // client re-hydrates from the hello
         persistSave(client.playerId, client.session!);
       }
       return;

@@ -1,16 +1,13 @@
 // blocks.ts — the world DEFINITION: bounds, block types (strata + ore), procedural
-// generation, and the one canonical query for "what is at (seed, column, row)". The world is
-// INFINITE in every direction and never stored — every cell's static contents are a pure
-// function of (seed, column, row). Dynamic state (dug cells, in-progress damage) is NOT here;
+// generation, and the one canonical query for "what is at (seed, column, row)". The world is never
+// stored — every cell's static contents are a pure function of (seed, column, row), and that
+// function is defined EVERYWHERE, past the world's edges too, so the terrain renders beyond them.
+// The bounds themselves (WORLD_SIZES, FLOOR) are declared here but enforced by the sim. Dynamic state (dug cells, in-progress damage) is NOT here;
 // it lives in the save and is layered over these coordinates by the sim.
 import './resources/index'; // side-effect: registers every strata + ore before we read them
 import { all } from './registry';
 import { tileRand, vnoise } from './rng';
-import type { Block, OreResource, StrataResource } from './types';
-
-// The world is UNBOUNDED horizontally (see blockAt/solidAt) — there are no side walls. WIDTH
-// is retained only as a convenient default view span for the dev tools; it does NOT bound the
-// world.
+import type { Block, OreResource, StrataResource, WorldSize } from './types';
 /**
  * Cells per BLOCK edge — the 2x2 split (#44).
  *
@@ -30,8 +27,41 @@ export const SUB = 2;
 /** A cell coordinate down to the block that owns it. */
 export const blockOf = (cell: number): number => Math.floor(cell / SUB);
 
-/** World width in CELLS. The generator still thinks in 82 blocks. */
+/** A default VIEW span in cells for the dev tools and labs. Not the world's width — see `WORLD_SIZES`. */
 export const WIDTH = 82 * SUB;
+
+/**
+ * The size presets (#63), in BLOCKS. A world is columns `[0, width)`; `players` is its cap, recorded
+ * but not enforced until shared worlds exist (#13).
+ *
+ * The widths follow Terraria's 1 : 1.5 : 2, and are a starting point to tune by playing. The caps are
+ * BIOMES.md's: content scales with players rather than area, so every preset should feel equally
+ * full. Depth is NOT here, deliberately — strata and ore bands are absolute depths, so every preset
+ * shares one `FLOOR`.
+ */
+export const WORLD_SIZES: Readonly<
+  Record<WorldSize, { readonly width: number; readonly players: number }>
+> = {
+  small: { width: 1600, players: 4 },
+  medium: { width: 2400, players: 8 },
+  large: { width: 3200, players: 16 },
+};
+
+export const DEFAULT_WORLD_SIZE: WorldSize = 'medium';
+
+/** Whether untrusted data (a save, a wire message) names a real preset. */
+export const isWorldSize = (value: unknown): value is WorldSize =>
+  typeof value === 'string' && Object.hasOwn(WORLD_SIZES, value);
+
+/** A preset's width in CELLS. */
+export const worldColumns = (size: WorldSize): number => WORLD_SIZES[size].width * SUB;
+
+/**
+ * The first BLOCK row of bedrock (#57) — the floor, and so the world's max depth. Everything at or
+ * below it is solid and can never be mined. Just under the deepest ore bands (obsidian, mythril);
+ * the Molten Core's lava ocean will sit on it (BIOMES.md). The bedrock stratum's `top` must match.
+ */
+export const FLOOR = 700;
 
 /**
  * The MEAN surface row. The actual surface undulates around it per column — see `surfaceAt`.
@@ -225,8 +255,9 @@ const OPEN: Block = Object.freeze({
 });
 
 /**
- * THE canonical world query — the full static descriptor of a cell. Any column below the
- * surface is solid rock (no side walls). Dynamic dug/damage state is layered on by the sim.
+ * THE canonical world query — the full static descriptor of a cell. Any column below the surface is
+ * solid rock, inside the world's bounds or not: whether a cell can be MINED is the sim's `mineable`.
+ * Dynamic dug/damage state is layered on by the sim.
  */
 export function blockAt(seed: number, column: number, row: number): Block {
   if (row <= surfaceAt(seed, column)) return OPEN;

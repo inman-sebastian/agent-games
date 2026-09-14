@@ -306,6 +306,27 @@ describe('the server survives what it is sent', () => {
     next.ws.close();
   });
 
+  it('a new game is created at the size the client asked for, and only a real preset is trusted', async () => {
+    const conn = await connect();
+    sendMsg(conn, { t: 'join', protocol: PROTOCOL_VERSION, playerId: 'sizer', seed: 6 });
+    await waitUntil(() => conn.hello !== null, 4000, 'hello');
+    expect(conn.hello!.snapshot.world.size, 'a join with no save is the default size').toBe(
+      'medium',
+    );
+
+    conn.hello = null;
+    sendMsg(conn, { t: 'command', command: { kind: 'newGame', seed: 7, size: 'small' } });
+    await waitUntil(() => conn.hello !== null, 4000, 'hello after newGame');
+    expect(conn.hello!.snapshot.world.size).toBe('small');
+    expect(conn.hello!.snapshot.world.seed).toBe(7);
+
+    conn.hello = null;
+    conn.ws.send('{"t":"command","command":{"kind":"newGame","seed":8,"size":"colossal"}}');
+    await waitUntil(() => conn.hello !== null, 4000, 'hello after a bogus size');
+    expect(conn.hello!.snapshot.world.size).toBe('medium');
+    conn.ws.close();
+  });
+
   it('loads a save from before later fields existed, and can mine in it', async () => {
     // Written the way an old build wrote it: no `tech`, no `log`. The server used to simulate the
     // raw JSON, so the first dig called stats() → `player.tech.lantern` → the clock threw.
