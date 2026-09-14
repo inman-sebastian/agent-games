@@ -1,7 +1,7 @@
 {
   "name": "delve",
   "version": "1.0.0",
-  "description": "A pixel-art incremental mining game — dig deeper, get richer.",
+  "description": "A pixel-art incremental mining game \u2014 dig deeper, get richer.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "format": "prettier --write \"**/*.{ts,html,css,md,json}\"",
     "test": "vitest run",
     "test:watch": "vitest",
-    "sim": "tsx tools/sim.ts"
+    "sim": "tsx tools/sim.ts",
+    "probe": "tsx tools/probe.ts"
   },
   "dependencies": {
     "@delve/shared": "workspace:*"

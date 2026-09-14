@@ -1,9 +1,9 @@
 # DELVE dev tools
 
-Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Use these
-(and the tests) first — Playwright / MCP is a last resort.** Reading browser-automation
-screenshots (especially full-viewport or hi-DPI) is slow and burns tokens; these answer almost
-every question in text or a tiny cropped PNG.
+Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Which one to
+reach for is decided by the [`delve-testing`](../.claude/skills/delve-testing/SKILL.md) skill** —
+this file is the reference for how each one works. Playwright / browser MCP is the last resort
+there, behind a written reason; these answer almost every question in text or a tiny cropped PNG.
 
 > **Automated testing is separate.** The gate is `pnpm test` (Vitest — sim/world-gen fuzz,
 > the client↔server protocol e2e, and DOM). See [`docs/TESTING.md`](../docs/TESTING.md). The
@@ -88,6 +88,37 @@ they immediately discarded, which no amount of reading the code had suggested. N
 Chrome caps rAF at ~30fps regardless of load, so read `frame`, not `fps`, unless you're on real
 hardware.
 
+## `probe.ts` — the running game, as text (no MCP)
+
+`pnpm probe <page> [flags]` runs a page in headless Chrome, drives it with **trusted** input over the
+DevTools protocol, and prints JSON. It fills the gap between `shot.sh` (pixels) and a browser MCP
+session: before it, any question that needed a number from the live game — frame time, net status,
+where the player ends up after holding a key, a lab's verdict — could only be answered with
+Playwright, which is why "Playwright is a last resort" kept being broken. Needs `pnpm dev`
+(`PROBE_BASE` to point elsewhere; `CHROME` to pick the binary).
+
+```sh
+pnpm probe index.html --play --grep "^(fps|phase|light field)"
+pnpm probe index.html --size 3400x1900 --play --wait 4000 --grep "^(fps|phase)"
+pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
+pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"
+pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"
+```
+
+| Flag                      |                                                                                                                                                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--play`                  | skip the title screen (`?play=1`)                                                                                                                            |
+| `--debug`                 | open the debug panel (implied by `--overlay`, `--grep` and `aim:` steps)                                                                                     |
+| `--size WxH`              | viewport in CSS px, default 1280x800                                                                                                                         |
+| `--wait ms`               | settle after load, before steps (default 2500)                                                                                                               |
+| `--do "steps"`            | `key:<code>:<ms>` · `tap:<code>` · `click:<selector>` · `mouse:<x>,<y>:<ms>` · `aim:<dc>,<dr>:<ms>` (pointer on a cell relative to the player) · `wait:<ms>` |
+| `--overlay` / `--grep re` | the debug overlay's lines, all or matching                                                                                                                   |
+| `--eval js`               | an expression evaluated in the page (repeatable); its JSON value is printed                                                                                  |
+
+Each run is a fresh browser profile, so a fresh player id and therefore a fresh world. Page errors
+thrown during the run are reported as `pageErrors`. If it can't express something you need, extend
+it — that is the point of having it.
+
 ## `client/labs/render.html` + `shot.sh` — precise cropped renders (no MCP)
 
 `client/labs/render.html` draws EXACTLY one world region through the shared render modules
@@ -168,6 +199,6 @@ flood-fill), how occluders shadow, and how the additive cap reads. Open it in a 
 or `shot.sh` a frame. Keys: **H** toggle hue-preserving vs per-channel cap · **Space** pause
 · **O** toggle occluders.
 
-**Rule of thumb:** run `pnpm test` and reach for `sim.ts` first (free, text); render a crop only
-when you truly need pixels, and keep `w`/`h`/`scale` small. Playwright only as a last
-resort.
+**Rule of thumb:** a question about a rule is a failing test; about the world, `sim`; about a look,
+a small `shot.sh` crop; about the running game, `probe`. A browser MCP session only after writing why
+none of those can answer it — the full ladder is the `delve-testing` skill.
