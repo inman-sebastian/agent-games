@@ -13,6 +13,7 @@ import {
   kindOf,
   liquid,
   stepFluid,
+  createFluidGrid,
   type FluidGrid,
   type PassLog,
 } from './rule';
@@ -25,7 +26,7 @@ function makeGrid(
   const solid = new Uint8Array(width * height);
   for (let y = 0; y < height; y++)
     for (let x = 0; x < width; x++) solid[y * width + x] = rock(x, y) ? 1 : 0;
-  return { width, height, state: new Uint32Array(width * height), solid };
+  return createFluidGrid(width, height, solid);
 }
 
 function pour(grid: FluidGrid, x: number, y: number, kind: number, right = true): void {
@@ -97,11 +98,11 @@ describe('the pixel fluid rule', () => {
           for (let i = 0; i < grid.state.length; i++) {
             if (grid.solid[i]) expect(grid.state[i]).toBe(before[i]);
           }
-          // IN MOTION: a sideways move starts from a pixel standing on something — before the pass, or
-          // after it when what it stands on slid in underneath this very pass
+          // IN MOTION: a sideways move starts from a pixel standing on something — in the fallen state
+          // the flow stage read, or after the pass when what it stands on slid in underneath this very pass
           for (const { x, y } of log.sideways) {
             const supported =
-              occupiedIn(grid, before, x, y + 1) || occupiedIn(grid, grid.state, x, y + 1);
+              occupiedIn(grid, log.fallen!, x, y + 1) || occupiedIn(grid, grid.state, x, y + 1);
             expect(supported, `unsupported sideways move from ${x},${y} on pass ${pass}`).toBe(
               true,
             );
@@ -115,7 +116,7 @@ describe('the pixel fluid rule', () => {
   it('is deterministic', () => {
     fc.assert(
       fc.property(worldArb, ({ grid, firstPass }) => {
-        const copy: FluidGrid = { ...grid, state: grid.state.slice() };
+        const copy: FluidGrid = { ...grid, state: grid.state.slice(), head: grid.head.slice() };
         for (let pass = firstPass; pass < firstPass + 30; pass++) {
           stepFluid(grid, pass);
           stepFluid(copy, pass);
@@ -126,7 +127,7 @@ describe('the pixel fluid rule', () => {
     );
   });
 
-  it('settles a pour in a basin: it stops changing, every row under the top is full, and the top row is the rest', () => {
+  it('settles a pour in a basin: it stops changing, and it is flat to one pixel', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 3, max: 40 }),
@@ -165,16 +166,23 @@ describe('the pixel fluid rule', () => {
               if (kindOf(grid.state[y * grid.width + x]) === WATER) filled++;
             return filled;
           };
-          const fullRows = Math.floor(volume / width);
-          const remainder = volume % width;
+          // flat to one pixel: every row more than one below the surface is full, and nothing is above it.
+          // (A stray pixel can rest a row up when the gap it would fill is beyond its sight — FLUIDS.md.)
           const floor = height - 2;
-          for (let row = 0; row < fullRows; row++)
-            expect(inside(floor - row), `row ${row} up`).toBe(width);
-          expect(inside(floor - fullRows)).toBe(remainder);
-          for (let y = 0; y < floor - fullRows; y++) expect(inside(y)).toBe(0);
+          let surface = floor;
+          while (surface > 0 && inside(surface - 1) > 0) surface--;
+          for (let y = surface + 2; y <= floor; y++)
+            expect(inside(y), `row ${y}, surface ${surface}`).toBe(width);
+          for (let y = 0; y < surface; y++) expect(inside(y)).toBe(0);
+          expect(floor - surface + 1).toBeLessThanOrEqual(Math.ceil(volume / width) + 1);
         },
       ),
-      { numRuns: 40 },
+      {
+        numRuns: 40,
+        // found by this property: a stray pixel on a partial top row counted as pressure, pushed the pixel
+        // under it into the row's gaps, and the pool never settled (underPressure needs MORE than a pixel)
+        examples: [[10, 118, 961]],
+      },
     );
   });
 
@@ -224,6 +232,41 @@ describe('the pixel fluid rule', () => {
     expect(waterIn(grid, 1, inside, floor - 2)).toBe(inside);
     expect(waterIn(grid, 1, inside, floor - 3)).toBe(60 - 2 * inside);
     expect(waterIn(grid, 1, inside, floor - 4)).toBe(0);
+  });
+
+  it('keeps a falling column whole: a stream falls together, not as scattered pixels', () => {
+    const height = 60;
+    const grid = makeGrid(3, height, (x, y) => x !== 1 || y === height - 1);
+    for (let y = 2; y < 14; y++) pour(grid, 1, y, WATER);
+    for (let pass = 0; pass < 40; pass++) {
+      stepFluid(grid, pass);
+      const column = Array.from(
+        { length: height },
+        (_, y) => kindOf(grid.state[y * 3 + 1]) !== EMPTY,
+      );
+      const top = column.indexOf(true);
+      // twelve pixels in one unbroken run, every pass
+      expect(column.slice(top, top + 12).every(Boolean), `pass ${pass}`).toBe(true);
+      expect(column.filter(Boolean).length).toBe(12);
+    }
+  });
+
+  it('collapses a dug-away dam face under its own head, instead of draining through a one-pixel curtain', () => {
+    // a settled pool 39 wide and 40 deep, its right side open onto a long floor
+    const width = 100;
+    const height = 44;
+    const floor = height - 1;
+    const grid = makeGrid(width, height, (x, y) => y === floor || x === 0 || x === width - 1);
+    for (let y = 3; y < floor; y++) {
+      for (let x = 1; x < 40; x++) grid.state[y * width + x] = liquid(WATER, (x + y) % 2 === 0, 0);
+    }
+    for (let pass = 0; pass < 50; pass++) stepFluid(grid, pass);
+    let beyond = 0;
+    for (let y = 0; y < floor; y++) {
+      for (let x = 45; x < width; x++) if (kindOf(grid.state[y * width + x]) === WATER) beyond++;
+    }
+    // measured at #87: 187 pixels past x = 45 after 50 passes with the head field, 50 without it
+    expect(beyond).toBeGreaterThan(120);
   });
 
   it('sinks lava through water, and lava falls slower than water', () => {

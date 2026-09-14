@@ -1,12 +1,13 @@
 // fluid.ts — the pixel fluid on the GPU (#87): owns the state buffers and runs fluid.wgsl's passes, brushes
 // and drawing. The rule itself is client/src/fluid/rule.ts's; this only moves it onto a device.
 //
-// State ping-pongs between two buffers, one pass at a time. Each pass needs its own uniform buffer
-// (`queue.writeBuffer` calls all land before the command buffer runs), so up to MAX_PASSES_PER_STEP are
-// prepared up front and reused.
+// A pass is rule.ts's three stages as dispatches: `headSteps` head relaxations ping-ponging between two head
+// buffers, then fall (state → scratch) and flow (scratch → state), so the current state always ends where
+// it started. Each pass needs its own uniform buffer (`queue.writeBuffer` calls all land before the command
+// buffer runs), so up to MAX_PASSES_PER_STEP are prepared up front and reused.
 import noiseWgsl from './noise.wgsl?raw';
 import fluidWgsl from './fluid.wgsl?raw';
-import { DEFAULT_PARAMS, LAVA, WATER, type FluidParams } from '../../fluid/rule';
+import { DEFAULT_PARAMS, HEAD_UNITS, LAVA, WATER, type FluidParams } from '../../fluid/rule';
 
 const WORKGROUP = 8;
 export const MAX_PASSES_PER_STEP = 64;
@@ -44,15 +45,19 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       layout: 'auto',
       compute: { module, entryPoint },
     });
-  const stepPipeline = pipeline('fluid_step');
+  const headPipeline = pipeline('fluid_head');
+  const fallPipeline = pipeline('fluid_fall');
+  const flowPipeline = pipeline('fluid_flow');
   const brushPipeline = pipeline('fluid_brush');
   const pixels = width * height;
-  const storage = (usage = 0): GPUBuffer =>
+  const storage = (): GPUBuffer =>
     device.createBuffer({
       size: pixels * 4,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | usage,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-  const states = [storage(), storage()];
+  const stateBuffer = storage();
+  const scratch = storage();
+  const heads = [storage(), storage()];
   const solidBuffer = storage();
   const uniform = (bytes: number): GPUBuffer =>
     device.createBuffer({ size: bytes, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -63,33 +68,50 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
   const drawBuffer = uniform(8);
   device.queue.writeBuffer(drawBuffer, 0, new Uint32Array([width, height]));
 
-  // bind groups: one per (pass buffer, direction), and one brush group per state buffer
-  const stepGroups = passBuffers.map((passBuffer) =>
-    [0, 1].map((from) =>
-      device.createBindGroup({
-        layout: stepPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: passBuffer } },
-          { binding: 1, resource: { buffer: solidBuffer } },
-          { binding: 2, resource: { buffer: states[from] } },
-          { binding: 3, resource: { buffer: states[1 - from] } },
-        ],
+  const group = (
+    target: GPUComputePipeline | GPURenderPipeline,
+    entries: Record<number, GPUBuffer>,
+  ): GPUBindGroup =>
+    device.createBindGroup({
+      layout: target.getBindGroupLayout(0),
+      entries: Object.entries(entries).map(([binding, buffer]) => ({
+        binding: Number(binding),
+        resource: { buffer },
+      })),
+    });
+  // head: from head buffer h to 1 - h, against the state as the pass starts
+  const headGroups = [0, 1].map((h) =>
+    group(headPipeline, {
+      0: passBuffers[0],
+      1: solidBuffer,
+      2: stateBuffer,
+      4: heads[h],
+      5: heads[1 - h],
+    }),
+  );
+  const fallGroups = passBuffers.map((passBuffer) =>
+    group(fallPipeline, { 0: passBuffer, 1: solidBuffer, 2: stateBuffer, 3: scratch }),
+  );
+  // flow reads whichever head buffer the relaxation ended in
+  const flowGroups = passBuffers.map((passBuffer) =>
+    [0, 1].map((h) =>
+      group(flowPipeline, {
+        0: passBuffer,
+        1: solidBuffer,
+        2: scratch,
+        3: stateBuffer,
+        4: heads[h],
       }),
     ),
   );
-  const brushGroups = [0, 1].map((current) =>
-    device.createBindGroup({
-      layout: brushPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: { buffer: passBuffers[0] } },
-        { binding: 1, resource: { buffer: solidBuffer } },
-        { binding: 4, resource: { buffer: brushBuffer } },
-        { binding: 5, resource: { buffer: states[current] } },
-      ],
-    }),
-  );
+  const brushGroup = group(brushPipeline, {
+    0: passBuffers[0],
+    1: solidBuffer,
+    6: brushBuffer,
+    7: stateBuffer,
+  });
+  let currentHead = 0;
 
-  let current = 0;
   let pass = 0;
   let params: FluidParams = { ...DEFAULT_PARAMS };
 
@@ -142,7 +164,10 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       params = next;
     },
     reset(state) {
-      device.queue.writeBuffer(states[current], 0, state);
+      device.queue.writeBuffer(stateBuffer, 0, state);
+      const head = new Uint32Array(pixels);
+      for (let y = 0; y < height; y++) head.fill(y * HEAD_UNITS, y * width, (y + 1) * width);
+      device.queue.writeBuffer(heads[currentHead], 0, head);
       pass = 0;
     },
     setSolid(solid) {
@@ -153,12 +178,19 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       if (count === 0) return;
       const encoder = device.createCommandEncoder();
       const computePass = encoder.beginComputePass();
-      computePass.setPipeline(stepPipeline);
+      const dispatch = (pipeline: GPUComputePipeline, bindGroup: GPUBindGroup): void => {
+        computePass.setPipeline(pipeline);
+        computePass.setBindGroup(0, bindGroup);
+        computePass.dispatchWorkgroups(Math.ceil(width / WORKGROUP), Math.ceil(height / WORKGROUP));
+      };
       for (let k = 0; k < count; k++) {
         writePass(passBuffers[k], pass + k);
-        computePass.setBindGroup(0, stepGroups[k][current]);
-        computePass.dispatchWorkgroups(Math.ceil(width / WORKGROUP), Math.ceil(height / WORKGROUP));
-        current = 1 - current;
+        for (let h = 0; h < params.headSteps; h++) {
+          dispatch(headPipeline, headGroups[currentHead]);
+          currentHead = 1 - currentHead;
+        }
+        dispatch(fallPipeline, fallGroups[k]);
+        dispatch(flowPipeline, flowGroups[k][currentHead]);
       }
       computePass.end();
       device.queue.submit([encoder.finish()]);
@@ -177,7 +209,7 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       const encoder = device.createCommandEncoder();
       const computePass = encoder.beginComputePass();
       computePass.setPipeline(brushPipeline);
-      computePass.setBindGroup(0, brushGroups[current]);
+      computePass.setBindGroup(0, brushGroup);
       computePass.dispatchWorkgroups(Math.ceil(width / WORKGROUP), Math.ceil(height / WORKGROUP));
       computePass.end();
       device.queue.submit([encoder.finish()]);
@@ -187,8 +219,9 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       const group = device.createBindGroup({
         layout: renderPipeline.getBindGroupLayout(0),
         entries: [
-          { binding: 6, resource: { buffer: drawBuffer } },
-          { binding: 7, resource: { buffer: states[current] } },
+          { binding: 1, resource: { buffer: solidBuffer } },
+          { binding: 8, resource: { buffer: drawBuffer } },
+          { binding: 9, resource: { buffer: stateBuffer } },
         ],
       });
       const encoder = device.createCommandEncoder();
@@ -209,7 +242,7 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
       });
       const encoder = device.createCommandEncoder();
-      encoder.copyBufferToBuffer(states[current], 0, staging, 0, pixels * 4);
+      encoder.copyBufferToBuffer(stateBuffer, 0, staging, 0, pixels * 4);
       device.queue.submit([encoder.finish()]);
       await staging.mapAsync(GPUMapMode.READ);
       const copy = new Uint32Array(staging.getMappedRange().slice(0));
@@ -218,7 +251,15 @@ export function createGpuFluid(device: GPUDevice, width: number, height: number)
       return copy;
     },
     destroy() {
-      [...states, solidBuffer, ...passBuffers, brushBuffer, drawBuffer].forEach((b) => b.destroy());
+      [
+        stateBuffer,
+        scratch,
+        ...heads,
+        solidBuffer,
+        ...passBuffers,
+        brushBuffer,
+        drawBuffer,
+      ].forEach((b) => b.destroy());
     },
   };
 }

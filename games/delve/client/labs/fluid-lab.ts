@@ -19,6 +19,7 @@ import {
   kindOf,
   liquid,
   stepFluid,
+  createFluidGrid,
   type FluidGrid,
 } from '../src/fluid/rule';
 
@@ -174,12 +175,30 @@ function loadScene(index: number): void {
   const pending: [number, number, number, number, number, number][] = [];
   SCENES[sceneIndex].setup((...args) => pending.push(args));
   refreshRock();
+  // Each fill floods the open pixels connected to its rectangle, no higher than its top and at most a cell
+  // past its other sides — so the rock's eroded notches around a pool start full, as a generated lake's
+  // would. A rectangle alone leaves hundreds of open notch pixels, and pressure rightly drains the top
+  // rows into them, which scattered the surface into single-pixel spikes.
   for (const [x0, y0, x1, y1, kind, energy] of pending) {
-    for (let y = y0; y < y1; y++) {
-      for (let x = x0; x < x1; x++) {
-        const i = y * width + x;
-        if (solid[i]) continue;
-        state[i] = liquid(kind, (hashXY(x, y, 7) & 1) === 1, energy);
+    const inBounds = (x: number, y: number): boolean =>
+      x >= Math.max(0, x0 - T) &&
+      x < Math.min(width, x1 + T) &&
+      y >= y0 &&
+      y < Math.min(height, y1 + T);
+    const queue: number[] = [];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) queue.push(y * width + x);
+    while (queue.length > 0) {
+      const i = queue.pop()!;
+      const x = i % width;
+      const y = (i - x) / width;
+      if (solid[i] || kindOf(state[i]) !== 0) continue;
+      state[i] = liquid(kind, (hashXY(x, y, 7) & 1) === 1, energy);
+      for (const [nx, ny] of [
+        [x - 1, y],
+        [x + 1, y],
+        [x, y + 1],
+      ]) {
+        if (inBounds(nx, ny)) queue.push(ny * width + nx);
       }
     }
   }
@@ -294,7 +313,8 @@ async function parity(
   const wasPaused = paused;
   paused = true;
   fluid.reset(initialState);
-  const grid: FluidGrid = { width, height, state: initialState.slice(), solid };
+  const grid: FluidGrid = createFluidGrid(width, height, solid);
+  grid.state = initialState.slice();
   for (let pass = 0; pass < passes; pass++) stepFluid(grid, pass, params);
   runPasses(passes);
   const gpu = await fluid.read();
@@ -328,6 +348,21 @@ Object.assign(window, {
       refreshRock();
     },
     error: () => gpuError,
+    /** A text picture of a region: # rock, ~ water, * lava, . empty; lowercase-ish marks liquid inside rock. */
+    dump: async (x0: number, y0: number, x1: number, y1: number) => {
+      const state = await fluid.read();
+      const rows: string[] = [];
+      for (let y = y0; y < y1; y++) {
+        let row = '';
+        for (let x = x0; x < x1; x++) {
+          const i = y * width + x;
+          const kind = kindOf(state[i]);
+          row += solid[i] ? (kind ? '!' : '#') : kind === WATER ? '~' : kind === LAVA ? '*' : '.';
+        }
+        rows.push(row);
+      }
+      return rows;
+    },
   },
 });
 

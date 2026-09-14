@@ -53,66 +53,55 @@ that don't depend on the grid's resolution. The pixel model is built on them:
 6. **Test shapes in motion,** not only settled ones. Every whole-cell bug was a shape mid-flow that no
    settled-state test could see.
 
-## The model — a Margolus block automaton
+## The model — head, fall, flow
 
 **Why blocks.** A GPU updates every pixel at once, so two liquid pixels can't both be allowed to move
 into the same empty pixel. The standard answer for GPU falling-sand is the **Margolus neighbourhood**:
 tile the grid into 2×2 blocks, and on alternate passes shift the tiling by one pixel on both axes. Each
-block is updated as a unit, and **its rule only rearranges the four pixels inside it**, so:
-
-- **mass is conserved exactly**: a rearrangement can't create or destroy a pixel;
-- **nothing moves twice in a pass**, and nothing collides: each pixel belongs to exactly one block;
-- **every pixel's result is a pure function of the previous pass**, so the GPU and the TypeScript twin
-  agree exactly. Reading pixels outside the block is fine: everyone reads the same previous state.
-
-The shifting tiling lets movement cross block edges: a pixel moves at most one pixel a pass, in any
-direction, and the lab runs several passes a frame.
+block's rule only rearranges the four pixels inside it, so mass is conserved exactly and nothing moves
+twice. Every stage below reads only the stage before it, so the GPU and the TypeScript twin agree
+exactly.
 
 **A pixel's state** (a `u32`): its **kind** (empty, water, lava), a **direction** (left or right) and an
-**energy** (0–255). Rock isn't a state. It's the rock's own eroded pixel mask, the same one the
-renderer draws (`buildMask` / `mask_main`), so liquid meets the stone's visible edge, not a cell square.
-Outside the simulated area counts as rock.
+**energy** (0–255). Rock isn't a state. It's the rock's own eroded pixel mask, the same one the renderer
+draws (`buildMask` / `mask_main`), so liquid meets the stone's visible edge. Outside the grid counts as
+rock.
 
-**A block's rule**, applied in this order to the four pixels (top-left `a`, top-right `b`, bottom-left
-`c`, bottom-right `d`). Each liquid pixel only acts on a pass where its kind's **chance** comes up (a
-hash of position and pass: water every pass, lava about one in four):
+**A pass is three stages** (`rule.ts`):
 
-1. **Gravity.** In each column, liquid over an empty pixel swaps down. Lava over water swaps too: lava is
-   denser and sinks. Falling sets the pixel's energy to full.
-2. **Diagonal slide.** Liquid that couldn't fall, over an occupied pixel, moves to the empty diagonal
-   below it, but only if the pixel beside it is also empty, so it never squeezes between two diagonal
-   rock pixels. Within one block only one diagonal is possible; the alternating tiling gives the other
-   on the next pass. It's a fall, so energy is full again.
-3. **Sideways flow**, for liquid **standing on something** (lesson 2), into an empty pixel beside it
-   in the pixel's direction:
-   - **Pressurized** liquid (liquid above it) always flows. That's what empties a pool through a
-     breach in its wall. It leaves at full energy, because liquid pushed out of a pool is free to run.
-   - **Surface** liquid (nothing above) flows only while it has energy, and spends one per pixel. So
-     water landing on a pool runs along it and then **stops**: no skating forever, no jitter (lesson 4).
-   - Liquid that's **blocked** in its direction turns around, if it still has energy, and turning costs
-     energy too, so liquid boxed in on both sides comes to rest.
-   - **Out of energy, liquid still flows toward a drop it can see**: an empty pixel over empty space
-     within `sight` pixels (8, one cell) along its row, with nothing in the way. It turns to face a drop
-     behind it.
+1. **Head.** `headSteps` (4) relaxation steps of a **hydraulic head** field, the height of the surface
+   of the body a pixel is part of.
+   - Head flows only through **resting** liquid (liquid standing on something), so a falling stream
+     never pressurizes the pool it lands in (lesson 1).
+   - A step costs ¼ px sideways, 1 px up and nothing down. Every cycle costs something, so a head left
+     behind by a drained surface climbs back to the truth instead of circulating.
+   - A pixel is **under pressure** when its body's surface stands **more than one pixel** above it.
+     One pixel isn't pressure: a stray pixel on a pool's partial top row would otherwise push the
+     pixel under it into the row's gaps forever (found by the basin property).
+2. **Fall.** A run of liquid (up to 64 px) over an empty pixel falls one pixel, **all of it at once**.
+   - Every pixel of the run finds the same bottom, so the run moves together and a stream stays whole
+     instead of scattering into dots.
+   - The run's bottom pixel rolls its kind's chance, so lava falls a quarter as often.
+3. **Flow**, one Margolus block pass, in this order:
+   - **Lava sinks** through water.
+   - **Diagonal slide:** liquid over something moves to the empty diagonal below, past an empty side.
+   - **Sideways flow**, only for liquid **standing on something** (lesson 2):
+     - Under pressure, it flows toward the open side, at full energy.
+     - At the surface, it flows the way it faces while it has energy, spending one per pixel.
+       Turning around when blocked costs energy too, so surface liquid runs and then stops (lesson 4).
+     - Out of energy, it still flows toward a **drop it can see**: an empty pixel over empty space
+       within `sight` (8) pixels along its row. So a slope doesn't freeze like sand, while a flat
+       surface comes to rest.
 
-**Why sight exists** (found by the twin's tests). Without it, a settled pool whose wall was dug away
-froze into a **45° staircase**, like sand. The pixel at each one-pixel step had nothing above it (not
-pressurized), no energy left, and no empty diagonal, so nothing could move. That's the lava-pile
-failure again (lesson 3), in pixels. Sight lets a surface keep flowing while it can see a way down,
-and still lets a truly flat surface come to rest.
+**What that makes.**
 
-**What that makes.** A falling stream stays a stream (lesson 1). Landing water spreads along the floor
-at its own speed until it runs out of room or energy. A heap slides down its sides, because every step
-down is a fall that refills energy. A breached pool drains through the hole from the bottom, because its
-bottom pixels are pressurized. **Settled liquid is flat**: every row under its surface is full, and a
-slope can only survive as a step of one pixel per more than `sight` pixels. It doesn't move again until
-something under or beside it changes.
+- Falling liquid stays in whole streams.
+- A settled pool is flat to one pixel, with a clean surface.
+- A pool pushes out through a hole at the foot of its wall and runs along the floor beyond, but never
+  climbs above the hole (no pressure beyond head; liquid never moves up).
+- A dug-away dam face collapses at once instead of draining through a one-pixel curtain.
 
-**No pressure beyond that.** A U-bend's far arm fills only as high as the liquid pushed into it can
-climb, which is none. As in the whole-cell model, liquid never moves upward.
-
-**Kinds.** Lava sinks through water. The obsidian reaction is the obvious follow-up, and belongs in a
-**separate pass after movement** (from the research), where it can be counted against conservation.
+**Kinds.** Lava sinks through water. The obsidian reaction belongs in a separate pass after movement.
 
 ## Verification
 
@@ -129,10 +118,14 @@ climb, which is none. As in the whole-cell model, liquid never moves upward.
   - a settled pool pushes out through a hole at the foot of its wall and runs along the floor beyond,
     but never stacks above the hole (no pressure);
   - a settled pool levels flat across the whole floor when its wall is dug away (the staircase above);
-  - lava sinks through water, and falls slower.
+  - lava sinks through water, and falls slower;
+  - a falling column stays one unbroken run, every pass;
+  - a dug-away dam face collapses under its own head: 187 pixels past the face after 50 passes, against
+    50 without the head field.
 
-  Each rule was red-checked: removing the support check, lava sinking, pressure flow, the energy cost
-  of turning or sight each fails the matching test.
+  Each rule was red-checked, and each fails its test without it: the support check, lava sinking,
+  pressure flow, the energy cost of turning, sight, the head field, falling runs, and the
+  more-than-one-pixel pressure threshold (pinned as a fast-check example).
 
 - **The GPU against the twin**, in the lab (`fluidLab.parity()`): the same scene stepped through both,
   compared pixel for pixel over hundreds of passes. It must be **exact**: the rule is integers and
@@ -141,28 +134,31 @@ climb, which is none. As in the whole-cell model, liquid never moves upward.
 ## Lab findings (#87, open)
 
 `client/labs/fluid-lab.html` runs the rule on WebGPU over `composeBand` rock, with three scenes
-(reservoir, cascade, lava meets water), pour/dig/build brushes, and `fluidLab.parity()`.
+(reservoir, cascade, lava meets water), pour/dig/build brushes, `fluidLab.parity()` and
+`fluidLab.dump()`.
 
-- **The GPU port is exact.** Every scene stepped 400 passes through the twin and the GPU agrees
-  pixel for pixel. An off-by-one planted in the shader's turn-to-drop rule made 192 and 715 pixels
-  differ.
-- **It's cheap.** 32 passes over a 960×540 art-pixel grid (a 1920×1080 window) take ~2.7 ms to GPU done.
-- **Open, the blocking one: bulk flow is too slow.** Dig away a settled reservoir's wall and the face
-  stands vertical. Each face pixel steps out one pixel and falls straight, so the whole face drains
-  through a one-pixel falling curtain at about half a pixel per pass, however tall it is.
-  - An experiment gave pushed-out and sliding liquid **momentum** (a thrown flag that keeps it
-    drifting outward while it falls). The face then collapsed into a slope within 100 passes.
-  - But a 45° slope then drains only through its thin surface film, again about half a pixel per
-    pass, because liquid under the surface can't move while its neighbours are liquid.
-  - The experiment also broke basin settling, and was set aside.
-  - This is the granular "angle of repose" behaviour of block automata. A breached cave-sized
-    reservoir would take minutes to level, and would read as sand. The approach needs a decision
-    before more tuning. See the options in #87.
-- **The look, for the author:**
-  - streams fall as dotted columns;
-  - liquid running over a surface travels in one-pixel runners spaced two apart (a block moves one
-    pixel per pass);
-  - what reads as a tower under a pool's drain is the dense head of its stream.
+- **The GPU port is exact.** Every scene stepped 300–400 passes through the twin and the GPU agrees pixel
+  for pixel. Parity fails on a planted off-by-one in the shader, and on a changed head cost.
+- **Fixed from the author's review:**
+  - **Gaps between liquid and rock.** Water was drawn 86% opaque over the rock renderer's dark contact
+    shadow. Liquid is opaque now, and water under a rock overhang isn't drawn as surface.
+  - **Falling pixels disconnected, like particles.** The 2×2 block pulls a falling column apart into
+    alternating pixels; the fall stage moves whole runs.
+  - **Spikes on a settled surface.** A scene filled as a rectangle left the rock's eroded notches empty,
+    and pressure rightly drained the top rows into them. Scene fills now flood the notches, as generated
+    lakes will need to.
+- **Open, blocking: slopes level far too slowly.**
+  - A dug-away reservoir collapses into a 45° slope at once, but the slope then barely moves. After 5 s
+    at 16 passes a frame it's still a dune.
+  - Measured in the twin: the slope's edge pixels are under pressure with open space beside them, yet
+    mass crosses the slope at about one pixel per pass in total. Each move needs the pixel below to have
+    moved first, and space can only enter the body at the toe.
+  - Pressure decides _whether_ liquid moves; this is about _how much_ can move per pass, which the 2×2
+    block caps.
+  - The next design step is **row transport**: pressurized liquid moving several pixels along a row in
+    one pass. The alternative is a different model for resting liquid.
+- **Cost:** 16 passes over 480×320 art pixels take ~5 ms to GPU done. A game-sized area would need
+  fewer passes or a smaller active region.
 
 ## History — four whole-cell models
 
