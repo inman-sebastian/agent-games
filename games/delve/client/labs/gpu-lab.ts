@@ -16,8 +16,8 @@ import { setStrata, composeBand, T, hashXY } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { oreMaterial, allOreMaterials, collectTwinkleEdges } from '../src/render/materials';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
-import type { LightField } from '../src/render/lighting';
-import { createGpuRenderer, GpuUnavailable, bandFor } from '../src/render/gpu/renderer';
+import type { FieldPlan } from '../src/render/lighting';
+import { createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
 import { createWorldWindow } from '../src/render/gpu/world-window';
 import type { GpuRenderer } from '../src/render/gpu/renderer';
 
@@ -34,6 +34,7 @@ const SEED = number('seed', 12345);
 const LAMP_INTENSITY = 0.9 + 0.16 * 3.4; // index.ts: LAMP_BASE_INTENSITY + LAMP_REACH_GAIN × base reach
 const DIFF_SMALL = 8; // a channel difference up to this reads as "the same colour" on screen
 const COST_SMOOTHING = 0.1;
+const HISTOGRAM_BUCKETS = 10;
 
 type Mode = 'gpu' | 'cpu' | 'diff';
 let mode: Mode = (['gpu', 'cpu', 'diff'] as const).find((m) => m === query.get('mode')) ?? 'gpu';
@@ -175,14 +176,11 @@ function renderGpu(): number {
   if (!gpu) return 0;
   const { bandLeft, bandTop } = band();
   if (lightingOn) addLamp();
-  const field: LightField = lighting.field({
+  const field: FieldPlan = lighting.plan({
     ...lightingView(),
     surfaceAt: surfaceOf,
     solidTile: isSolid,
   });
-  // The lab's camera sits on cell boundaries, so the GPU band is exactly the CPU band being diffed.
-  const gpuBand = bandFor(bandLeft * T, bandTop * T, cols * T, rows * T);
-  worldWindow.follow(gpuBand.left, gpuBand.top, gpuBand.cols, gpuBand.rows);
   for (const layer of [underLayer, glintLayer]) {
     layer.width = cols * T;
     layer.height = rows * T;
@@ -219,6 +217,8 @@ interface DiffStats {
   withinSmall: number;
   maxDifference: number;
   meanDifference: number;
+  /** Pixels by difference: index n counts differences of exactly n, the last bucket everything above. */
+  histogram: number[];
   /** The first few pixels that differ by more than DIFF_SMALL, to go and look at. */
   outliers: { x: number; y: number; cpu: number[]; gpu: number[] }[];
 }
@@ -239,6 +239,7 @@ async function runDiff(): Promise<DiffStats | null> {
   let withinSmall = 0;
   let maxDifference = 0;
   let total = 0;
+  const histogram = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
   const outliers: DiffStats['outliers'] = [];
   const width = cols * T;
   const heat = cpu.createImageData(cols * T, rows * T);
@@ -249,6 +250,7 @@ async function runDiff(): Promise<DiffStats | null> {
       Math.abs(cpuPixels[i + 2] - gpuPixels[i + 2]),
     );
     total += difference;
+    histogram[Math.min(HISTOGRAM_BUCKETS - 1, difference)]++;
     if (difference === 0) identical++;
     if (difference <= DIFF_SMALL) withinSmall++;
     if (difference > maxDifference) maxDifference = difference;
@@ -280,6 +282,7 @@ async function runDiff(): Promise<DiffStats | null> {
     withinSmall,
     maxDifference,
     meanDifference: total / pixels,
+    histogram,
     outliers,
   };
   return diffStats;
@@ -312,13 +315,20 @@ function findPocket(ore: number): { column: number; row: number } | null {
 }
 
 /**
- * Tolerances, as fractions of the frame — measured when this gate landed (#80): unlit ≥99.96% identical and lit ≥99.97% within DIFF_SMALL at every view. The port isn't bit-exact everywhere: a
- * few hundredths of a percent of pixels sit on a float-rounding edge (a quantise threshold, a distance
- * tie) and land on a neighbouring band, some far off, so a max-difference limit would fail on noise. A
- * material drifting from its twin, or a broken blend, moves whole regions, far outside these.
+ * Tolerances, as fractions of the frame. The port isn't bit-exact everywhere: a few hundredths of a
+ * percent of pixels sit on a float-rounding edge (a quantise threshold, a distance tie) and land on a
+ * neighbouring band, some far off, so a max-difference limit would fail on noise.
+ *
+ * - Unlit, ≥99.9% of pixels identical: the rock and materials port exactly but for those edges
+ *   (measured ≥99.96%).
+ * - Every view, ≤0.1% of pixels off by more than GATE_OFF_LEVELS. Lighting's bilinear glow rounds
+ *   differently by a level or two over most lit pixels, so "identical" says nothing there; past three
+ *   levels is where a real change shows. Measured #82: ≤0.01% in every lit view. A light that stopped
+ *   short (half the propagation steps) put 0.4% there, rock conducting like open space 1.4%.
  */
 const GATE_UNLIT_IDENTICAL = 0.999;
-const GATE_WITHIN_SMALL = 0.998;
+const GATE_OFF_LEVELS = 3;
+const GATE_OFF_FRACTION = 0.001;
 
 interface GateView {
   label: string;
@@ -327,6 +337,8 @@ interface GateView {
   lit: boolean;
   identical: string;
   withinSmall: string;
+  mean: number;
+  histogram: number[];
   glints: number;
 }
 
@@ -361,12 +373,16 @@ async function gate(): Promise<{ pass: boolean; failures: string[]; views: GateV
       ...view,
       identical: percent(identical),
       withinSmall: percent(withinSmall),
+      mean: Number(stats.meanDifference.toFixed(4)),
+      histogram: stats.histogram,
       glints: stats.glintPixels,
     });
     const where = `${view.label} ${view.column},${view.row} ${view.lit ? 'lit' : 'unlit'}`;
-    if (withinSmall < GATE_WITHIN_SMALL)
+    const off =
+      stats.histogram.slice(GATE_OFF_LEVELS + 1).reduce((a, b) => a + b, 0) / stats.pixels;
+    if (off > GATE_OFF_FRACTION)
       failures.push(
-        `${where}: ${percent(withinSmall)} within ${DIFF_SMALL}, below ${percent(GATE_WITHIN_SMALL)}`,
+        `${where}: ${percent(off)} off by more than ${GATE_OFF_LEVELS} levels, above ${percent(GATE_OFF_FRACTION)}`,
       );
     if (!view.lit && identical < GATE_UNLIT_IDENTICAL)
       failures.push(

@@ -199,8 +199,9 @@ so the printed JSON is the gate's result:
 - **`failures`** — empty on a pass; otherwise one line per broken check, naming the view (label,
   column,row, lit or unlit) and the fraction that fell below its bar, or `no view drew a twinkle
 glint`, or the GPU error.
-- **`views`** — every view with its `identical` and `withinSmall` (within 8 levels) percentages and
-  its `glints` pixel count. A material's view is labelled with its name, so a drifting WGSL twin
+- **`views`** — every view with its `identical` and `withinSmall` (within 8 levels) percentages, its
+  `mean` difference, a `histogram` of differences (index n = pixels off by exactly n levels, the last
+  bucket everything above) and its `glints` pixel count. A material's view is labelled with its name, so a drifting WGSL twin
   points at itself.
 
 To look at a failing view, open `labs/gpu-lab.html?mode=diff&c=<column>&r=<row>` (add `&light=0` for

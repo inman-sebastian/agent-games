@@ -24,21 +24,21 @@ const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5]; // 4×4 or
 const BAYER_LEVELS = 16; // 4×4 matrix range, to normalise a Bayer value to [0, 1)
 const AMBIENT: LightColor = [0, 0, 0]; // no floor — lamp-only visibility: unlit space is the void
 export const SCRIM: LightColor = [6, 7, 14]; // colour (0-255) the darkness fades toward (deep, cool)
-const ADD = 0.26; // how strongly the light field shows as additive glow
-const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
+export const ADD = 0.26; // how strongly the light field shows as additive glow
+export const ADD_MAX = 0.5; // ceiling on total additive per channel (lamp+ore) — no blown sunspot on overlap
 // Conduction is authored PER BLOCK and converted to the per-cell step the sweeps actually take.
 // These were tuned when one step was one block; the 2x2 split (#44) made a step half a block, which
 // silently halved the distance light travels — the lamp lit only the cells nearest the miner and a
 // carved tunnel went dark a block or two out. Taking the SUB-th root makes SUB cell-steps decay
 // exactly as one block-step used to, so the reach is restored rather than re-tuned by eye.
 const perCell = (perBlock: number): number => perBlock ** (1 / SUB);
-const OPEN_ATTEN = perCell(0.7); // light conduction down an open tunnel, per block
-const ROCK_ATTEN = perCell(0.68); // conduction into solid rock — light bleeds a couple of BLOCKS into
+export const OPEN_ATTEN = perCell(0.7); // light conduction down an open tunnel, per block
+export const ROCK_ATTEN = perCell(0.68); // conduction into solid rock — light bleeds a couple of BLOCKS into
 // the undug walls around a tunnel (a subtle Terraria-style lit-wall look), not just a thin rim
-const DIAGONAL_ATTEN = perCell(0.9); // extra factor on diagonal propagation steps
-const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
+export const DIAGONAL_ATTEN = perCell(0.9); // extra factor on diagonal propagation steps
+export const LMARGIN = 2; // extra tile rows/cols around the view for clean edges
 const ORE_GLOW = 1.6; // ore-glow seed strength (r>0 emitters flood their colour into open space)
-const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
+export const GLOW_CAP = 0.42; // per-channel ceiling on ore glow (safety on top of max-propagation)
 export const MAX_DARKNESS = 1; // lamp-only visibility: a fully-unlit pixel fades all the way to the void
 // Faint-light floor: lamp brightness below this reads as full dark; above it, remaps 0→1. So distant,
 // barely-lit tiles stay uniformly dark (no muddy ore-colour blobs leaking through the fog) while tiles
@@ -110,6 +110,96 @@ export interface LightField {
   bright: Float32Array<ArrayBuffer>;
 }
 
+/**
+ * Everything about a view's light field that isn't the propagation itself: where the grid sits, the
+ * seeds, and how far light can reach. The CPU field and the GPU compute pass (#82) both start from it,
+ * so the rule for what seeds where and how far to look has one home.
+ */
+export interface FieldPlan {
+  /** World cell of the grid's top-left, and its size in cells. */
+  tileLeft: number;
+  tileTop: number;
+  gridW: number;
+  gridH: number;
+  /** SEED_FLOATS per seed: grid column, grid row, lamp RGB, ore-glow RGB. */
+  seeds: Float32Array<ArrayBuffer>;
+  seedCount: number;
+  /** Propagation steps after which nothing brighter than PROPAGATION_EPS is left to spread. */
+  reach: number;
+  /** The grid cells light can reach, inclusive. Empty (x1 < x0) when nothing is lit. */
+  sweepX0: number;
+  sweepX1: number;
+  sweepY0: number;
+  sweepY1: number;
+}
+
+export const SEED_FLOATS = 8;
+
+/** The plan for a view's field: grid window, seeds and sweep box. */
+export function planField(cfg: LightFieldConfig, emitters: readonly Emitter[]): FieldPlan {
+  const { LW, LH, T } = cfg;
+  const camX = cfg.camX ?? 0;
+  const camY = cfg.camY ?? 0;
+  const tileLeft = Math.floor(camX / T) - LMARGIN;
+  const tileTop = Math.floor(camY / T) - LMARGIN;
+  const gridW = Math.ceil(LW / T) + 2 * LMARGIN;
+  const gridH = Math.ceil(LH / T) + 2 * LMARGIN;
+  const seeds = new Float32Array(emitters.length * SEED_FLOATS);
+  let seedCount = 0;
+  let seedX0 = gridW;
+  let seedX1 = -1;
+  let seedY0 = gridH;
+  let seedY1 = -1;
+  let strongestSeed = 0;
+  // seed: lamp (r=0) → lamp field; ore (r>0) → ore-glow field, at their own tile
+  for (const light of emitters) {
+    const column = Math.floor(light.x / T) - tileLeft;
+    const row = Math.floor(light.y / T) - tileTop;
+    if (column < 0 || column >= gridW || row < 0 || row >= gridH) continue;
+    if (column < seedX0) seedX0 = column;
+    if (column > seedX1) seedX1 = column;
+    if (row < seedY0) seedY0 = row;
+    if (row > seedY1) seedY1 = row;
+    const channelPeak =
+      light.i * (light.r > 0 ? ORE_GLOW : 1) * Math.max(light.cr, light.cg, light.cb);
+    if (channelPeak > strongestSeed) strongestSeed = channelPeak;
+    const gain = light.r > 0 ? light.i * ORE_GLOW : light.i;
+    const colour = [light.cr * gain, light.cg * gain, light.cb * gain];
+    const zero = [0, 0, 0];
+    seeds.set(
+      [column, row, ...(light.r > 0 ? zero : colour), ...(light.r > 0 ? colour : zero)],
+      seedCount * SEED_FLOATS,
+    );
+    seedCount++;
+  }
+
+  // Sweep only the cells light can actually reach. Each step multiplies by at most OPEN_ATTEN, so
+  // after n steps the strongest seed is down to seed * OPEN_ATTEN^n — solve for the n at which
+  // that falls under PROPAGATION_EPS and everything beyond is provably invisible (the scrim
+  // crushes anything under LIGHT_FLOOR to black, and EPS is well under it, so the additive glow
+  // can't show a step at the boundary either). The cells outside stay at the 0 they were filled
+  // with, which is what the propagation would have produced anyway. This is the whole reason the
+  // field is affordable at cell granularity after the 2x2 split (#44) quadrupled the grid: the
+  // work now tracks the lamp's reach instead of the size of the screen.
+  const reach =
+    strongestSeed <= PROPAGATION_EPS
+      ? 0
+      : Math.ceil(Math.log(PROPAGATION_EPS / strongestSeed) / Math.log(OPEN_ATTEN));
+  return {
+    tileLeft,
+    tileTop,
+    gridW,
+    gridH,
+    seeds,
+    seedCount,
+    reach,
+    sweepX0: Math.max(0, seedX0 - reach),
+    sweepX1: Math.min(gridW - 1, seedX1 + reach),
+    sweepY0: Math.max(0, seedY0 - reach),
+    sweepY1: Math.min(gridH - 1, seedY1 + reach),
+  };
+}
+
 interface LitBox {
   tileLeft: number;
   tileTop: number;
@@ -125,6 +215,8 @@ export interface LightingInstance {
   /** Build only the field and hand it back, consuming the emitters — for a renderer that composites it
    *  itself (the WebGPU spike, #69). */
   field(cfg: LightFieldConfig): LightField;
+  /** Only the plan — for the GPU, which propagates the field itself (#82). Consumes the emitters. */
+  plan(cfg: LightFieldConfig): FieldPlan;
   readonly count: number;
   /** Last frame's cost split: the per-CELL propagation field vs the per-PIXEL darkness scrim. */
   readonly fieldMs: number;
@@ -224,20 +316,15 @@ export function create(): LightingInstance {
    */
   function buildField(cfg: LightFieldConfig): LitBox {
     const tStart = performance.now();
-    const { LW, LH, T } = cfg;
-    const camX = cfg.camX ?? 0;
-    const camY = cfg.camY ?? 0;
     const solidTile = cfg.solidTile;
     const hueCap = cfg.hueCap !== false;
+    const plan = planField(cfg, emitters);
+    const { tileLeft, tileTop, sweepX0, sweepX1, sweepY0, sweepY1 } = plan;
 
     // ---- world-space per-tile light fields (windowed around the view) ----
-    const tileLeft = Math.floor(camX / T) - LMARGIN;
-    const tileTop = Math.floor(camY / T) - LMARGIN;
-    const cols = Math.ceil(LW / T) + 2 * LMARGIN;
-    const rows = Math.ceil(LH / T) + 2 * LMARGIN;
-    if (cols !== gridW || rows !== gridH) {
-      gridW = cols;
-      gridH = rows;
+    if (plan.gridW !== gridW || plan.gridH !== gridH) {
+      gridW = plan.gridW;
+      gridH = plan.gridH;
       const size = gridW * gridH;
       lampR = new Float32Array(size);
       lampG = new Float32Array(size);
@@ -263,52 +350,16 @@ export function create(): LightingInstance {
     oreR.fill(0);
     oreG.fill(0);
     oreB.fill(0);
-
-    // seed: lamp (r=0) → lamp field; ore (r>0) → ore-glow field, at their own tile
-    let seedX0 = gridW;
-    let seedX1 = -1;
-    let seedY0 = gridH;
-    let seedY1 = -1;
-    let strongestSeed = 0;
-    for (const light of emitters) {
-      const column = Math.floor(light.x / T) - tileLeft;
-      const row = Math.floor(light.y / T) - tileTop;
-      if (column < 0 || column >= gridW || row < 0 || row >= gridH) continue;
-      if (column < seedX0) seedX0 = column;
-      if (column > seedX1) seedX1 = column;
-      if (row < seedY0) seedY0 = row;
-      if (row > seedY1) seedY1 = row;
-      const channelPeak =
-        light.i * (light.r > 0 ? ORE_GLOW : 1) * Math.max(light.cr, light.cg, light.cb);
-      if (channelPeak > strongestSeed) strongestSeed = channelPeak;
-      const index = row * gridW + column;
-      if (light.r > 0) {
-        oreR[index] += light.cr * light.i * ORE_GLOW;
-        oreG[index] += light.cg * light.i * ORE_GLOW;
-        oreB[index] += light.cb * light.i * ORE_GLOW;
-      } else {
-        lampR[index] += light.cr * light.i;
-        lampG[index] += light.cg * light.i;
-        lampB[index] += light.cb * light.i;
-      }
+    for (let n = 0; n < plan.seedCount; n++) {
+      const seed = plan.seeds.subarray(n * SEED_FLOATS, (n + 1) * SEED_FLOATS);
+      const index = seed[1] * gridW + seed[0];
+      lampR[index] += seed[2];
+      lampG[index] += seed[3];
+      lampB[index] += seed[4];
+      oreR[index] += seed[5];
+      oreG[index] += seed[6];
+      oreB[index] += seed[7];
     }
-
-    // Sweep only the cells light can actually reach. Each step multiplies by at most OPEN_ATTEN, so
-    // after n steps the strongest seed is down to seed * OPEN_ATTEN^n — solve for the n at which
-    // that falls under PROPAGATION_EPS and everything beyond is provably invisible (the scrim
-    // crushes anything under LIGHT_FLOOR to black, and EPS is well under it, so the additive glow
-    // can't show a step at the boundary either). The cells outside stay at the 0 they were filled
-    // with, which is what the propagation would have produced anyway. This is the whole reason the
-    // field is affordable at cell granularity after the 2x2 split (#44) quadrupled the grid: the
-    // work now tracks the lamp's reach instead of the size of the screen.
-    const reach =
-      strongestSeed <= PROPAGATION_EPS
-        ? 0
-        : Math.ceil(Math.log(PROPAGATION_EPS / strongestSeed) / Math.log(OPEN_ATTEN));
-    const sweepX0 = Math.max(0, seedX0 - reach);
-    const sweepX1 = Math.min(gridW - 1, seedX1 + reach);
-    const sweepY0 = Math.max(0, seedY0 - reach);
-    const sweepY1 = Math.min(gridH - 1, seedY1 + reach);
 
     // propagate — 4 corner sweeps, max-with-attenuation (attenuation = the DESTINATION tile's
     // opacity, so light dims hard the moment it enters rock). One round converges because each
@@ -596,10 +647,21 @@ export function create(): LightingInstance {
     return { tileLeft, tileTop, gridW, gridH, glow: glowImg.data, bright };
   }
 
+  function plan(cfg: LightFieldConfig): FieldPlan {
+    const started = performance.now();
+    const made = planField(cfg, emitters);
+    fieldMs = performance.now() - started;
+    scrimMs = 0;
+    lightCount = emitters.length;
+    emitters.length = 0;
+    return made;
+  }
+
   return {
     addLight,
     render,
     field,
+    plan,
     get count() {
       return lightCount;
     },

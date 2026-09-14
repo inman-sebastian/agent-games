@@ -77,14 +77,14 @@ way the chunk cache, the bake Worker, and the scrim's CPU cost stop existing.
 - **Tuning constants are generated from the TypeScript that owns them** (`gpu/constants.ts`). A retune
   in `cave-render.ts` or `lighting.ts` reaches both renderers, and nothing has a second home.
 - **Exact integer ports** of `rng.ts` (32-bit wrapping arithmetic) and `palette.ts`'s quantiser.
-- **A frame is 12 passes**: mask; jump-flood init and 7 steps; shade; light; present.
+- **A frame is 12 passes** in the spike: mask; jump-flood init and 7 steps; shade; light; present.
 - **Techniques that changed**, all without measurable cost to the look:
   - The chamfer edge-distance sweep became jump flooding with the chamfer metric.
   - The top-light depth became a bounded 36 px upward scan, exact because brightness has clamped by
     then.
   - The contact-shadow distance became a ±2 px window, exact for the same reason.
-- **The light propagation stayed on the CPU** (`LightingInstance.field`, split out of `render` so both
-  renderers read one field). It costs 0.8 ms in the game.
+- **The light propagation stayed on the CPU** in the spike (`LightingInstance.field`, split out of
+  `render` so both renderers read one field). It cost 0.8 ms then; it moved to the GPU in #82 (below).
 
 **Tooling.** probe's headless Chrome exposes a Metal adapter. `pnpm probe --shot` captures WebGPU
 pages, which `shot.sh` (with `--disable-gpu`) can't; `probe --no-gpu` shows the WebGPU required screen. The lab's `window.gpuLab.runDiff()` reads the GPU
@@ -193,6 +193,35 @@ lamp's box, a few hundred pixels square, instead of the screen.
   nothing. The renderer keeps the first error, and both the debug overlay's `renderer` line and the lab
   HUD show it, so `probe` can read it.
 
+### Light propagation on the GPU (#82)
+
+The per-cell light field is computed in `gpu/light.wgsl`, reading solidity from the world window.
+The CPU keeps only the **plan** (`lighting.ts` `planField`): the grid window, the seeds, the reach and
+the sweep box. `buildField` starts from the same plan, so what seeds where and how far light is looked
+for has one home. The frame gains three compute stages:
+
+1. **Seed** the grid from the emitters.
+2. **Relax** `reach` Jacobi steps, rounded up to even, ping-ponging two buffers. Each cell in the sweep
+   box takes the max of itself and each of its 8 neighbours times the destination cell's attenuation,
+   with `DIAGONAL_ATTEN` on diagonals.
+3. **Finish** into the glow bytes and brightness `present.wgsl` already read, with `lighting.ts`'s
+   caps and `Uint8ClampedArray` rounding. The constants are generated from `lighting.ts`.
+
+**Why Jacobi steps rather than the four corner sweeps.** A sweep is sequential: each cell reads the
+neighbours the same sweep just wrote. A relaxation step reads only the previous step, so every cell
+runs at once. After `reach` steps every path still carrying more than `PROPAGATION_EPS` has been walked.
+The best path to a cell runs diagonal-first (a diagonal step costs ×0.95, a detour a whole extra step
+at ×0.84), so its length is the Chebyshev distance and the two methods agree to rounding. The
+render gate's lit views compare against the CPU sweeps.
+
+**Measured** at 3400×1900 while walking and digging:
+
+- Main thread per frame: 2.42 ms → **1.46 ms**. The `lighting` phase went from 1.6 ms to 0.0.
+- GPU finish time: 3.4 ms → 3.8 ms.
+
+**Dormant branch.** The hue cap (`ADD_MAX`) is ported but never engages with one lamp: its peak
+additive is 0.37 against a cap of 0.5. The gate can't see it until something brighter emits.
+
 **Known differences from Canvas 2D, each a later child of #68:**
 
 - **Sprites and particles are rasterised by Canvas 2D** and uploaded, not drawn by the GPU.
@@ -211,20 +240,33 @@ agree. `gpuLab.gate()` in `client/labs/gpu-lab.ts` renders each view both ways a
   so the pocket sits exposed on the carved tunnel floor, where the top light reaches it. A new material
   is covered with no edit to the gate.
 
-**It fails when** any view has under 99.8% of pixels within 8 levels (`DIFF_SMALL`), any unlit view
-is under 99.9% identical, no view drew a twinkle glint (the additive blend went unchecked), or the GPU
-reported an error. It sets `document.title` to `PASS` or `FAIL` and returns
-`{ pass, failures, views }`, each view with its `identical`, `withinSmall` and `glints`.
+**It fails when:**
+
+- any view has more than 0.1% of pixels off by more than 3 levels;
+- any unlit view is under 99.9% identical;
+- no view drew a twinkle glint, so the additive blend went unchecked;
+- or the GPU reported an error.
+
+It sets `document.title` to `PASS` or `FAIL` and returns `{ pass, failures, views }`. Each view carries
+its `identical` and `withinSmall` percentages, its `mean` difference, a `histogram` of differences (0–8,
+then everything above) and its `glints`.
+
+The lit bar was "99.8% within 8 levels" until #82 showed it was too blunt for light. The glow's
+bilinear rounding puts a level or two of difference over most lit pixels, so "identical" says nothing
+there. And a light that stopped at half its reach only moved the dark edge by a dither step, still
+inside 8 levels. Past three levels is where a real change shows: ≤0.01% of pixels in a clean lit view,
+0.4% for half the propagation steps, 1.2% for rock conducting like open space.
 
 **Why fractions, not a maximum difference.** A few hundredths of a percent of pixels sit on a
 float-rounding edge (a quantise threshold, a distance tie) and land on a neighbouring band, sometimes
 far off, so a max limit fails on noise. A material drifting from its twin moves whole regions.
-Measured at #80: every unlit view ≥99.96% identical and every view ≥99.97% within 8.
+Measured at #80: every unlit view ≥99.96% identical.
 
 **Red-checked.** Making any one material's WGSL twin return grey on its lit faces fails the gate in
 that material's own view, for all 12 (copper, iron, silver, gold, emerald, ruby, diamond, mythril,
 platinum, obsidian, quartz, stonebricks). A subtle change to copper's noise weight (0.42 → 0.30) also
-fails.
+fails. For the light (#82), halving the propagation steps and making rock conduct like open space
+each fail every lit view.
 
 Run it with `pnpm render-gate` while `pnpm dev` is running; it exits 1 on failure. It isn't part of
 `pnpm test`, because Node has no WebGPU, so run it before handing over any change to `render/`, a

@@ -3,23 +3,26 @@
 //   1. rock     compute passes over the band of cells under the screen (rock.wgsl): the eroded mask,
 //               jump-flooded edge distances, then shade — background, sky, top-lit stone, contact
 //               shadow, stalactites — into the `scene` texture
+//   1b. light   compute passes over the light grid (light.wgsl): seed the emitters, relax the field
+//               through open space and rock, finish into the glow and brightness the present reads
 //   2. present  one screen-space fragment pass (present.wgsl): scene, the 2D overlay, then the glow,
 //               dithered scrim and vignette, into the `frame` texture
 //   3. blit     frame → the canvas (blit.wgsl)
 //
 // The world is a persistent `WorldWindow` (world-window.ts), uploaded only when it changes; the light
-// field is lighting.ts's `field()`; the tuning constants are generated from the TypeScript that owns
+// field starts from lighting.ts's `plan()`; the tuning constants are generated from the TypeScript that owns
 // them (constants.ts). Materials, sprites and twinkle as GPU passes are later children of #68.
 import { rampAt, bgFor, SKY_TOP, SKY_HORIZON, mix } from '../cave-render';
 import { T, TEX, hexRgb, colorsFor } from '../palette';
-import { DITHER_STEPS } from '../lighting';
-import type { LightField } from '../lighting';
+import { DITHER_STEPS, LMARGIN, SEED_FLOATS } from '../lighting';
+import type { FieldPlan } from '../lighting';
 import type { WorldWindow } from './world-window';
 import { CONSTANTS_WGSL } from './constants';
 import noiseWgsl from './noise.wgsl?raw';
 import surfacesWgsl from './surfaces.wgsl?raw';
 import rockWgsl from './rock.wgsl?raw';
 import { materialsWgsl } from './materials';
+import lightWgsl from './light.wgsl?raw';
 import presentWgsl from './present.wgsl?raw';
 import blitWgsl from './blit.wgsl?raw';
 
@@ -29,6 +32,11 @@ const WORKGROUP = 8;
 const JFA_STEPS: readonly number[] = [32, 16, 8, 4, 2, 1, 1];
 const BAND_UNIFORM_BYTES = 256;
 const PRESENT_UNIFORM_BYTES = 88;
+const LIGHT_UNIFORM_BYTES = 56;
+/** Bytes of one light.wgsl `LightCell`: two vec3f, aligned to 12. */
+const LIGHT_CELL_BYTES = 24;
+/** Emitters the GPU seeds. The game has one (the lamp); past this many, the extra are dropped. */
+const MAX_SEEDS = 64;
 const FRAME_FORMAT: GPUTextureFormat = 'rgba8unorm';
 
 /** One frame to draw. */
@@ -39,9 +47,10 @@ export interface GpuFrame {
   /** The screen, in art pixels. */
   width: number;
   height: number;
-  /** The world around the view. Call `world.follow` for this view's band before rendering. */
+  /** The world around the view. The renderer keeps it following the view. */
   world: WorldWindow;
-  light: LightField;
+  /** This view's light field plan (lighting.ts `plan`); the GPU propagates it. */
+  light: FieldPlan;
   /** false: the rock scene alone, no light — for diffing the rock. */
   lighting?: boolean;
   /** false: skip the darkness scrim (the debug panel's `fog`). */
@@ -134,18 +143,22 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     'rock',
     CONSTANTS_WGSL + noiseWgsl + surfacesWgsl + materialsWgsl() + rockWgsl,
   );
+  const lightModule = shader('light', CONSTANTS_WGSL + lightWgsl);
   const presentModule = shader('present', CONSTANTS_WGSL + noiseWgsl + presentWgsl);
   const blitModule = shader('blit', blitWgsl);
-  const computePipeline = (entryPoint: string): GPUComputePipeline =>
+  const computePipeline = (entryPoint: string, module = rockModule): GPUComputePipeline =>
     device.createComputePipeline({
       label: entryPoint,
       layout: 'auto',
-      compute: { module: rockModule, entryPoint },
+      compute: { module, entryPoint },
     });
   const maskPipeline = computePipeline('mask_main');
   const jfaInitPipeline = computePipeline('jfa_init');
   const jfaStepPipeline = computePipeline('jfa_step');
   const shadePipeline = computePipeline('shade_main');
+  const lightSeedPipeline = computePipeline('light_seed', lightModule);
+  const lightStepPipeline = computePipeline('light_step', lightModule);
+  const lightFinishPipeline = computePipeline('light_finish', lightModule);
   const fullScreenPipeline = (
     module: GPUShaderModule,
     vertex: string,
@@ -170,6 +183,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     device.createBuffer({ size: bytes, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const bandBuffer = uniform(BAND_UNIFORM_BYTES);
   const presentBuffer = uniform(PRESENT_UNIFORM_BYTES);
+  const lightBuffer = uniform(LIGHT_UNIFORM_BYTES);
+  const seedBuffer = storageBuffer(device, MAX_SEEDS * SEED_FLOATS * 4);
   // One uniform per jump-flooding step: queue writes all land before the command buffer runs, so a
   // single step buffer rewritten between passes would hold only the last value for every pass.
   const jfaStepBuffers = JFA_STEPS.map((step) => {
@@ -195,6 +210,15 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     const started = performance.now();
     const band = bandFor(frame.camX, frame.camY, frame.width, frame.height);
     const { world, light } = frame;
+    // The window covers the band for the rock and the light grid, which reaches LMARGIN cells further
+    // (and a cell more, for the grid's floor against the band's rounded origin).
+    const reachOut = LMARGIN + 1;
+    world.follow(
+      band.left - reachOut,
+      band.top - reachOut,
+      band.cols + 2 * reachOut,
+      band.rows + 2 * reachOut,
+    );
     const shape: Shape = {
       width: frame.width,
       height: frame.height,
@@ -220,8 +244,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       uploaded = { version: world.version, cells: world.cells };
     }
     writeBand(band, world);
-    device.queue.writeBuffer(r.glowBuffer, 0, light.glow);
-    device.queue.writeBuffer(r.brightBuffer, 0, light.bright);
+    writeLight(light, world);
     writePresent(frame, band, world, light, clampBox(frame.layers?.box, frame.width, frame.height));
     if (frame.overlay) {
       device.queue.copyExternalImageToTexture(
@@ -258,6 +281,23 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     dispatch(jfaInitPipeline, groups.jfaInit);
     groups.jfaSteps.forEach((group) => dispatch(jfaStepPipeline, group));
     dispatch(shadePipeline, groups.shade);
+
+    // The light field: seed into A, relax an even number of steps (A → B → A …), finish from A.
+    const lightPass = encoder.beginComputePass();
+    const lightGroups = Math.ceil(light.gridW / WORKGROUP);
+    const lightRows = Math.ceil(light.gridH / WORKGROUP);
+    const lightDispatch = (pipeline: GPUComputePipeline, group: GPUBindGroup): void => {
+      lightPass.setPipeline(pipeline);
+      lightPass.setBindGroup(0, group);
+      lightPass.dispatchWorkgroups(lightGroups, lightRows);
+    };
+    lightDispatch(lightSeedPipeline, groups.lightSeed);
+    const steps = light.reach + (light.reach % 2);
+    for (let step = 0; step < steps; step++) {
+      lightDispatch(lightStepPipeline, step % 2 === 0 ? groups.lightStepAB : groups.lightStepBA);
+    }
+    lightDispatch(lightFinishPipeline, groups.lightFinish);
+    lightPass.end();
 
     const fullScreenPass = (
       target: GPUTextureView,
@@ -332,11 +372,36 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     device.queue.writeBuffer(bandBuffer, 0, bytes);
   }
 
+  function writeLight(light: FieldPlan, world: WorldWindow): void {
+    const bytes = new ArrayBuffer(LIGHT_UNIFORM_BYTES);
+    const u32 = new Uint32Array(bytes);
+    const i32 = new Int32Array(bytes);
+    const seedCount = Math.min(MAX_SEEDS, light.seedCount); // ponytail: extra emitters dropped; grow MAX_SEEDS when something emits
+    u32[0] = light.gridW;
+    u32[1] = light.gridH;
+    i32[2] = light.tileLeft;
+    i32[3] = light.tileTop;
+    i32[4] = world.left;
+    i32[5] = world.top;
+    u32[6] = world.cols;
+    u32[7] = world.rows;
+    i32[8] = light.sweepX0;
+    i32[9] = light.sweepY0;
+    i32[10] = light.sweepX1;
+    i32[11] = light.sweepY1;
+    u32[12] = seedCount;
+    u32[13] = 1; // hue cap: the game's setting; lighting.ts's per-channel clamp is a light-lab option
+    device.queue.writeBuffer(lightBuffer, 0, bytes);
+    if (seedCount > 0) {
+      device.queue.writeBuffer(seedBuffer, 0, light.seeds, 0, seedCount * SEED_FLOATS);
+    }
+  }
+
   function writePresent(
     frame: GpuFrame,
     band: Band,
     world: WorldWindow,
-    light: LightField,
+    light: FieldPlan,
     box: { x: number; y: number; width: number; height: number },
   ): void {
     const bytes = new ArrayBuffer(PRESENT_UNIFORM_BYTES);
@@ -385,8 +450,6 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     shape: Shape;
     cellsBuffer: GPUBuffer;
     surfaceBuffer: GPUBuffer;
-    glowBuffer: GPUBuffer;
-    brightBuffer: GPUBuffer;
     overlay: GPUTexture;
     under: GPUTexture;
     glint: GPUTexture;
@@ -396,6 +459,10 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       jfaInit: GPUBindGroup;
       jfaSteps: GPUBindGroup[];
       shade: GPUBindGroup;
+      lightSeed: GPUBindGroup;
+      lightStepAB: GPUBindGroup;
+      lightStepBA: GPUBindGroup;
+      lightFinish: GPUBindGroup;
       present: GPUBindGroup;
       blit: GPUBindGroup;
     };
@@ -411,6 +478,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     const seedsB = storageBuffer(device, bandPixels * 8);
     const glowBuffer = storageBuffer(device, shape.gridCells * 4);
     const brightBuffer = storageBuffer(device, shape.gridCells * 4);
+    const lightA = storageBuffer(device, shape.gridCells * LIGHT_CELL_BYTES);
+    const lightB = storageBuffer(device, shape.gridCells * LIGHT_CELL_BYTES);
     const texture = (label: string, width: number, height: number, usage: number): GPUTexture =>
       device.createTexture({ label, size: [width, height], format: FRAME_FORMAT, usage });
     const scene = texture(
@@ -473,14 +542,14 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       seedsB,
       glowBuffer,
       brightBuffer,
+      lightA,
+      lightB,
     ];
 
     return {
       shape,
       cellsBuffer,
       surfaceBuffer,
-      glowBuffer,
-      brightBuffer,
       overlay,
       under,
       glint,
@@ -497,6 +566,29 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
           4: buffer(seedsA),
         }),
         jfaSteps,
+        lightSeed: group(lightSeedPipeline, {
+          0: buffer(lightBuffer),
+          2: buffer(seedBuffer),
+          4: buffer(lightA),
+        }),
+        lightStepAB: group(lightStepPipeline, {
+          0: buffer(lightBuffer),
+          1: buffer(cellsBuffer),
+          3: buffer(lightA),
+          4: buffer(lightB),
+        }),
+        lightStepBA: group(lightStepPipeline, {
+          0: buffer(lightBuffer),
+          1: buffer(cellsBuffer),
+          3: buffer(lightB),
+          4: buffer(lightA),
+        }),
+        lightFinish: group(lightFinishPipeline, {
+          0: buffer(lightBuffer),
+          3: buffer(lightA),
+          5: buffer(glowBuffer),
+          6: buffer(brightBuffer),
+        }),
         shade: group(shadePipeline, {
           0: buffer(bandBuffer),
           1: buffer(cellsBuffer),

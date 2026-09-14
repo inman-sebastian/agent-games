@@ -10,12 +10,7 @@ import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
-import {
-  createGpuRenderer,
-  GpuUnavailable,
-  bandFor,
-  type GpuRenderer,
-} from './render/gpu/renderer';
+import { createGpuRenderer, GpuUnavailable, type GpuRenderer } from './render/gpu/renderer';
 import { createWorldWindow } from './render/gpu/world-window';
 import * as net from './net';
 import { load, save, fresh } from './save';
@@ -428,8 +423,8 @@ function render(t: number): void {
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
   // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
   // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
-  // The GPU composites the overlay just drawn onto `canvas` under this light field. The field is built
-  // even with lighting off, because the frame's shape needs one.
+  // The GPU propagates this light field and composites the overlay just drawn onto `canvas` under it.
+  // The plan is made even with lighting off, because the frame's shape needs one.
   if (debugFlags.lighting) {
     lighting.addLight(
       px * T,
@@ -439,10 +434,8 @@ function render(t: number): void {
       LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
     );
   }
-  const field = lighting.field({ LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
+  const field = lighting.plan({ LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
   endPhase('lighting');
-  const band = bandFor(camX, camY, LW, LH);
-  worldWindow.follow(band.left, band.top, band.cols, band.rows);
   gpu.render({
     camX,
     camY,
