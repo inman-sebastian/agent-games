@@ -75,6 +75,8 @@ export const TEAL_WATER_STYLE: LiquidStyle = {
 
 /** Water in a cell less than this is a film: not drawn as resting water. */
 const DRAWN_MINIMUM = UNIT / 50;
+/** A pool shallower than this, art px, isn't drawn (Terraria never draws water thinner than a quarter tile). */
+const MINIMUM_POOL_PX = 1.5;
 /** A falling cell holds at least this much to be drawn. */
 const FALL_MINIMUM = UNIT / 40;
 /** A fall column is never narrower than this, art px: light edge, core, light edge. */
@@ -158,6 +160,9 @@ function poolsOf(frame: LiquidFrame): Pool[][] {
   for (let column = 0; column < liquid.width; column++) {
     const list: Pool[] = [];
     for (const run of waterRuns(liquid, column, DRAWN_MINIMUM)) {
+      // a sliver on a floor isn't worth a line: a drained pool left hairline films all along it
+      const onlyCell = run.topRow === run.bottomRow;
+      if (onlyCell && (run.bottomRow + 1 - run.surface) * cell < MINIMUM_POOL_PX) continue;
       const aboveRow = run.topRow - 1;
       const capped = aboveRow < 0 || liquid.isSolid(aboveRow * liquid.width + column);
       // compression hidden in a deep column can put the surface a little above its top wet cell
@@ -449,6 +454,9 @@ function fallsOf(frame: LiquidFrame, pools: Pool[][]): Fall[] {
         below >= FALL_MINIMUM &&
         !resting[index + liquid.width];
       if (units < FALL_MINIMUM && !gap) continue;
+      // a film lying on rock isn't moving water either: drawn as a mass, it was a hairline on the floor
+      const onRock = row + 1 >= liquid.height || liquid.isSolid(index + liquid.width);
+      if (onRock && (units / UNIT) * frame.cell < MINIMUM_POOL_PX) continue;
       falls.push({ column, row, fill: gap ? (above + below) / 2 / UNIT : units / UNIT });
     }
   }

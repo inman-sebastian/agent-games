@@ -249,6 +249,9 @@ no dry row between the hole and where it lands.
   (Terraria's list, Noita's dirty chunks). Needed before world scale.
 - **World integration.** The step on the server's tick, around players; digging wakes it.
 - **Netcode.** Changed cells, quantised, to the clients that can see them.
+- **Films.** Draining leaves shallow films on floors; the renderer doesn't draw a pool under 1.5 px, but
+  the volume stays. They want a slow creep toward the nearest way down (or a counted evaporation), never
+  silent deletion.
 - **Reactions.** Water meeting lava makes rock.
 - **The GPU renderer.** The lab draws with the TypeScript renderer; the game gets a WGSL port of it,
   gated against it, once the look is approved.
