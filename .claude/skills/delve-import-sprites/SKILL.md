@@ -8,7 +8,7 @@ description: Import a layered pixel-art entity (player, enemy, NPC, prop) into D
 Add one entity's animations end to end: read the layered `.aseprite` files, emit committed
 index-mapped frames, then decide every colour here on the Resurrect-64 palette.
 
-Read [`docs/SPRITES.md`](../../../docs/SPRITES.md) first — it owns the format, the pipeline and the
+Read [`docs/SPRITES.md`](../../../games/delve/docs/SPRITES.md) first — it owns the format, the pipeline and the
 reasoning. This skill is the procedure. All paths are under `games/delve/`.
 
 **The core idea, and the reason this is not just "load a sprite sheet":** an imported pixel does not
@@ -130,7 +130,7 @@ that frame's own silhouette.
 A re-skin cannot add pixels the body does not already occupy, so a backpack, cape or sheathed sword
 is a different kind of thing: an **attachment**, with its own art, anchored to a part and free to
 extend past the silhouette. See `client/src/render/entity/attach.ts` and the equipment section of
-[`docs/SPRITES.md`](../../../docs/SPRITES.md) for the three kinds and the rules.
+[`docs/SPRITES.md`](../../../games/delve/docs/SPRITES.md) for the three kinds and the rules.
 
 The short version: anchor by **surface coordinate**, never by frame; declare the paint order; and make
 the art clear the silhouette, because anything sitting inside the body's footprint gets occluded by a

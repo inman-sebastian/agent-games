@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__plugin_playwright_playwright__.*|mcp__claude-in-chrome__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/browser-mcp-gate.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking the browser MCP gate"
+          }
+        ]
+      }
+    ]
+  }
+}

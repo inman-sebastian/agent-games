@@ -6,8 +6,8 @@ description: Add a new mineable ore/material to DELVE (games/delve) — the full
 # DELVE — add a material
 
 Author one new mineable ore end to end: gameplay data + a procedural material shader that shares
-the rock's visual language. Read [`docs/MATERIALS.md`](../../../docs/MATERIALS.md) (the system spec)
-and [`docs/PALETTE.md`](../../../docs/PALETTE.md) (Resurrect-64 + ramps) first — this skill is the
+the rock's visual language. Read [`docs/MATERIALS.md`](../../../games/delve/docs/MATERIALS.md) (the system spec)
+and [`docs/PALETTE.md`](../../../games/delve/docs/PALETTE.md) (Resurrect-64 + ramps) first — this skill is the
 procedure; those own the rules. All paths below are under `games/delve/`.
 
 Core idea: the **compositor** owns geometry; your material owns **colour only** via
@@ -49,7 +49,7 @@ register({
   resource files). Rarer + deeper ⇒ higher hp + lower weight.
 - ⚠️ **`band` is on its way out.** Depth-only placement is prototype leftover; placement is moving
   to **biomes declaring their contents**
-  ([BIOMES.md](../../../docs/BIOMES.md), [MATERIALS.md](../../../docs/MATERIALS.md#placement-moves-to-biomes)).
+  ([BIOMES.md](../../../games/delve/docs/BIOMES.md), [MATERIALS.md](../../../games/delve/docs/MATERIALS.md#placement-moves-to-biomes)).
   When that lands, this step becomes _"pick the biomes this material belongs to"_ and `weight`
   narrows to abundance **within a biome**. Until then, keep using `band` — just don't treat depth as
   the intended long-term answer for where something lives.
@@ -143,7 +143,7 @@ will not compile without it.
 - `feather` (px bleed into neighbours) ~2.0 for crisp gems, ~2.6–3.2 for softer metals.
 - Damage cracks come **free** (shared `fx.drawDamage`) — only add a `damage(ctx)` for a bespoke break.
 
-## Step 3 — verify (cheap tools first; see [`tools/README.md`](../../../tools/README.md))
+## Step 3 — verify (cheap tools first; see [`tools/README.md`](../../../games/delve/tools/README.md))
 
 Run from `games/delve/`. Assumes `pnpm dev` is running for shots (`SHOT_BASE=http://localhost:5173`).
 

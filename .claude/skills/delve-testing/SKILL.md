@@ -18,9 +18,17 @@ Run everything from `games/delve/`.
 
 ## The gate — before ANY browser MCP call
 
-Write this line in your reply first, and fill it in honestly:
+State it as a shell call first, and fill it in honestly:
 
-> **Browser MCP because:** rung `<n>` can't answer `<question>`, because `<concrete reason>`.
+```sh
+echo 'Browser MCP because: rung <n> cannot answer <question>, because <concrete reason>'
+```
+
+**This is enforced.** A PreToolUse hook (`.claude/hooks/browser-mcp-gate.mjs`, registered in
+`.claude/settings.json`) denies any Playwright or Chrome MCP call unless a Bash command starting with
+that `echo` ran earlier in the same turn — one gate covers the rest of the turn. It has to be a
+command rather than a sentence in your reply: tool calls are in the transcript before the next tool
+runs, prose written between them often isn't, so a gate in prose is invisible to the hook.
 
 If you can't name the reason, you don't have one — go back down. Reasons that are NOT reasons:
 "it's visual" (`shot.sh`), "it needs input" (`probe --do`), "it needs the live game" (`probe`), "I
@@ -63,7 +71,7 @@ rule's consequence, one frame at a time, with nothing left behind to stop it reg
 
 Vitest: property/fuzz tests over the sim and world-gen, the real client↔server e2e (spawns a server),
 the chunk-rendering invariant through a software canvas, and the client modules under happy-dom.
-Policy lives in [docs/TESTING.md](../../../docs/TESTING.md#policy); the parts you must not skip:
+Policy lives in [docs/TESTING.md](../../../games/delve/docs/TESTING.md#policy); the parts you must not skip:
 
 - **Red before green.** See every new test FAIL — break the code it guards, or write it before the
   fix. Then restore and see it pass. A test that passes against the bug is worse than none.
@@ -77,7 +85,7 @@ Policy lives in [docs/TESTING.md](../../../docs/TESTING.md#policy); the parts yo
 
 `state [--seed N]` · `probe --seed N --c C --r R` (one cell's block) · `map --seed N` (ASCII ore map)
 · `play --seed N --do "d600 r120"` (a scripted run through real physics). Reference:
-[tools/README.md](../../../tools/README.md).
+[tools/README.md](../../../games/delve/tools/README.md).
 
 ### 3 — `tools/shot.sh` (one small PNG, no MCP)
 
@@ -134,5 +142,5 @@ Then consider extending probe so the next time doesn't need it.
 - [ ] `pnpm test`, `pnpm typecheck`, `pnpm build` are green — say so with the counts
 - [ ] Anything visual → a `shot.sh` crop or a probe verdict you actually read
 - [ ] Anything about feel → told the author what to play, rather than claiming it feels right
-- [ ] Every browser MCP call in the session has a gate line — or there were none
+- [ ] Every browser MCP call in the session had an honest gate line — or there were none
 - [ ] Docs updated first where a rule changed (CLAUDE.md: docs are the source of truth)

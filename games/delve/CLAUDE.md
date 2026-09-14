@@ -41,12 +41,14 @@ just the DELVE-specific working rules.
 ## Testing and verifying — load the `delve-testing` skill first
 
 **Before you test, verify, debug, reproduce a bug, measure performance or drive the game, load the
-[`delve-testing`](.claude/skills/delve-testing/SKILL.md) skill.** It picks the cheapest tool for the
+[`delve-testing`](../../.claude/skills/delve-testing/SKILL.md) skill.** It picks the cheapest tool for the
 question you are actually asking.
 
 The one rule that holds without it: **Playwright and every other browser MCP are the last resort.**
-Before any such call, write one line — _"Browser MCP because: rung N can't answer Q, because R"_ —
-and if you can't fill it in, don't make the call. A question about a rule is answered by a failing
+Before any such call, state one line as a shell call —
+`echo 'Browser MCP because: rung N cannot answer Q, because R'` — and if you can't fill it in, don't
+make the call. A hook enforces this: browser MCP calls are denied until that `echo` has run in the
+turn. A question about a rule is answered by a failing
 test on the rule; a number from the running game by `pnpm probe`; a look by `tools/shot.sh`.
 
 After any logic, world-gen or resource change: a test that you watched fail first, then `pnpm test`.

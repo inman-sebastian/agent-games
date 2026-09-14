@@ -1,7 +1,7 @@
 # DELVE dev tools
 
 Interactive, shell-driven dev tools for **inspecting** the game and its renders. **Which one to
-reach for is decided by the [`delve-testing`](../.claude/skills/delve-testing/SKILL.md) skill** —
+reach for is decided by the [`delve-testing`](../../../.claude/skills/delve-testing/SKILL.md) skill** —
 this file is the reference for how each one works. Playwright / browser MCP is the last resort
 there, behind a written reason; these answer almost every question in text or a tiny cropped PNG.
 

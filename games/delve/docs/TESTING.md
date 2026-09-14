@@ -178,7 +178,7 @@ discovered ahead of its fix.
   _invariant_ — see the chunk pipeline above, which is in the gate through a software canvas.
   Real-browser end-to-end testing is intentionally out of scope for the gate. For questions about the
   running game, `pnpm probe` answers in text; which tool to use when is the
-  [`delve-testing`](../.claude/skills/delve-testing/SKILL.md) skill.
+  [`delve-testing`](../../../.claude/skills/delve-testing/SKILL.md) skill.
 - **Interactive inspection** — `tools/sim.ts` (`pnpm sim map/probe/play`) stays as a CLI for
   eyeballing world-gen and scripted playthroughs; it's a tool, not a gate.
 
