@@ -1,18 +1,13 @@
-// terraria-liquid-render.ts — Terraria's liquid renderer, ported (#90). A translation of Terraria 1.4.0.5's
-// LiquidRenderer.InternalPrepareDraw and InternalDraw (decompiled), pass by pass, on DELVE's 8 art px cells:
-// gap fill, the waterfall trail, walls cropped toward neighbouring liquid, edge smoothing, the corner fixes,
-// and a source rectangle into a liquid texture that sets where its edges show.
-//
-// Terraria's liquid texture is a 48×80 frame of 16 px tiles; DELVE draws its own at half the size, on the
-// Resurrect 64 palette: the same regions and edges, a surface line on top edges, a light line on side edges, a
-// tinted body darkened with depth. Liquid is drawn only inside its own cells, as Terraria draws it.
-// See docs/FLUIDS.md, "Terraria's liquid".
-import type { TerrariaLiquid } from '@delve/shared';
-import { blend, type LiquidStyle, WATER_STYLE } from './liquid-render';
+// terraria-liquid-render.ts — Terraria's liquid renderer, ported (#90), in DELVE's look. The draw cache is a
+// translation of Terraria 1.4.0.5's LiquidRenderer.InternalPrepareDraw (decompiled), pass by pass, on DELVE's
+// 8 art px cells, checked exactly against Terraria's own code (tools/terraria-oracle). What it draws is DELVE's:
+// a texture on Terraria's layout with a top-lit rim, whole Resurrect 64 colours, water you see the cave
+// through, lava that's opaque and lights the dark, and no fading trail. See docs/FLUIDS.md, "The look".
+import { LIQUID_LAVA, type TerrariaLiquid } from '@delve/shared';
+import { paint, type LiquidStyle, type Rgb, WATER_STYLE } from './liquid-render';
 
-// LiquidRenderer.WATERFALL_LENGTH and DEFAULT_OPACITY, water then lava
+// LiquidRenderer.WATERFALL_LENGTH, water then lava
 const WATERFALL_LENGTH = [10, 3];
-const DEFAULT_OPACITY = [0.6, 0.95];
 /** LiquidRenderer.MIN_LIQUID_SIZE: a drawn tile is never smaller than this much of a tile. */
 const MIN_LIQUID_SIZE = 0.25;
 /** Terraria's tile size: every wall and frame offset is in these units. */
@@ -321,10 +316,14 @@ function prepare(liquid: TerrariaLiquid, firstWorldRow: number): Cache {
 export const enum Texel {
   Clear = 0,
   Body = 1,
-  /** The inner of an edge's two pixels. */
-  Light = 2,
-  /** The outer pixel of an edge. */
-  Surface = 3,
+  /** The outer pixel of a top edge: the surface line. */
+  TopOuter = 2,
+  TopInner = 3,
+  /** The outer pixel of a side edge. */
+  SideOuter = 4,
+  SideInner = 5,
+  /** The drifting sparkle just under a top edge. */
+  Shimmer = 6,
 }
 
 /** Frames of the texture's animation (LiquidRenderer.ANIMATION_FRAME_COUNT), and how fast they turn without wind. */
@@ -335,70 +334,86 @@ const SURFACE_FRAME_Y = 1280;
 /** Terraria's liquid texture is pixel art drawn at 2×: one of its pixels is two units, one DELVE art pixel. */
 const UNITS_PER_PIXEL = 2;
 
-/** Farther from any edge than the shimmer reaches. */
-const DEEP = 99;
-
 const hashPixel = (x: number, y: number): number => {
   let h = Math.imul(x * 374761393 + y * 668265263, 1274126177);
   h ^= h >>> 13;
   return Math.imul(h, 1103515245) >>> 0;
 };
 
+/** An edge pixel `distance` in from the edge (0 outer, 1 inner, 2 the shimmer's row), on a top or a side edge. */
+function edge(distance: number, top: boolean): Texel {
+  if (distance <= 0) return top ? Texel.TopOuter : Texel.SideOuter;
+  if (distance === 1) return top ? Texel.TopInner : Texel.SideInner;
+  return Texel.Body;
+}
+
+/** A rounded-cornered edge: `sideX` in from the side, `topY` down from the top; the corner is cut at 2. */
+function roundedEdge(x: number, y: number, sideX: number, topY: number, frame: number): Texel {
+  if (sideX + topY < 2) return Texel.Clear;
+  const distance = Math.min(sideX, topY, sideX + topY - 2);
+  const top = topY <= sideX;
+  // the shimmer: now and then a pixel just under a top edge, drifting a pixel a frame
+  if (distance === 2 && top && hashPixel((x + frame) % 24, y) % 7 === 0) return Texel.Shimmer;
+  return edge(distance, top);
+}
+
 /**
  * DELVE's liquid texture, on Terraria's layout (x, y in its pixels: 24 × 40 a frame, 8 a tile). Rows 0–2: an
  * edge block with rounded top corners, open at the bottom, with a narrow two-sided column (tiles (1,1)–(1,2))
  * cut into it. Row 3: the column's sides flaring into a surface line, for inner corners. Row 4: body. An edge is
- * two pixels: surface outside, light inside. The animation is a shimmer along the inside of each edge.
+ * two pixels, on a top edge or a side edge. The animation is a shimmer under the top edges.
  */
 export function texel(x: number, y: number, frame: number): Texel {
   if (y >= SURFACE_FRAME_Y / UNITS_PER_PIXEL) {
     const row = y - SURFACE_FRAME_Y / UNITS_PER_PIXEL;
     if (x < 8 || x > 15 || row > 7) return Texel.Clear;
-    return row === 0 ? Texel.Surface : row === 1 ? Texel.Light : Texel.Body;
+    return edge(row, true);
   }
   const localY = y % 40;
-  let kind: Texel;
-  let edgeDistance: number; // pixels in from the nearest edge
   if (localY < 24) {
     if (x >= 8 && x <= 15 && localY >= 8) {
-      // the narrow column
-      const sideX = Math.min(x - 8, 15 - x);
-      const topY = localY - 8;
-      if (sideX + topY < 2) return Texel.Clear;
-      edgeDistance = Math.min(sideX, topY, sideX + topY - 2);
-    } else {
-      const sideX = x < 8 ? x : x > 15 ? 23 - x : 8;
-      if (sideX + localY < 2) return Texel.Clear;
-      edgeDistance = Math.min(sideX, localY, sideX + localY - 2);
+      return roundedEdge(x, localY, Math.min(x - 8, 15 - x), localY - 8, frame); // the narrow column
     }
-  } else if (localY < 32) {
+    return roundedEdge(x, localY, x < 8 ? x : x > 15 ? 23 - x : 8, localY, frame);
+  }
+  if (localY < 32) {
     // inner corners: the column's sides, flaring into a surface line at row 30
     const row = localY - 24;
     const sideX = Math.min(x - 6, 17 - x);
-    if (row < 6) {
-      if (sideX < 0) return Texel.Clear;
-      edgeDistance = sideX;
-    } else if (row === 6) {
-      edgeDistance = sideX >= 0 ? Math.max(1, sideX) : 0;
-    } else {
-      edgeDistance = sideX >= 0 ? DEEP : 1;
+    if (row < 6) return sideX < 0 ? Texel.Clear : edge(sideX, false);
+    if (row === 6) return sideX < 0 ? Texel.TopOuter : sideX < 2 ? Texel.TopInner : Texel.Body;
+    return sideX < 0 ? Texel.TopInner : Texel.Body;
+  }
+  return Texel.Body;
+}
+
+/** Lava's light, the Light role of its ramp (#fb6b1d), as a lighting colour. */
+export const LAVA_LIGHT: [number, number, number] = [251 / 255, 107 / 255, 29 / 255];
+
+/**
+ * The tiles a liquid lights the cave from: lava tiles open to the air above or beside them. Water casts none.
+ * Each is a lamp-field emitter in LAVA_LIGHT (docs/FLUIDS.md, "The look"; docs/LIGHTING.md, "World lights").
+ */
+export function liquidLights(liquid: TerrariaLiquid): { column: number; row: number }[] {
+  if (liquid.kind !== LIQUID_LAVA) return [];
+  const { width, height, level } = liquid;
+  const air = (column: number, row: number): boolean =>
+    column >= 0 &&
+    row >= 0 &&
+    column < width &&
+    row < height &&
+    level[row * width + column] === 0 &&
+    !liquid.isSolid(row * width + column);
+  const lights: { column: number; row: number }[] = [];
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      if (level[row * width + column] === 0) continue;
+      if (air(column, row - 1) || air(column - 1, row) || air(column + 1, row)) {
+        lights.push({ column, row });
+      }
     }
-  } else {
-    edgeDistance = DEEP;
   }
-  if (edgeDistance <= 0) kind = Texel.Surface;
-  else if (edgeDistance === 1) kind = Texel.Light;
-  else kind = Texel.Body;
-  // the shimmer, in the edge block: now and then a light pixel just inside an edge, drifting a pixel a frame
-  if (
-    localY < 24 &&
-    kind === Texel.Body &&
-    edgeDistance === 2 &&
-    hashPixel((x + frame) % 24, localY) % 7 === 0
-  ) {
-    kind = Texel.Light;
-  }
-  return kind;
+  return lights;
 }
 
 /** LiquidRenderer's draw cache, per cell (row by row): what InternalPrepareDraw hands InternalDraw. */
@@ -461,7 +476,6 @@ export function prepareLiquidDraw(liquid: TerrariaLiquid, firstWorldRow = 0): Li
  */
 interface WaterTarget {
   shown: Uint8Array;
-  opacity: Float32Array;
   /** Half the liquid update count it was rendered at. */
   renderedHalf: number;
 }
@@ -471,7 +485,20 @@ const UPDATES_PER_RENDER = 2;
 
 const waterTargets = new WeakMap<TerrariaLiquid, WaterTarget>();
 
-/** Draw the liquid into `pixels` (RGBA, rock already drawn), as Terraria's LiquidRenderer draws it. */
+/**
+ * Brightness (0–255) of what's behind a water pixel, below which it shows the ramp's Deep, then Body, then Mid.
+ * Tuned to the Stone background, whose wall has two tones (brightness 48 and 59); other strata will want theirs.
+ */
+const SEE_THROUGH_DEEP = 54;
+const SEE_THROUGH_BODY = 100;
+/** Lava stays Mid this many art px under its surface line, and is the darker Body below: a hot skin. */
+const LAVA_HOT_DEPTH = 6;
+
+/**
+ * Draw the liquid into `pixels` (RGBA), in whole palette colours (docs/FLUIDS.md, "The look"). Water is drawn
+ * over the scene it sits in, reading what's behind it; lava is opaque and can be drawn into its own layer, to
+ * go over the lighting.
+ */
 export function drawTerrariaLiquid(
   frame: TerrariaLiquidFrame,
   pixels: Uint8ClampedArray,
@@ -485,14 +512,48 @@ export function drawTerrariaLiquid(
     target.renderedHalf = half;
     waterTargets.set(liquid, target);
   }
-  // paint: the whole sprite at one opacity, as a tinted, faded sprite batch draws it; rock stays in front
+  const lava = liquid.kind === LIQUID_LAVA;
+  // art px under the nearest top edge above, per column: lava's hot skin
+  const depth = new Int32Array(width);
   for (let pixel = 0; pixel < width * height; pixel++) {
     const kind = target.shown[pixel];
-    if (kind === Texel.Clear || !open[pixel]) continue;
-    const colour =
-      kind === Texel.Surface ? style.surface : kind === Texel.Light ? style.light : style.mid;
-    blend(pixels, pixel * 4, colour, target.opacity[pixel]);
+    const x = pixel % width;
+    if (kind === Texel.Clear) depth[x] = 0;
+    else if (kind === Texel.TopOuter || kind === Texel.TopInner) depth[x] = 0;
+    else depth[x]++;
+    if (kind === Texel.Clear || !open[pixel]) continue; // rock stays in front
+    const offset = pixel * 4;
+    let colour: Rgb;
+    switch (kind) {
+      case Texel.TopOuter:
+        colour = style.surface;
+        break;
+      case Texel.TopInner:
+      case Texel.SideOuter:
+        colour = style.light;
+        break;
+      case Texel.SideInner:
+        colour = style.mid;
+        break;
+      case Texel.Shimmer:
+        colour = lava ? style.surface : style.light;
+        break;
+      default:
+        if (lava) colour = depth[x] <= LAVA_HOT_DEPTH ? style.mid : style.body;
+        else colour = seeThrough(pixels, offset, style);
+    }
+    paint(pixels, offset, colour);
+    pixels[offset + 3] = 255;
   }
+}
+
+/** A water body pixel: the water ramp colour matching the brightness of what's behind it. */
+function seeThrough(pixels: Uint8ClampedArray, offset: number, style: LiquidStyle): Rgb {
+  const brightness =
+    0.299 * pixels[offset] + 0.587 * pixels[offset + 1] + 0.114 * pixels[offset + 2];
+  if (brightness < SEE_THROUGH_DEEP) return style.deep;
+  if (brightness < SEE_THROUGH_BODY) return style.body;
+  return style.mid;
 }
 
 /** Main.RenderWater: prepare the draw and lay every tile's source rectangle into the target. */
@@ -500,27 +561,36 @@ function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined)
   const { liquid, cell, width, height, originY } = frame;
   const draw = prepareLiquidDraw(liquid, Math.floor(originY / cell));
   const scale = TILE / cell; // Terraria units per art px
-  const baseOpacity = DEFAULT_OPACITY[liquid.kind];
   const frameNumber = Math.floor(frame.time * ANIMATION_FRAMES_PER_SECOND) % ANIMATION_FRAMES;
   const target: WaterTarget =
     reuse && reuse.shown.length === width * height
       ? reuse
-      : {
-          shown: new Uint8Array(width * height),
-          opacity: new Float32Array(width * height),
-          renderedHalf: -1,
-        };
+      : { shown: new Uint8Array(width * height), renderedHalf: -1 };
   target.shown.fill(Texel.Clear);
+  // hard edges: the waterfall trail's faded tiles are drawn only where they bridge a gap to liquid further down
+  // the stream; a trail that only fades into the air (a tail) isn't drawn
+  const drawn = new Uint8Array(liquid.width * liquid.height);
+  for (let column = 0; column < liquid.width; column++) {
+    let liquidBelow = false;
+    for (let row = liquid.height - 1; row >= 0; row--) {
+      const index = row * liquid.width + column;
+      if (!draw.visible[index]) {
+        liquidBelow = false;
+        continue;
+      }
+      if (draw.opacity[index] >= 1) liquidBelow = true;
+      if (liquidBelow) drawn[index] = 1;
+    }
+  }
   for (let row = 0; row < liquid.height; row++) {
     for (let column = 0; column < liquid.width; column++) {
       const index = row * liquid.width + column;
-      if (!draw.visible[index]) continue;
+      if (!drawn[index]) continue;
       const sourceX = draw.sourceX[index];
       // InternalDraw: surface liquid draws from the surface frame, everything else from this animation frame
       const sourceY = draw.surface[index]
         ? SURFACE_FRAME_Y
         : draw.sourceY[index] + frameNumber * 80;
-      const opacity = Math.min(1, draw.opacity[index] * baseOpacity);
       for (let py = 0; py < cell; py++) {
         const unitY = py * scale - draw.offsetY[index];
         if (unitY < 0 || unitY >= draw.sourceHeight[index]) continue;
@@ -537,7 +607,6 @@ function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined)
           const y = row * cell + py;
           if (x >= width || y >= height) continue;
           target.shown[y * width + x] = kind;
-          target.opacity[y * width + x] = opacity;
         }
       }
     }

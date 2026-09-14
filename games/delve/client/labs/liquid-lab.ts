@@ -4,7 +4,7 @@
 // The plan is in docs/FLUIDS.md.
 //
 // Mouse: right-drag digs · shift-drag builds · hold W to pour water at the cursor.
-// Keys: N next scene · R reset · space pause · T teal water
+// Keys: N next scene · R reset · space pause · T teal water · L lighting
 //       S Terraria's liquid or the cell pipes · 1–9 jump to a scene. `?sim=pipes` starts on the pipes.
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
@@ -32,7 +32,8 @@ import {
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
-import { drawTerrariaLiquid } from '../src/fluid/terraria-liquid-render';
+import { drawTerrariaLiquid, liquidLights, LAVA_LIGHT } from '../src/fluid/terraria-liquid-render';
+import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
 /** Lava's idle surface moves at this fraction of water's speed. */
 const LAVA_IDLE = 0.3;
@@ -216,6 +217,17 @@ const rock = rockCanvas.getContext('2d', { willReadFrequently: true })!;
 let rockPixels = new Uint8ClampedArray(width * height * 4);
 let open = new Uint8Array(width * height);
 const image = context.createImageData(width, height);
+// lava is emissive: it's drawn into its own layer, over the lighting
+const lavaCanvas = Object.assign(document.createElement('canvas'), { width, height });
+const lavaContext = lavaCanvas.getContext('2d')!;
+const lavaImage = lavaContext.createImageData(width, height);
+const lighting = createLighting();
+/** DELVE's lighting: lamp-only darkness, the lamp on the pointer, and lava's light. L toggles; `?light=0` starts off. */
+let lit = new URLSearchParams(location.search).get('light') !== '0';
+/** The lamp's intensity, as the style lab's miner carries it. */
+const LAMP_INTENSITY = 1.3;
+/** Each lava tile open to the air lights the cave at this intensity (lamp-field, max-propagated). */
+const LAVA_INTENSITY = 1.1;
 
 function refreshRock(): void {
   composeBand(rock, isSolid, bandLeft, bandTop, cols, rows, (column) => surfaceAt(SEED, column));
@@ -338,7 +350,7 @@ function breachNow(): void {
 
 // ---- input ---------------------------------------------------------------------------------------------------------
 
-const pointer = { down: false, button: 0, shift: false, x: 0, y: 0 };
+const pointer = { down: false, button: 0, shift: false, x: width / 2, y: height / 3 };
 const toArt = (event: PointerEvent): { x: number; y: number } => {
   const box = canvas.getBoundingClientRect();
   return {
@@ -368,6 +380,7 @@ addEventListener('keydown', (event: KeyboardEvent) => {
   else if (event.code === 'KeyR') loadScene(sceneIndex);
   else if (event.code === 'Space') paused = !paused;
   else if (event.code === 'KeyT') teal = !teal;
+  else if (event.code === 'KeyL') lit = !lit;
   else if (event.code === 'KeyS') {
     terraria = !terraria;
     loadScene(sceneIndex);
@@ -426,9 +439,9 @@ function frame(now: number): void {
     originY: bandTop * T,
     time: elapsed,
   };
-  if (terraria)
-    drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, image.data, style);
-  else
+  if (terraria) {
+    if (!lava) drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, image.data, style);
+  } else
     drawLiquid(
       {
         liquid,
@@ -445,11 +458,43 @@ function frame(now: number): void {
       style,
     );
   context.putImageData(image, 0, 0);
+  if (lit) {
+    lighting.addLight(
+      bandLeft * T + pointer.x,
+      bandTop * T + pointer.y,
+      0,
+      LAMP_COLOR,
+      LAMP_INTENSITY,
+    );
+    if (terraria) {
+      for (const light of liquidLights(liquid as TerrariaLiquid)) {
+        const x = (bandLeft + light.column) * T + (T >> 1);
+        const y = (bandTop + light.row) * T + (T >> 1);
+        lighting.addLight(x, y, 0, LAVA_LIGHT, LAVA_INTENSITY);
+      }
+    }
+    lighting.render({
+      g: context,
+      LW: width,
+      LH: height,
+      T,
+      camX: bandLeft * T,
+      camY: bandTop * T,
+      surfaceAt: () => -1,
+      solidTile: isSolid,
+    });
+  }
+  if (terraria && lava) {
+    lavaImage.data.fill(0);
+    drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, lavaImage.data, style);
+    lavaContext.putImageData(lavaImage, 0, 0);
+    context.drawImage(lavaCanvas, 0, 0);
+  }
   drawMs = performance.now() - drawStart;
   hud.innerHTML =
     `<b>DELVE · liquid lab</b> — ${sceneIndex + 1}. ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
     `water ${(liquid.total() / UNIT).toFixed(2)} cells   sim ${simMs.toFixed(1)} ms   draw ${drawMs.toFixed(1)} ms\n` +
-    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · S ${terraria ? '<b>terraria</b>' : 'pipes'}`;
+    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · L ${lit ? '<b>lit</b>' : 'unlit'} · S ${terraria ? '<b>terraria</b>' : 'pipes'}`;
   requestAnimationFrame(frame);
 }
 
@@ -462,6 +507,7 @@ Object.assign(window, {
       liquid.add(row * cols + column, Math.round(cells * UNIT)),
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
+    lit: (value: boolean) => (lit = value),
     terraria: (value: boolean) => {
       terraria = value;
       loadScene(sceneIndex);

@@ -139,9 +139,17 @@ There is **no persistent explored/"seen" memory** — walk away from a tunnel an
 void. So a **map is a memory system**, not a rendering of where you've been (a remembered-map fog
 would be a separate feature layered on top).
 
+## World lights
+
+A light in the world seeds the **lamp field** (`r === 0`) in its own colour, so it lights its surroundings
+out of the void exactly as the miner's lamp does — that's what makes the light the world's, not the player's.
+The first is **lava** ([FLUIDS.md](FLUIDS.md#the-look)): each lava tile open to the air is an emitter in lava
+orange, and lava is drawn after this pass so the scrim never dims it. It lives in the liquid lab until liquid
+joins the game.
+
 ## Coloured emitters (the ore-glow field)
 
-> **Nothing uses this today.** The **only emitter in the game is the miner's lamp.** Ore emission
+> **Nothing uses this today.** The **only emitter in the game is the miner's lamp** (lava, in the liquid lab, uses the lamp field — see _World lights_). Ore emission
 > was deliberately removed — veins read purely by their baked surface plus sparkle/twinkle, lit like
 > any other rock, so with lamp-only visibility unlit ore stays hidden in the void and never washes
 > the dark. The coloured-emitter path below is **built, proven and idle**, waiting for the first

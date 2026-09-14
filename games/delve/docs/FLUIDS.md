@@ -28,6 +28,11 @@ unit of water created or lost. Earlier attempts to improve on Terraria (pressure
 each produced artifacts of their own; see the history. Where DELVE differs, it's listed under
 _Deviations_, and nothing else may.
 
+**The look is DELVE's (the author, 2026-09-14):** the simulation and the shapes it draws are Terraria's; the
+colours, edges and light follow DELVE's art direction ([RENDERING.md](RENDERING.md), [PALETTE.md](PALETTE.md)):
+whole palette pixels and no smooth gradients, a top-lit rim, water you see the cave through, and lava that
+glows and lights the dark. See _The look_.
+
 ## The simulation — `shared/src/terraria-liquid.ts`
 
 A port of Terraria 1.4.0.5's `Liquid.cs` and `LiquidBuffer.cs`: `Update`, `UpdateLiquid`, `AddWater`,
@@ -53,11 +58,9 @@ pixels a frame (8 a tile), which is exactly DELVE's art pixel. DELVE's (`texel`)
 
 - rows 0–2 an edge block, rounded at the top corners and open at the bottom, with a narrow two-sided column
   cut into its middle; row 3 the column's sides flaring into a surface line (inner corners); row 4 body;
-- an edge is two pixels, **surface** outside and **light** inside, on a **mid** body;
-- 16 animation frames at 6 a second (Terraria's rate without wind): a shimmer of light pixels drifting just
-  inside the edges; a separate unanimated surface frame, which underground tiles with a plain top edge use.
-
-Every pixel of a tile is drawn at one opacity: 60% of the tile's trail opacity for water, 95% for lava.
+- an edge is two pixels, and each pixel knows whether it's on a **top** edge or a **side** edge;
+- 16 animation frames at 6 a second (Terraria's rate without wind): a shimmer of pixels drifting just under
+  top edges; a separate unanimated surface frame, which underground tiles with a plain top edge use.
 
 **The picture refreshes every second liquid update.** Terraria renders liquid into a render target
 (`Main.waterTarget`) on one frame in four (`Main.renderCount`, advanced each frame by the lighting pass) and
@@ -68,7 +71,27 @@ and where it lands in the next. The renderer keeps a water target per liquid, re
 count reaches a new even number, and paints it every frame (`client/src/fluid/terraria-liquid-render.test.ts`
 fails if the picture changes on an odd update).
 
-**Palette (Resurrect 64).** The texture uses the Surface, Light and Mid roles.
+## The look
+
+Everything is whole pixels of the [Resurrect 64](PALETTE.md) ramps below: no translucent blends, no
+gradients, no dither.
+
+- **Hard edges.** Terraria's waterfall trail — ten tiles of fading copies under falling liquid (three under
+  lava) — is still computed, because the oracle checks it, but where it only fades into the air (a tail) it
+  isn't drawn: it read as a smooth gradient, and its per-tile opacity steps as a checker. Where it bridges a
+  gap to more liquid further down the stream, it's drawn solid, so a falling mass has no holes.
+- **Top-lit rim, dimmer sides**, as rock is lit from above: a top edge is **Surface** outside and **Light**
+  inside; a side edge is **Light** outside and **Mid** inside. The shimmer runs just under top edges.
+- **Water is see-through, in palette.** A water body pixel takes the water ramp colour that matches the
+  brightness of what's behind it: dark behind → **Deep**, the cave wall → **Body**, bright → **Mid**. The cave
+  reads through the water as shapes in blue, and every pixel stays a palette colour. The split points are tuned
+  to the Stone background's two wall tones; each stratum's background will want its own.
+- **Lava is opaque and emissive.** A hot skin: rim and shimmer **Surface** and **Light**, then **Mid** for six
+  art px under the surface line, then the darker **Body** below — a hard band, no gradient.
+  It's drawn after the lighting pass, so darkness never dims it, and every lava tile open to the air above or
+  beside it is a **light**: a lamp-field emitter in **Light** orange (`LAVA_LIGHT`), so lava lights the cave out
+  of the void by the same rules as the miner's lamp ([LIGHTING.md](LIGHTING.md)) — pooling down open space,
+  dying a couple of blocks into rock. Water isn't emissive; it's lit and darkened like the rock around it.
 
 **Palette (Resurrect 64).**
 
@@ -82,7 +105,8 @@ fails if the picture changes on an odd update).
 | Foam     | `#c7dcd0` | `#fbff86` |
 | Specular | `#ffffff` | `#ffffff` |
 
-The Deep Stone stratum's ramp is this same blue, so water may vanish against it. The lab compares it
+The Deep Stone stratum's ramp is this same blue, so water may vanish against it; **T** in the lab swaps to
+the teal ramp to compare.
 
 ## Verification — the oracle
 
@@ -123,9 +147,10 @@ folder (they're Re-Logic's and stay out of the repo; `.gitignore` keeps them out
 
 - **Liquid is drawn behind rock.** Terraria's tiles are whole squares; DELVE's rock mask erodes into open
   cells, and liquid isn't drawn over those pixels (the author asked for no wetting of the rock's edge).
-- **No lighting, no wave shader, no lava bubbles.** Terraria tints each tile by its corner lights, distorts
-  liquid with a wave filter, and spawns lava dust. DELVE's lighting takes this over when the liquid joins the
-  game.
+- **The look** (above): the waterfall trail isn't drawn; edges are top-lit; water is see-through in palette
+  rather than 60% translucent; lava is emissive and lights the cave through DELVE's lighting rather than
+  Terraria's corner-light tint.
+- **No wave shader, no lava bubbles.** Terraria distorts liquid with a wave filter and spawns lava dust.
 - **Left out because DELVE doesn't have them:** slopes, half bricks, platforms, honey, water–lava reactions
   (one liquid per simulation for now), underworld evaporation, multiplayer sync, panic mode.
 
@@ -134,7 +159,8 @@ folder (they're Re-Logic's and stay out of the repo; `.gitignore` keeps them out
 `client/labs/liquid-lab.html` starts on the port. A scene starts as the oracle's do: its tiles filled, then
 every wet tile on the list column by column. Scenes: reservoir, full breach, partial breach, three gaps, gap
 under water, pool over a cave, lava breach, U-bend, terraces. **S** (or `?sim=pipes`) switches to the cell
-pipes for comparison.
+pipes for comparison. **L** toggles DELVE's lighting: lamp-only darkness with the lamp on the pointer, and
+lava's light.
 
 ## Not built yet
 
@@ -142,5 +168,4 @@ pipes for comparison.
 - **Netcode.** Terraria sends changed tiles by chunk (`NetLiquidModule`); the same, to the clients that see
   them.
 - **Reactions.** Water meeting lava makes obsidian (`LavaCheck`).
-- **Lighting** on the liquid, and the wave filter.
 - **Static bodies, breath, running to completion on resume** (the epic).
