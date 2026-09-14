@@ -100,6 +100,9 @@ export interface GpuRenderer {
   /** The first GPU validation error, or null. Errors surface asynchronously — a shader that fails to
    *  compile doesn't throw, it just draws nothing — so this is how a HUD, or probe, gets to see one. */
   readonly lastError: string | null;
+  /** Resolves, with the browser's reason, if the GPU device is lost — a crash, a driver reset, the GPU
+   *  being unplugged. Nothing renders after that, so the game treats it like having no WebGPU at all. */
+  readonly lost: Promise<string>;
 }
 
 /** Why a renderer couldn't be made, as a sentence for the page. */
@@ -562,6 +565,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     get lastError() {
       return lastError;
     },
+    lost: device.lost.then((info) => info.message || info.reason || 'unknown reason'),
     adapter:
       [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') ||
       'unknown adapter',

@@ -21,7 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
-const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js] [--shot out.png]
+const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js] [--shot out.png] [--no-gpu]
 
   <page>       path under the Vite root, e.g. index.html, labs/patch-lab.html
   --play       skip the title screen (adds ?play=1)
@@ -36,7 +36,8 @@ const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "s
   --grep re    print only overlay lines matching the regex
   --eval js    an expression evaluated in the page; its JSON value is printed
   --shot file  write a PNG of the viewport after everything else — the capture route for WebGPU
-               pages, which shot.sh can't take (it launches Chrome with --disable-gpu)`;
+               pages, which shot.sh can't take (it launches Chrome with --disable-gpu)
+  --no-gpu     launch Chrome without WebGPU, to see what a player without it sees`;
 
 interface Options {
   page: string;
@@ -50,6 +51,7 @@ interface Options {
   grep: RegExp | null;
   evals: string[];
   shot: string | null;
+  noGpu: boolean;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -69,6 +71,7 @@ function parseArgs(argv: string[]): Options {
     grep: null,
     evals: [],
     shot: null,
+    noGpu: false,
   };
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];
@@ -85,6 +88,7 @@ function parseArgs(argv: string[]): Options {
     else if (flag === '--do') options.steps.push(...value().trim().split(/\s+/));
     else if (flag === '--eval') options.evals.push(value());
     else if (flag === '--shot') options.shot = value();
+    else if (flag === '--no-gpu') options.noGpu = true;
     else if (flag === '--size') {
       const [w, h] = value().split('x').map(Number);
       options.width = w;
@@ -285,6 +289,7 @@ async function main(): Promise<void> {
       '--no-default-browser-check',
       '--autoplay-policy=no-user-gesture-required',
       `--window-size=${options.width},${options.height}`,
+      ...(options.noGpu ? ['--disable-gpu'] : []),
       'about:blank',
     ],
     { stdio: ['ignore', 'ignore', 'pipe'] },

@@ -86,7 +86,7 @@ way the chunk cache, the bake Worker, and the scrim's CPU cost stop existing.
   renderers read one field). It costs 0.8 ms in the game.
 
 **Tooling.** probe's headless Chrome exposes a Metal adapter. `pnpm probe --shot` captures WebGPU
-pages, which `shot.sh` (with `--disable-gpu`) can't. The lab's `window.gpuLab.runDiff()` reads the GPU
+pages, which `shot.sh` (with `--disable-gpu`) can't; `probe --no-gpu` shows the WebGPU required screen. The lab's `window.gpuLab.runDiff()` reads the GPU
 frame back and diffs it for probe.
 
 **What the spike surfaced for the epic:**
@@ -105,8 +105,16 @@ frame back and diffs it for probe.
 
 ### Renderer core in the game (#71)
 
-The game can render through the GPU, behind **`?renderer=gpu`**. Canvas 2D is still the default. If
-WebGPU is unavailable the flag falls back to Canvas 2D, and the debug overlay says why.
+**WebGPU is the renderer, and it's required** ([#77](https://github.com/inman-sebastian/agent-games/issues/77)
+— the author's decision, once the GPU path had no remaining known visual differences).
+
+- **No silent fallback.** A browser without WebGPU — or one whose GPU device is lost mid-game — gets a
+  **WebGPU required** screen: a terminal `unsupported` app state that says why and offers a reload.
+- **`?renderer=2d` is a developer switch, not a player fallback.** It keeps the Canvas 2D path
+  reachable for `gpu-lab`'s parity diffs while both renderers exist. The chunk bake Worker is only
+  created in that mode.
+- **Retiring Canvas 2D is the render-gates child of #68.** It waits on a verification basis that
+  doesn't depend on the CPU renderer.
 
 **The world lives on the GPU as a window, not per frame.** `gpu/world-window.ts` keeps a CPU mirror of
 cell solidity and surface heights for the view plus a margin, and uploads it whole. The upload is tens

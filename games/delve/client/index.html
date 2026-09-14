@@ -70,6 +70,21 @@
       </div>
     </div>
 
+    <!-- Shown instead of everything else when WebGPU can't render the game (#77). There's no fallback:
+     the author's decision is that WebGPU is required. -->
+    <div class="overlay" id="gpuRequiredOverlay">
+      <div class="panel titlepanel">
+        <div class="wordmark">DE<b>L</b>VE</div>
+        <h2>WebGPU required</h2>
+        <div class="sub">
+          DELVE draws its world on your graphics card through WebGPU, and it isn't available here. A
+          current version of Chrome, Edge, Safari or Firefox provides it.
+        </div>
+        <div class="sub" id="gpuRequiredReason"></div>
+        <button class="bigbtn" id="gpuRetryBtn">Try again</button>
+      </div>
+    </div>
+
     <div class="overlay" id="pauseOverlay">
       <div class="panel titlepanel">
         <h2>Paused</h2>

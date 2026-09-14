@@ -8,7 +8,8 @@
 # labs/light-lab.html, or index.html (the game) to shoot those instead. Examples:
 #   SHOT_BASE=http://localhost:5199 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave=shaft'
 #   SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html
-#   SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=30&h=18&scale=2' /tmp/game.png index.html
+#   SHOT_BASE=http://localhost:5199 tools/shot.sh 'renderer=2d&w=30&h=18&scale=2' /tmp/game.png index.html
+#   (the game needs renderer=2d here: this Chrome has no GPU, so WebGPU mode shows its required screen)
 set -e
 q="${1:?usage: shot.sh 'QUERY' [out.png] [page]}"
 out="${2:-/tmp/delve-shot.png}"

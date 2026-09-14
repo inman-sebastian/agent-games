@@ -88,12 +88,12 @@ they immediately discarded, which no amount of reading the code had suggested. N
 Chrome caps rAF at ~30fps regardless of load, so read `frame`, not `fps`, unless you're on real
 hardware.
 
-In GPU mode (`?renderer=gpu`) the `phase` line gains `gpu`: building and submitting the GPU frame,
+The game renders through WebGPU (#77), so the `phase` line has `gpu`: building and submitting the GPU frame,
 including the overlay upload. A `renderer` line names the path and adapter, the GPU's finish time, and
 the world window's size and version (the version moves on every dig and every window shift):
 
 ```sh
-pnpm probe 'index.html?renderer=gpu' --size 3400x1900 --play --do "key:ArrowRight:4000" --grep "^(fps|phase|renderer|bakes)"
+pnpm probe index.html --size 3400x1900 --play --do "key:ArrowRight:4000" --grep "^(fps|phase|renderer|bakes)"
 ```
 
 ## `probe.ts` — the running game, as text (no MCP)
@@ -180,6 +180,7 @@ reads the GPU frame back and heat-maps where it differs from the CPU frame. Ask 
 pnpm probe 'labs/gpu-lab.html?light=0' --wait 3000 --eval "gpuLab.runDiff().then(s => JSON.stringify(s))"
 pnpm probe 'labs/gpu-lab.html?mode=gpu&pan=1' --size 3400x1900 --wait 8000 --eval "JSON.stringify(gpuLab.cost())"
 pnpm probe 'labs/gpu-lab.html' --wait 3000 --shot /tmp/gpu.png      # shot.sh can't capture WebGPU
+pnpm probe index.html --no-gpu --eval "document.body.dataset.app"   # 'unsupported': the WebGPU required screen
 ```
 
 ## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
