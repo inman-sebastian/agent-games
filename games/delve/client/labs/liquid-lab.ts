@@ -416,6 +416,23 @@ Object.assign(window, {
       liquid.add(row * cols + column, Math.round(cells * UNIT)),
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
+    /** Cells in a rectangle, for probes: [column, row, fill, down velocity, right velocity, solid]. */
+    cells: (c0: number, r0: number, c1: number, r1: number) => {
+      const out: (number | boolean)[][] = [];
+      for (let r = r0; r < r1; r++)
+        for (let c = c0; c < c1; c++) {
+          const i = r * cols + c;
+          out.push([
+            c,
+            r,
+            +(liquid.volume[i] / UNIT).toFixed(3),
+            +liquid.downVelocity[i].toFixed(1),
+            +liquid.rightVelocity[i].toFixed(1),
+            liquid.isSolid(i),
+          ]);
+        }
+      return out;
+    },
     stats: () => ({ cells: liquid.total() / UNIT, elapsed, simMs, drawMs, sceneIndex }),
     cols,
     rows,

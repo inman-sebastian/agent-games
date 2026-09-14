@@ -222,7 +222,10 @@ export function createLiquid(
         const neighbour = index + width;
         const source = down > 0 ? index : neighbour;
         const limit = limiter(source);
-        if (limit < 1) downVelocity[index] *= limit;
+        // Water pouring down keeps its speed when its cell runs short: it's falling freely, and a stream is
+        // thin because it's fast. Braked like other faces, a trickle crept down in slow packets that piled
+        // into each other. Water pushed up (pressure) is braked as usual.
+        if (limit < 1 && down < 0) downVelocity[index] *= limit;
         const units = Math.floor(Math.abs(down) * limit * UNIT);
         change[source] -= units;
         change[source === index ? neighbour : index] += units;

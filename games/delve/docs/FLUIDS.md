@@ -123,7 +123,10 @@ compressed by the weight above pushes back.
    sideways.
 3. **Limiter**: each source cell scales everything it would send by
    `K = min(1, volume ÷ outflow)`, from start-of-step volumes, so no cell goes negative. A limited face's
-   velocity is scaled by `K` too.
+   velocity is scaled by `K` too — except water falling down, which keeps its speed: a stream is thin
+   because it's fast. Braked like the rest, a trickle over a lip crept down at a cell or two a second, in
+   slow packets that piled into each other, and drew as nothing (the author saw water teleport between
+   terraces).
 4. Every transfer moves `floor(|T|·K·UNIT)` units from one cell to the other. Order-independent and
    exact.
 
@@ -160,40 +163,37 @@ The style spec. Everything is drawn into the art-resolution layer and snaps to w
 The Deep Stone stratum's ramp is this same blue, so water may vanish against it. The lab compares it
 with the teal ramp `#0b5e65 #0b8a8f #0eaf9b #30e1b9 #8ff8e2` before this is final.
 
-**From cells to pixels** (`client/src/fluid/liquid-render.ts`, over the rock already drawn).
+**One shape: a density field and a threshold** (`client/src/fluid/liquid-render.ts`, over the rock
+already drawn). Every cell gets a visual fill; the fill is interpolated between cell centres at every art
+pixel; a pixel is wet where it reaches ½. That's how PixelJunk Shooter and metaball water draw fluid.
+Pools, pours, surges and streams come out as one smooth silhouette that joins where they meet, and what
+differs inside it is shading, blended per pixel.
 
-- **Pools** are each column's resting water (`waterRuns`): the surface from volume, joined between cell
-  centres, quantised to whole art pixels. A pool with moving water right on top of it is drawn full to its
-  cell top, or a pocket of air shows between them.
-- **Eroded rock is wet.** The rock mask opens pixels of solid cells along their edges (at most ~3 px);
-  water wets those beside and under it, per row, so there's no dry gap between water and rock.
-- **Masses:** moving water with wet cells beside it (a surge, water spilling across a floor) is filled from
-  below, and drawn full wherever water is on top of it (Terraria draws its tiles fuller than they hold).
-  Drawn at their own heights, stacked partly full cells read as stripes; drawn as columns, a surge front
-  read as a row of spikes.
-- **Streams:** falling water with nothing beside it is a column (below).
-- **One silhouette.** Depth is measured down from open air over every wet pixel, whatever drew it, so a
-  pool, the mass on it and the fall into it are one body with one outline.
+- **Why:** the first renderer drew pools, surging masses and falling streams as separate cases. The
+  author found the falls didn't blend with the rest, water seemed to stack, a stream vanished when thin
+  (water teleported basin to basin), and flowing surfaces grew jagged spikes where the cases met or a
+  cell flipped from one to another.
+- **Resting water** is laid out from its column's volume: full cells under a top cell holding the
+  remainder, so compression at the bottom of a deep pool doesn't sink the surface.
+- **Falling water** is drawn by how much flows, not only how much a cell holds: a cell carrying at least
+  0.05 cells a second down shows as a thin stream (a visual fill of 0.53), fuller as more flows. Only
+  downward flow counts; boosting water flowing across a surface raised pointed peaks at every lip. A dry
+  cell between two falling ones is drawn wet, so a trickle's packets don't break into dashes.
+- **Rock in a sample** takes the value of the water beside it in the same sample (across the row first,
+  then up or down, then diagonally), so water meets walls and floors flush and never leaks through one.
+- **Films** on rock under 1.5 px aren't drawn: a drained pool left hairlines along its floor.
 
 **Still water.**
 
-- **Outline:** the Surface colour on every wet pixel touching open air above or beside it, so a steep
-  surface stays one continuous line instead of a stair of loose dots. Light on the row under a surface.
+- **Outline:** the Surface colour on every wet pixel touching open air above or beside it. Light on the row
+  under a surface.
 - **Body:** Mid over what's behind at 45%, darker with depth by world-anchored Bayer dithering toward Deep.
-- **Life:** two slow sines travelling opposite ways move a 1 px kink along the surface (Celeste's idle
-  surface; flat stretches never bob). Sparse glints grow and shrink in place and drift.
+- **Life:** two slow sines travelling opposite ways shift where the field is sampled by up to 1 px, moving a
+  kink along the surface (Celeste's idle surface). Sparse glints grow and shrink in place and drift.
 
-**Falls and pours.**
-
-- **Inside a body,** water moving down faster than 6 cells/s and not inside a resting pool is drawn as a
-  fall: Mid at 85% with light streaks scrolling down at the fall's speed. A thick pour over a lip then
-  reads as falling water, not a standing slab. Inside a pool it isn't, or a pool's churn showed as blocks
-  of streaks.
-- **A stream** is a whole-pixel column at least 3 px wide, hugging the wall it pours off, with Light edges,
-  streaks, a ±1 px edge wobble travelling down, a mouth of Surface and Specular where it starts, and a
-  gap a cell long in the sim's stream drawn wet.
-- **Splash** where a stream lands on water: foam on the surface wider than the stream, and a crown of light
-  spikes re-rolled at 15 fps.
+**Falling water** is a shading inside the shape, never a separate drawing: where the interpolated falling
+amount passes ½, Mid at 60% with thin Light streaks scrolling down at the fall's speed, in a third of the
+art-px lanes. **Foam** flickers on the outline where falling water churns at the top of a pool.
 
 **Lava** is the same renderer with the lava palette: 95% opaque, its fall fully opaque, streaks at a third
 of water's speed, idle motion at 0.3×. In the sim it keeps 2% of its face velocity per second (water 20%),
@@ -232,7 +232,9 @@ no dry row between the hole and where it lands.
 
 - conserves every unit and never goes negative, through random caves, pours and digs (property);
 - deterministic;
-- water falls: nothing rests on air, and a dropped block lands;
+- water falls: nothing stays resting on air for a tenth of a second (a landing's bounce may turn around
+  there), and a dropped block lands;
+- a trickle falls fast, not in slow packets (fails when falling faces are braked by the limiter);
 - a heap levels flat to within a pixel;
 - both legs of a U-bend level (fails without pressure);
 - every gap in a breached wall pours at once (fails when only a surface can spread);

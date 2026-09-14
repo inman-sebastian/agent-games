@@ -119,27 +119,40 @@ describe('the cell-pipe liquid', () => {
       box(12, 20, (column, row) => (column >= 4 && column < 8 && row >= 2 && row < 5 ? '~' : '.')),
     );
     const width = liquid.width;
+    /** Substeps each cell has spent holding water over a mostly empty cell without moving. */
+    const stillOverAir = new Int32Array(width * liquid.height);
+    /** A tenth of a second: longer than a landing's bounce takes to turn around. */
+    const HANGING = WATER_PARAMS.substepsPerSecond / 10;
     run(liquid, 3, () => {
-      // IN MOTION: a cell holding water over a mostly-empty open cell is falling, not resting
+      // IN MOTION: water over a mostly-empty open cell is falling, or thrown up by the landing — it never
+      // stays there
       for (let row = 0; row < liquid.height - 2; row++)
         for (let column = 1; column < width - 1; column++) {
           const index = row * width + column;
           const below = index + width;
-          if (
+          const overAir =
             liquid.volume[index] > UNIT / 4 &&
             liquid.volume[below] < UNIT / 2 &&
-            !liquid.isSolid(below)
-          ) {
-            expect(
-              liquid.downVelocity[index],
-              `resting on air at ${column},${row}`,
-            ).toBeGreaterThan(0);
-          }
+            !liquid.isSolid(below);
+          const still = Math.abs(liquid.downVelocity[index]) < 0.5;
+          stillOverAir[index] = overAir && still ? stillOverAir[index] + 1 : 0;
+          expect(stillOverAir[index], `resting on air at ${column},${row}`).toBeLessThan(HANGING);
         }
     });
     // all of it is down on the floor
     expect(unitsIn(liquid, 1, width - 2, 16, 18)).toBeGreaterThan(0.95 * 12 * UNIT);
     expect(at(0, 0)).toBe(0);
+  });
+
+  it('lets a trickle fall fast, not creep down in slow packets', () => {
+    // a thin trickle poured into the top of a tall empty shaft
+    const { liquid, at } = scene(box(5, 30, () => '.'));
+    run(liquid, 1.5, () => liquid.add(at(2, 1), Math.round(UNIT / 200))); // about one cell a second
+    // halfway down, the trickle is moving at many cells a second, as falling water does
+    let fastest = 0;
+    for (let row = 10; row < 20; row++)
+      fastest = Math.max(fastest, liquid.downVelocity[at(2, row)]);
+    expect(fastest).toBeGreaterThan(20);
   });
 
   it('levels a heap flat to within a pixel', () => {
