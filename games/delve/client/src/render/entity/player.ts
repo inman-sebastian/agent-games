@@ -119,7 +119,9 @@ export function stepLift(tiles: number, age: number): number {
 
 // ---- the offscreen frame cache ------------------------------------------------------------------
 
-interface Baked {
+export interface Baked {
+  /** The cache key: one per distinct rasterized frame, so a GPU atlas can key its slots by it. */
+  readonly key: string;
   readonly canvas: HTMLCanvasElement;
   /** Where the sprite's ground row sits inside the canvas, so the caller can align feet to a tile. */
   readonly ground: number;
@@ -161,7 +163,7 @@ function bake(
     light,
   });
   ctx.putImageData(img, 0, 0);
-  const made: Baked = { canvas, ground: anim.ground * scale };
+  const made: Baked = { key, canvas, ground: anim.ground * scale };
   baked.set(key, made);
   return made;
 }
@@ -189,6 +191,20 @@ export function drawPlayer(
   footY: number,
   options: DrawPlayerOptions = {},
 ): void {
+  const placed = placePlayer(pose, footX, footY, options);
+  g.drawImage(placed.frame.canvas, placed.x, placed.y);
+}
+
+/**
+ * The baked frame for a pose and the whole-pixel top-left it draws at with its FEET at `(footX, footY)`
+ * — what `drawPlayer` blits, for a renderer that draws the frame itself (the GPU's sprite atlas, #83).
+ */
+export function placePlayer(
+  pose: PlayerPose,
+  footX: number,
+  footY: number,
+  options: DrawPlayerOptions = {},
+): { frame: Baked; x: number; y: number } {
   const scale = Math.max(1, Math.round(options.scale ?? 1));
   const skin = options.skin ?? MINER_SKIN;
   const frame = bake(
@@ -202,9 +218,9 @@ export function drawPlayer(
   );
   // Snap to whole pixels: a sprite drawn at a fractional offset is resampled by the browser, which
   // softens every edge the hard-threshold rasterizer went to the trouble of keeping.
-  g.drawImage(
-    frame.canvas,
-    Math.round(footX - frame.canvas.width / 2),
-    Math.round(footY - frame.ground),
-  );
+  return {
+    frame,
+    x: Math.round(footX - frame.canvas.width / 2),
+    y: Math.round(footY - frame.ground),
+  };
 }

@@ -5,8 +5,10 @@
 //               shadow, stalactites — into the `scene` texture
 //   1b. light   compute passes over the light grid (light.wgsl): seed the emitters, relax the field
 //               through open space and rock, finish into the glow and brightness the present reads
-//   2. present  one screen-space fragment pass (present.wgsl): scene, the 2D overlay, then the glow,
-//               dithered scrim and vignette, into the `frame` texture
+//   1c. entities one instanced render pass (quads.wgsl): particles, motes, the reticle and the player's
+//               sprite from the atlas, into the `entities` texture
+//   2. present  one screen-space fragment pass (present.wgsl): scene, damage and twinkle, entities, the 2D
+//               overlay (only floating text now), then the glow, dithered scrim and vignette, into `frame`
 //   3. blit     frame → the canvas (blit.wgsl)
 //
 // The world is a persistent `WorldWindow` (world-window.ts), uploaded only when it changes; the light
@@ -24,6 +26,8 @@ import rockWgsl from './rock.wgsl?raw';
 import { materialsWgsl } from './materials';
 import lightWgsl from './light.wgsl?raw';
 import presentWgsl from './present.wgsl?raw';
+import quadsWgsl from './quads.wgsl?raw';
+import { QUAD_FLOATS, createShelfPacker, type QuadBatch } from './quads';
 import blitWgsl from './blit.wgsl?raw';
 
 const WORKGROUP = 8;
@@ -35,6 +39,8 @@ const PRESENT_UNIFORM_BYTES = 88;
 const LIGHT_UNIFORM_BYTES = 56;
 /** Bytes of one light.wgsl `LightCell`: two vec3f, aligned to 12. */
 const LIGHT_CELL_BYTES = 24;
+/** The sprite atlas's side, in pixels. The player's whole frame set is a few hundred 48-pixel frames. */
+const ATLAS_SIZE = 2048;
 /** Emitters the GPU seeds. The game has one (the lamp); past this many, the extra are dropped. */
 const MAX_SEEDS = 64;
 const FRAME_FORMAT: GPUTextureFormat = 'rgba8unorm';
@@ -55,7 +61,10 @@ export interface GpuFrame {
   lighting?: boolean;
   /** false: skip the darkness scrim (the debug panel's `fog`). */
   scrim?: boolean;
-  /** What the game draws over the rock (particles, the player, …), screen-sized and transparent. */
+  /** The entity pass: particles, the player, … as quads, drawn over damage and twinkle (quads.ts). */
+  quads?: QuadBatch;
+  /** What the game still draws with Canvas 2D over the entities (floating text), screen-sized and
+   *  transparent. Leave it out on frames where it's empty: uploading it is a full-screen copy. */
   overlay?: HTMLCanvasElement | OffscreenCanvas;
   /**
    * The two 2D layers that sit between the rock and the overlay, as the Canvas 2D frame draws them:
@@ -103,6 +112,11 @@ export interface GpuRenderer {
   render(frame: GpuFrame): { prepareMs: number; encodeMs: number };
   /** The last frame, RGBA bytes, screen-sized. */
   readback(): Promise<{ width: number; height: number; pixels: Uint8Array }>;
+  /**
+   * Where a baked sprite frame sits in the atlas, uploading it the first time its key is seen. Draw it
+   * with `quads.image` in the same frame: a full atlas starts again from empty, which moves slots.
+   */
+  sprite(key: string, source: HTMLCanvasElement | OffscreenCanvas): { x: number; y: number };
   /** Milliseconds from submitting the last frame to the GPU reporting it done. */
   readonly gpuMs: number;
   readonly adapter: string;
@@ -178,6 +192,80 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     FRAME_FORMAT,
   );
   const blitPipeline = fullScreenPipeline(blitModule, 'blit_vertex', 'blit_fragment', canvasFormat);
+  const quadsModule = shader('quads', quadsWgsl);
+  const premultipliedOver: GPUBlendComponent = {
+    srcFactor: 'one',
+    dstFactor: 'one-minus-src-alpha',
+    operation: 'add',
+  };
+  const quadsPipeline = device.createRenderPipeline({
+    label: 'quads',
+    layout: 'auto',
+    vertex: {
+      module: quadsModule,
+      entryPoint: 'quad_vertex',
+      buffers: [
+        {
+          stepMode: 'instance',
+          arrayStride: QUAD_FLOATS * 4,
+          attributes: [
+            { shaderLocation: 0, offset: 0, format: 'float32x4' },
+            { shaderLocation: 1, offset: 16, format: 'float32x4' },
+            { shaderLocation: 2, offset: 32, format: 'float32x4' },
+          ],
+        },
+      ],
+    },
+    fragment: {
+      module: quadsModule,
+      entryPoint: 'quad_fragment',
+      targets: [
+        { format: FRAME_FORMAT, blend: { color: premultipliedOver, alpha: premultipliedOver } },
+      ],
+    },
+  });
+  const atlas = device.createTexture({
+    label: 'sprite atlas',
+    size: [ATLAS_SIZE, ATLAS_SIZE],
+    format: FRAME_FORMAT,
+    usage:
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT,
+  });
+  const packer = createShelfPacker(ATLAS_SIZE);
+  const screenBuffer = device.createBuffer({
+    size: 8,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+  });
+  let quadBuffer = device.createBuffer({
+    size: 256 * QUAD_FLOATS * 4,
+    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+  });
+  const quadsGroup = device.createBindGroup({
+    layout: quadsPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: screenBuffer } },
+      { binding: 1, resource: atlas.createView() },
+    ],
+  });
+
+  function sprite(key: string, source: LayerSource): { x: number; y: number } {
+    let placed = packer.place(key, source.width, source.height);
+    if (!placed) {
+      packer.reset();
+      placed = packer.place(key, source.width, source.height);
+      if (!placed) throw new Error(`sprite ${key} is larger than the ${ATLAS_SIZE}px atlas`);
+    }
+    if (placed.fresh) {
+      device.queue.copyExternalImageToTexture(
+        { source },
+        { texture: atlas, origin: [placed.slot.x, placed.slot.y], premultipliedAlpha: true },
+        [source.width, source.height],
+      );
+    }
+    return { x: placed.slot.x, y: placed.slot.y };
+  }
 
   const uniform = (bytes: number): GPUBuffer =>
     device.createBuffer({ size: bytes, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -253,6 +341,19 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
         [frame.width, frame.height],
       );
     }
+    const quadCount = frame.quads?.count ?? 0;
+    if (frame.quads && quadCount > 0) {
+      const bytes = quadCount * QUAD_FLOATS * 4;
+      if (quadBuffer.size < bytes) {
+        quadBuffer.destroy();
+        quadBuffer = device.createBuffer({
+          size: Math.max(bytes, quadBuffer.size * 2),
+          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
+      }
+      device.queue.writeBuffer(quadBuffer, 0, frame.quads.data, 0, quadCount * QUAD_FLOATS);
+    }
+    device.queue.writeBuffer(screenBuffer, 0, new Float32Array([frame.width, frame.height]));
     const box = clampBox(frame.layers?.box, frame.width, frame.height);
     if (frame.layers && box.width > 0 && box.height > 0) {
       const copyBox = (source: LayerSource, texture: GPUTexture): void =>
@@ -314,6 +415,23 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       pass.draw(3);
       pass.end();
     };
+    const entityPass = encoder.beginRenderPass({
+      colorAttachments: [
+        {
+          view: r.entities.createView(),
+          loadOp: 'clear',
+          storeOp: 'store',
+          clearValue: [0, 0, 0, 0],
+        },
+      ],
+    });
+    if (quadCount > 0) {
+      entityPass.setPipeline(quadsPipeline);
+      entityPass.setBindGroup(0, quadsGroup);
+      entityPass.setVertexBuffer(0, quadBuffer);
+      entityPass.draw(6, quadCount);
+    }
+    entityPass.end();
     fullScreenPass(r.frame.createView(), presentPipeline, groups.present);
     fullScreenPass(context!.getCurrentTexture().createView(), blitPipeline, groups.blit);
     device.queue.submit([encoder.finish()]);
@@ -451,6 +569,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     cellsBuffer: GPUBuffer;
     surfaceBuffer: GPUBuffer;
     overlay: GPUTexture;
+    entities: GPUTexture;
     under: GPUTexture;
     glint: GPUTexture;
     frame: GPUTexture;
@@ -501,6 +620,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       GPUTextureUsage.COPY_DST |
       GPUTextureUsage.RENDER_ATTACHMENT;
     const under = texture('under', shape.width, shape.height, layerUsage);
+    const entities = texture('entities', shape.width, shape.height, layerUsage);
     const glint = texture('glint', shape.width, shape.height, layerUsage);
     const frame = texture(
       'frame',
@@ -551,6 +671,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       cellsBuffer,
       surfaceBuffer,
       overlay,
+      entities,
       under,
       glint,
       frame,
@@ -607,6 +728,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
           6: buffer(alphaBuffer),
           7: under.createView(),
           8: glint.createView(),
+          9: entities.createView(),
         }),
         blit: group(blitPipeline, { 0: frame.createView() }),
       },
@@ -614,6 +736,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
         buffers.forEach((b) => b.destroy());
         scene.destroy();
         overlay.destroy();
+        entities.destroy();
         under.destroy();
         glint.destroy();
         frame.destroy();
@@ -650,6 +773,7 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
   const info = adapter.info;
   return {
     render,
+    sprite,
     readback,
     get gpuMs() {
       return gpuMs;

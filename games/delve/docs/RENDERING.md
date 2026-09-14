@@ -132,7 +132,8 @@ seeds and sky heights from the window itself.
    - the rock scene, offset by the camera;
    - the **2D overlay** — damage cracks, twinkle, dust, particles, the player, floaties and the reticle,
      still drawn by the existing code onto the game canvas, now kept transparent and uploaded as a
-     texture each frame;
+     texture each frame (since split: damage and twinkle into their own layers in #75; dust, particles,
+     the player and the reticle into the entity pass in #83, below);
    - the additive glow, the dithered scrim and the vignette, from the same light field.
 
    The scrim still darkens the player and the particles, as it does today.
@@ -222,9 +223,45 @@ render gate's lit views compare against the CPU sweeps.
 **Dormant branch.** The hue cap (`ADD_MAX`) is ported but never engages with one lamp: its peak
 additive is 0.37 against a cap of 0.5. The gate can't see it until something brighter emits.
 
+### Sprites and particles on the GPU (#83)
+
+Everything that moves is drawn by an **entity pass**: one instanced render pass (`gpu/quads.wgsl`) into
+an `entities` texture. `present.wgsl` composites it source-over, after damage and twinkle and before
+the overlay, which is where Canvas 2D drew them. The game builds a `QuadBatch` (`gpu/quads.ts`) each
+frame, in draw order:
+
+- **Dust motes, dig particles and the mining reticle** are solid quads with alpha, as `fillRect` under
+  `globalAlpha` drew them. The reticle is `quads.outline`: four edges that touch without overlapping,
+  exactly what `strokeRect` at line width 1 covers, so a translucent corner isn't doubled.
+- **The player** is a textured quad from a **sprite atlas**. `player.ts` still rasterizes each distinct
+  frame once (the material shading per pixel is unchanged; see SPRITES.md). `placePlayer` hands the
+  baked canvas and its cache key to `renderer.sprite`, and a shelf packer (`createShelfPacker`,
+  property-tested for overlap and bounds) uploads it into a 2048² atlas the first time the key is seen.
+  From then on a frame costs one quad. A full atlas starts again from empty.
+
+Quads are premultiplied and blended one / one-minus-src-alpha, and a textured quad copies texels 1:1 at
+whole-pixel positions, so sprite edges stay hard.
+
+**The floating reward text stays on the 2D overlay.** Text on the GPU would need a glyph atlas for no
+gain. The overlay is cleared and uploaded only on frames that have text; it used to be a full-screen
+upload every frame.
+
+**Measured** at 3400×1900 while walking and digging: main thread 1.46 → **1.17 ms**.
+
+**Gated.** gpu-lab draws a player, 48 particles at mixed sizes and alphas, and the reticle on both paths:
+Canvas 2D the way the game used to, quads on the GPU. Every gate view covers them. The whole-frame bar
+couldn't see a few hundred pixels (unpremultiplied particles passed it), so the gate also checks an
+**entity box** around them: at most 0.5% of its pixels off by more than 3 levels. Clean views measure at
+most 0.12%. Red-checked:
+
+- unpremultiplied particles fail at 1.3% of the box;
+- particles 20% fainter fail at 1.2%;
+- the sprite read one atlas texel off fails the identical bar;
+- skipping the entity pass fails everywhere.
+
 **Known differences from Canvas 2D, each a later child of #68:**
 
-- **Sprites and particles are rasterised by Canvas 2D** and uploaded, not drawn by the GPU.
+- **The reticle draws under the floating text**, where Canvas 2D drew it over. The two rarely meet.
 - **The sky is one gradient across the screen**, not one per chunk, so #54's banding doesn't happen.
   That's a difference in the GPU path's favour.
 
@@ -245,11 +282,12 @@ agree. `gpuLab.gate()` in `client/labs/gpu-lab.ts` renders each view both ways a
 - any view has more than 0.1% of pixels off by more than 3 levels;
 - any unlit view is under 99.9% identical;
 - no view drew a twinkle glint, so the additive blend went unchecked;
+- any view has more than 0.5% of its entity box off by more than 3 levels (#83, below);
 - or the GPU reported an error.
 
 It sets `document.title` to `PASS` or `FAIL` and returns `{ pass, failures, views }`. Each view carries
 its `identical` and `withinSmall` percentages, its `mean` difference, a `histogram` of differences (0–8,
-then everything above) and its `glints`.
+then everything above), the same for the entity box (`entityHistogram`) and its `glints`.
 
 The lit bar was "99.8% within 8 levels" until #82 showed it was too blunt for light. The glow's
 bilinear rounding puts a level or two of difference over most lit pixels, so "identical" says nothing

@@ -6,12 +6,13 @@
 import * as engine from '@delve/shared';
 import type { Session, Input, TileCoord, SimEvent, StateMessage, WorldSize } from '@delve/shared';
 import { T, setStrata as setRenderStrata, mix, hashXY } from './render/cave-render';
-import { UPSCALE } from './render/palette';
+import { UPSCALE, hexRgb } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
-import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
+import { placePlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
 import { createGpuRenderer, GpuUnavailable, type GpuRenderer } from './render/gpu/renderer';
 import { createWorldWindow } from './render/gpu/world-window';
+import { createQuadBatch } from './render/gpu/quads';
 import * as net from './net';
 import { load, save, fresh } from './save';
 import { createPrediction } from './prediction';
@@ -37,10 +38,10 @@ const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 
 // ---- the renderer: WebGPU, required (#71, #77) ---------------------------------------------------
-// The rock and the lighting are drawn by the GPU onto #cgpu, behind #c; #c keeps its layout and its
-// pointer input, turns invisible, and becomes the OVERLAY: everything render() still draws onto it
-// (particles, the player, floaties, the reticle) is uploaded each frame and composited under the
-// lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
+// The whole frame is drawn by the GPU onto #cgpu, behind #c. Particles, motes, the player and the reticle
+// are quads in the GPU's entity pass (#83). #c keeps its layout and its pointer input, turns invisible,
+// and becomes the OVERLAY for the one thing still drawn with Canvas 2D — the floating reward text — which
+// is uploaded only on frames that have some. See docs/RENDERING.md.
 //
 // WebGPU is REQUIRED — the author's decision. Without it, or if the GPU device is lost, the game shows
 // the WebGPU required screen rather than falling back. There is no Canvas 2D rock path in the game (#80);
@@ -52,6 +53,10 @@ const underCanvas = document.createElement('canvas');
 const underCtx = underCanvas.getContext('2d')!;
 const glintCanvas = document.createElement('canvas');
 const glintCtx = glintCanvas.getContext('2d')!;
+/** The entity pass's quads, rebuilt every frame. */
+const quads = createQuadBatch();
+/** Whether the overlay canvas holds anything — it's only cleared, and uploaded, when it does. */
+let overlayDrawn = false;
 /** Slack around the lamp's box for a crack or a glint's arm reaching past its cell. */
 const LAYER_BOX_PAD_PX = 8;
 let gpu: GpuRenderer | null = null;
@@ -221,7 +226,9 @@ const motes = Array.from({ length: 10 }, () => ({
 
 function render(t: number): void {
   beginPhases();
-  ctx.clearRect(0, 0, LW, LH);
+  if (overlayDrawn) ctx.clearRect(0, 0, LW, LH);
+  overlayDrawn = false;
+  quads.clear();
   // No renderer yet (WebGPU still starting, behind the title screen) or none at all (the WebGPU
   // required screen): draw nothing.
   if (!gpu) return;
@@ -361,21 +368,20 @@ function render(t: number): void {
   endPhase('twinkle');
 
   // idle dust motes drifting near the lamp
-  ctx.fillStyle = '#fff';
+  const moteColour = hexRgb('#ffffff');
   for (const m of motes) {
     const mx = (px + (m.x - 0.5) * st.lamp * 1.4) * T + T / 2;
     const my = (py + (((m.y + t * 0.03 * m.s) % 1) - 0.5) * st.lamp * 1.3) * T + T / 2;
-    ctx.globalAlpha = 0.1 * m.s * (py > 0 ? 1 : 0);
-    ctx.fillRect(Math.round(mx + Math.sin(t + m.x * 9) * 1.5), Math.round(my), 1, 1);
+    const alpha = 0.1 * m.s * (py > 0 ? 1 : 0);
+    const x = Math.round(mx + Math.sin(t + m.x * 9) * 1.5) + screenX;
+    quads.rect(x, Math.round(my) + screenY, 1, 1, moteColour, alpha);
   }
-  ctx.globalAlpha = 1;
 
   for (const p of particles) {
-    ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
-    ctx.fillStyle = p.col;
-    ctx.fillRect(Math.round(p.x), Math.round(p.y), p.sz, p.sz);
+    const alpha = Math.max(0, 1 - p.t / p.life);
+    const x = Math.round(p.x) + screenX;
+    quads.rect(x, Math.round(p.y) + screenY, p.sz, p.sz, hexRgb(p.col), alpha);
   }
-  ctx.globalAlpha = 1;
 
   // the player's imported sprite, standing on its feet. The bob the placeholder needed is gone: the
   // animations carry their own, so adding more on top double-counted it.
@@ -384,14 +390,31 @@ function render(t: number): void {
   const footY = Math.round((py + halfHeight) * T);
   // Drawn LOWER than the sim has it while a step-up is being carried up — the only place the
   // renderer deliberately disagrees with the sim about where the player is, and it converges within
-  // STEP_LIFT_TIME.
+  // STEP_LIFT_TIME. The baked frame goes into the GPU's sprite atlas the first time it's seen.
   const lift = stepTiles > 0 ? stepLift(stepTiles, stepAge) : 0;
-  drawPlayer(ctx, poseFor(miner.state, t * 1000, walked), footX, Math.round(footY + lift * T), {
-    scale: 1,
-    facing: s.player.facing,
-  }); // lamp bloom is part of the lighting pass
+  const player = placePlayer(
+    poseFor(miner.state, t * 1000, walked),
+    footX,
+    Math.round(footY + lift * T),
+    { scale: 1, facing: s.player.facing },
+  ); // lamp bloom is part of the lighting pass
+  const slot = gpu.sprite(player.frame.key, player.frame.canvas);
+  const { width: frameWidth, height: frameHeight } = player.frame.canvas;
+  quads.image(player.x + screenX, player.y + screenY, frameWidth, frameHeight, slot.x, slot.y);
 
-  // floaties: the "+2 Gold" text that rises off a broken ore cell
+  // mining reticle — the cell being aimed at, bright exactly when the sim would mine it. Reach is the
+  // sim's own rule (engine.withinReach, from the body's span) read against the sim's player — not the
+  // smoothed display position, and not a centre-cell approximation, which is what this used to be and
+  // why it dimmed cells the miner could reach. It now sits under the floating text, where Canvas 2D drew
+  // it over: the text is the overlay, composited above every quad. The two rarely meet.
+  if (curTarget) {
+    const { column, row } = curTarget;
+    const ok = engine.mineable(s.world, column, row) && engine.withinReach(s.player, column, row);
+    const colour = hexRgb(ok ? '#fdf3d4' : '#8892a0');
+    quads.outline(column * T + screenX, row * T + screenY, T, T, colour, ok ? 0.85 : 0.22);
+  }
+
+  // floaties: the "+2 Gold" text that rises off a broken ore cell — the overlay's only content
   ctx.textAlign = 'center';
   for (const f of floaties) {
     const a = Math.max(0, 1 - f.t / f.life);
@@ -401,21 +424,9 @@ function render(t: number): void {
     ctx.fillText(f.text, f.x + 1, f.y + 1);
     ctx.fillStyle = f.col;
     ctx.fillText(f.text, f.x, f.y);
+    overlayDrawn = true;
   }
   ctx.globalAlpha = 1;
-
-  // mining reticle — the cell being aimed at, bright exactly when the sim would mine it. Reach is the
-  // sim's own rule (engine.withinReach, from the body's span) read against the sim's player — not the
-  // smoothed display position, and not a centre-cell approximation, which is what this used to be and
-  // why it dimmed cells the miner could reach.
-  if (curTarget) {
-    const { column, row } = curTarget;
-    const ok = engine.mineable(s.world, column, row) && engine.withinReach(s.player, column, row);
-    ctx.globalAlpha = ok ? 0.85 : 0.22;
-    ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
-    ctx.strokeRect(column * T + 0.5, row * T + 0.5, T - 1, T - 1);
-    ctx.globalAlpha = 1;
-  }
   ctx.restore();
   endPhase('entities');
 
@@ -445,7 +456,8 @@ function render(t: number): void {
     light: field,
     lighting: debugFlags.lighting,
     scrim: debugFlags.fog,
-    overlay: canvas,
+    quads,
+    overlay: overlayDrawn ? canvas : undefined,
     layers: {
       under: underCanvas,
       glint: glintCanvas,

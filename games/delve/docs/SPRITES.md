@@ -168,6 +168,11 @@ hand-edit to generated data, an index outside its palette, a layer name that dri
 
 Two dimensions of the same idea, and the second is what makes equipment possible.
 
+**How a frame reaches the screen.** `player.ts` rasterizes each distinct (animation, frame, facing,
+skin) once into a small canvas and caches it. In the game that canvas is uploaded once into the GPU's
+sprite atlas and drawn as a quad from then on (#83, [RENDERING.md](RENDERING.md#sprites-and-particles-on-the-gpu-83)).
+The labs still `drawImage` it. The per-pixel shading below runs once per frame kept, never per screen frame.
+
 **One dimension — a colour table.** A pixel's index resolves through a skin's `colors[]`. Cheap, and
 enough for skin tone, a shirt colour, a palette swap. Its ceiling is hard: the source template
 carries two to five shades per part, so a colour table can never show more than that.

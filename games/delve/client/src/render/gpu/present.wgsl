@@ -1,6 +1,6 @@
 // present.wgsl — the screen-space composite, in the order the Canvas 2D frame draws (client/src/index.ts
-// `render`): the rock scene; the three 2D layers — damage cracks (source-over), twinkle glints (ADDED,
-// as Canvas 2D's `lighter` adds them), everything else (source-over); then lighting.ts's per-pixel half —
+// `render`): the rock scene; damage cracks (source-over); twinkle glints (ADDED, as Canvas 2D's `lighter`
+// adds them); the entity pass's particles and sprites (source-over); the 2D overlay's text (source-over); then lighting.ts's per-pixel half —
 // additive glow, the dithered darkness scrim, the vignette. Everything here is in SCREEN pixels at art resolution, with the
 // camera's fractional position, exactly as the Canvas 2D lighting samples it.
 //
@@ -38,6 +38,7 @@ struct Present {
 @group(0) @binding(6) var<storage, read> alpha_steps: array<f32>; // 8-bit alpha for each darkness level
 @group(0) @binding(7) var under: texture_2d<f32>;                // damage cracks, premultiplied
 @group(0) @binding(8) var glint: texture_2d<f32>;                // twinkle glints: premultiplied = the light they add
+@group(0) @binding(9) var entities: texture_2d<f32>;             // quads.wgsl's particles and sprites, premultiplied
 
 @vertex
 fn composite_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
@@ -121,6 +122,10 @@ fn composite_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f 
     let light = textureLoad(glint, vec2i(px, py), 0);
     colour = min(vec3f(255.0), colour + floor(light.rgb * 255.0 + 0.5));
   }
+
+  // the entity pass: transparent wherever nothing was drawn, which composites to the colour unchanged
+  let sprites = textureLoad(entities, vec2i(px, py), 0);
+  colour = floor(sprites.rgb * 255.0 + colour * (1.0 - sprites.a) + 0.5);
 
   if (present.overlay_on == 1u) {
     let layer = textureLoad(overlay, vec2i(px, py), 0);

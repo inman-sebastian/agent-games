@@ -15,6 +15,9 @@ import { STRATA, solidAt, surfaceAt, oreAt, SUB } from '@delve/shared';
 import { setStrata, composeBand, T, hashXY } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { oreMaterial, allOreMaterials, collectTwinkleEdges } from '../src/render/materials';
+import { drawPlayer, placePlayer, poseFor } from '../src/render/entity/player';
+import { createQuadBatch } from '../src/render/gpu/quads';
+import { hexRgb } from '../src/render/palette';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import type { FieldPlan } from '../src/render/lighting';
 import { createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
@@ -113,6 +116,81 @@ function drawTwinkle(g: CanvasRenderingContext2D): void {
   g.restore();
 }
 
+// ---- entities ----------------------------------------------------------------------------------------
+// The entity pass's parity (#83): the player standing in the chamber, a spray of particles at mixed sizes
+// and alphas, and the mining reticle — drawn the Canvas 2D way on the CPU path (exactly as index.ts draws
+// them) and as quads on the GPU. Band-relative screen pixels, like composeBand.
+const PARTICLE_COLOURS = ['#fdf3d4', '#c28d75', '#7a4841', '#e83b3b', '#4d65b4'];
+const PARTICLES = Array.from({ length: 48 }, (_, n) => ({
+  dx: (hashXY(n, 1, 91) % 64) - 32,
+  dy: (hashXY(n, 2, 91) % 40) - 28,
+  size: hashXY(n, 3, 91) % 5 === 0 ? 2 : 1,
+  colour: PARTICLE_COLOURS[hashXY(n, 4, 91) % PARTICLE_COLOURS.length],
+  alpha: (1 + (hashXY(n, 5, 91) % 9)) / 10,
+}));
+
+function entityPlacement(): { originX: number; originY: number; footX: number; footY: number } {
+  const { bandLeft, bandTop } = band();
+  const originX = (centre.column + 0.5) * T - bandLeft * T;
+  const originY = (centre.row + 1) * T - bandTop * T;
+  // standing on the chamber's floor, which is the row below the carve (centre.row + 3)
+  return { originX, originY, footX: originX, footY: (centre.row + 4) * T - bandTop * T };
+}
+const RETICLE = { dc: 3, dr: 3, colour: '#fdf3d4', alpha: 0.85 };
+
+/** The screen box the entities cover — particles, the player and the reticle — for the gate's scoped check. */
+function entityBox(): { x0: number; y0: number; x1: number; y1: number } {
+  const { originX, originY } = entityPlacement();
+  return { x0: originX - 40, y0: originY - 56, x1: originX + 40, y1: originY + 5 * T };
+}
+
+function drawEntitiesCpu(g: CanvasRenderingContext2D): void {
+  const { originX, originY, footX, footY } = entityPlacement();
+  for (const p of PARTICLES) {
+    g.globalAlpha = p.alpha;
+    g.fillStyle = p.colour;
+    g.fillRect(Math.round(originX + p.dx), Math.round(originY + p.dy), p.size, p.size);
+  }
+  g.globalAlpha = 1;
+  drawPlayer(g, poseFor('idle', 0), footX, footY, { scale: 1, facing: 'right' });
+  const x = Math.floor(originX / T + RETICLE.dc) * T;
+  const y = Math.floor(originY / T + RETICLE.dr) * T;
+  g.globalAlpha = RETICLE.alpha;
+  g.strokeStyle = RETICLE.colour;
+  g.strokeRect(x + 0.5, y + 0.5, T - 1, T - 1);
+  g.globalAlpha = 1;
+}
+
+const quads = createQuadBatch();
+function entityQuads(renderer: GpuRenderer): typeof quads {
+  const { originX, originY, footX, footY } = entityPlacement();
+  quads.clear();
+  for (const p of PARTICLES) {
+    quads.rect(
+      Math.round(originX + p.dx),
+      Math.round(originY + p.dy),
+      p.size,
+      p.size,
+      hexRgb(p.colour),
+      p.alpha,
+    );
+  }
+  const player = placePlayer(poseFor('idle', 0), footX, footY, { scale: 1, facing: 'right' });
+  const slot = renderer.sprite(player.frame.key, player.frame.canvas);
+  quads.image(
+    player.x,
+    player.y,
+    player.frame.canvas.width,
+    player.frame.canvas.height,
+    slot.x,
+    slot.y,
+  );
+  const x = Math.floor(originX / T + RETICLE.dc) * T;
+  const y = Math.floor(originY / T + RETICLE.dr) * T;
+  quads.outline(x, y, T, T, hexRgb(RETICLE.colour), RETICLE.alpha);
+  return quads;
+}
+
 const cpuCanvas = document.getElementById('cpu') as HTMLCanvasElement;
 const gpuCanvas = document.getElementById('gpu') as HTMLCanvasElement;
 const cpu = cpuCanvas.getContext('2d', { willReadFrequently: true })!;
@@ -155,6 +233,7 @@ function renderCpu(): number {
   const { bandLeft, bandTop } = band();
   composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf, materialAt);
   drawTwinkle(cpu);
+  drawEntitiesCpu(cpu);
   if (lightingOn) {
     addLamp();
     lighting.render({ g: cpu, ...lightingView(), surfaceAt: surfaceOf, solidTile: isSolid });
@@ -194,6 +273,7 @@ function renderGpu(): number {
     world: worldWindow,
     light: field,
     lighting: lightingOn,
+    quads: entityQuads(gpu),
     layers: {
       under: underLayer,
       glint: glintLayer,
@@ -219,6 +299,8 @@ interface DiffStats {
   meanDifference: number;
   /** Pixels by difference: index n counts differences of exactly n, the last bucket everything above. */
   histogram: number[];
+  /** The same histogram inside `entityBox`, where a small broken sprite or particle can't hide. */
+  entityHistogram: number[];
   /** The first few pixels that differ by more than DIFF_SMALL, to go and look at. */
   outliers: { x: number; y: number; cpu: number[]; gpu: number[] }[];
 }
@@ -240,6 +322,8 @@ async function runDiff(): Promise<DiffStats | null> {
   let maxDifference = 0;
   let total = 0;
   const histogram = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
+  const entityHistogram = new Array<number>(HISTOGRAM_BUCKETS).fill(0);
+  const entities = entityBox();
   const outliers: DiffStats['outliers'] = [];
   const width = cols * T;
   const heat = cpu.createImageData(cols * T, rows * T);
@@ -251,6 +335,10 @@ async function runDiff(): Promise<DiffStats | null> {
     );
     total += difference;
     histogram[Math.min(HISTOGRAM_BUCKETS - 1, difference)]++;
+    const px = (i / 4) % (cols * T);
+    const py = Math.floor(i / 4 / (cols * T));
+    if (px >= entities.x0 && px < entities.x1 && py >= entities.y0 && py < entities.y1)
+      entityHistogram[Math.min(HISTOGRAM_BUCKETS - 1, difference)]++;
     if (difference === 0) identical++;
     if (difference <= DIFF_SMALL) withinSmall++;
     if (difference > maxDifference) maxDifference = difference;
@@ -283,6 +371,7 @@ async function runDiff(): Promise<DiffStats | null> {
     maxDifference,
     meanDifference: total / pixels,
     histogram,
+    entityHistogram,
     outliers,
   };
   return diffStats;
@@ -329,6 +418,12 @@ function findPocket(ore: number): { column: number; row: number } | null {
 const GATE_UNLIT_IDENTICAL = 0.999;
 const GATE_OFF_LEVELS = 3;
 const GATE_OFF_FRACTION = 0.001;
+/**
+ * The same check inside the entity box (#83), where the particles and the player are a few hundred
+ * pixels a whole-frame fraction can't see: unpremultiplied particles moved 98 of the box's 7,680 pixels
+ * past three levels and passed the frame check. Clean views measure at most 9 (0.12%).
+ */
+const GATE_ENTITY_OFF_FRACTION = 0.005;
 
 interface GateView {
   label: string;
@@ -339,6 +434,7 @@ interface GateView {
   withinSmall: string;
   mean: number;
   histogram: number[];
+  entityHistogram: number[];
   glints: number;
 }
 
@@ -375,6 +471,7 @@ async function gate(): Promise<{ pass: boolean; failures: string[]; views: GateV
       withinSmall: percent(withinSmall),
       mean: Number(stats.meanDifference.toFixed(4)),
       histogram: stats.histogram,
+      entityHistogram: stats.entityHistogram,
       glints: stats.glintPixels,
     });
     const where = `${view.label} ${view.column},${view.row} ${view.lit ? 'lit' : 'unlit'}`;
@@ -383,6 +480,13 @@ async function gate(): Promise<{ pass: boolean; failures: string[]; views: GateV
     if (off > GATE_OFF_FRACTION)
       failures.push(
         `${where}: ${percent(off)} off by more than ${GATE_OFF_LEVELS} levels, above ${percent(GATE_OFF_FRACTION)}`,
+      );
+    const boxPixels = stats.entityHistogram.reduce((a, b) => a + b, 0);
+    const entityOff =
+      stats.entityHistogram.slice(GATE_OFF_LEVELS + 1).reduce((a, b) => a + b, 0) / boxPixels;
+    if (entityOff > GATE_ENTITY_OFF_FRACTION)
+      failures.push(
+        `${where}: ${percent(entityOff)} of the entity box off by more than ${GATE_OFF_LEVELS} levels, above ${percent(GATE_ENTITY_OFF_FRACTION)}`,
       );
     if (!view.lit && identical < GATE_UNLIT_IDENTICAL)
       failures.push(
