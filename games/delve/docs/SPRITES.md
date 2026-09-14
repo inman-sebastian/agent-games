@@ -451,7 +451,8 @@ onto the ledge, which is exactly how it was reported.
 
 So the sim emits a `step` event carrying the height, and the renderer draws the figure **below** its
 true position and carries it up over `STEP_LIFT_TIME` (110 ms), eased out so the rise is fast off the
-back foot and settles. This is the one place the renderer deliberately disagrees with the sim about
+back foot and settles. Terraria's step-down (walking off a one-cell ledge, [SLOPES.md](SLOPES.md)) emits the
+same event with a negative height, drawn above and carried down — Terraria's `gfxOffY` does both. This is the one place the renderer deliberately disagrees with the sim about
 where the player is, and it converges within a tenth of a second.
 
 It is also the project's own rule applied to a case that had broken it: resolve in logic, animate

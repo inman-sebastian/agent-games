@@ -13,3 +13,4 @@ export * from './hydrate';
 export * from './liquid';
 export * from './terraria-liquid';
 export * from './slopes';
+export * from './collision';

@@ -207,14 +207,9 @@ describe('a played session never becomes unplayable', () => {
       fc.property(seedArb, (seed) => {
         const session = newSession(seed);
         play(session, { left: false, right: true, jump: true }, 60 * 10);
-        const b = bodyTiles(session);
-        for (let row = b.top; row <= b.bottom; row++) {
-          for (let column = b.left; column <= b.right; column++) {
-            expect(solidCell(session.world, column, row), `inside rock at ${column},${row}`).toBe(
-              false,
-            );
-          }
-        }
+        // Rock is a full cell or a slope's solid half (#93), which bodyFits measures.
+        const { x, y } = session.player;
+        expect(bodyFits(session.world, x, y), `inside rock at ${x},${y}`).toBe(true);
       }),
       { numRuns: 20 },
     );

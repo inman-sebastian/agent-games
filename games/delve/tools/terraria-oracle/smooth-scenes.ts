@@ -2,7 +2,11 @@
 // from several seeds, and synthetic terrain (big steps, overhangs, pillars, caves) so every branch of the pass is
 // exercised. Run: `npx tsx tools/terraria-oracle/smooth-scenes.ts`, then the harness's `smooth` mode.
 import { writeFileSync } from 'node:fs';
-import { chunkSeed, unsmoothedGrid } from '@delve/shared';
+import { unsmoothedGrid } from '@delve/shared';
+
+/** Each scene's xorshift starting state. */
+const chunkSeed = (seed: number, chunk: number): number =>
+  (Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(chunk, 0xc2b2ae35)) >>> 0 || 1;
 
 interface Scene {
   name: string;

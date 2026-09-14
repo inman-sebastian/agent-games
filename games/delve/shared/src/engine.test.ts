@@ -26,6 +26,9 @@ import {
   surfaceAt,
   blockAt,
   oreAt,
+  shapeAt,
+  OPEN,
+  SLOPE_DOWN_RIGHT,
   type Input,
   type Session,
   type SimEvent,
@@ -61,16 +64,13 @@ function inputFor(step: Step, session: Session): Input {
   return input;
 }
 
-// The player's AABB must never overlap an undug solid cell.
+// The player's AABB must never overlap rock: an undug full cell, or a slope's solid half (#93).
 function assertNoTunneling(session: Session): void {
   const { player, world } = session;
-  const c0 = Math.floor(player.x - PHYS.HW + TOL);
-  const c1 = Math.floor(player.x + PHYS.HW - TOL);
-  const r0 = Math.floor(player.y - PHYS.HH + TOL);
-  const r1 = Math.floor(player.y + PHYS.HH - TOL);
-  for (let c = c0; c <= c1; c++)
-    for (let r = r0; r <= r1; r++)
-      expect(solidCell(world, c, r), `player AABB overlaps solid cell ${c},${r}`).toBe(false);
+  expect(
+    bodyFits(world, player.x, player.y),
+    `player AABB overlaps rock at ${player.x},${player.y}`,
+  ).toBe(true);
 }
 
 function assertSaneKinematics(session: Session): void {
@@ -670,5 +670,67 @@ describe('walking over terrain (#44)', () => {
         `seed ${seed} is airborne`,
       ).toBe(false);
     }
+  });
+});
+
+describe('slopes collide as Terraria does (#93)', () => {
+  const MIDDLE = worldColumns('medium') >> 1;
+
+  /** The first surface cell of `shape` right of the spawn, with open air above it. */
+  const surfaceSlope = (seed: number, shape: number): { column: number; row: number } => {
+    for (let column = MIDDLE; column < MIDDLE + 2000; column++) {
+      for (let row = surfaceAt(seed, column) - 2; row <= surfaceAt(seed, column) + 2; row++) {
+        if (shapeAt(seed, column, row) === shape && shapeAt(seed, column, row - 1) === OPEN) {
+          return { column, row };
+        }
+      }
+    }
+    throw new Error(`no slope ${shape} on seed ${seed}`);
+  };
+
+  it("a body may stand in a slope's open corner, but not in its solid half", () => {
+    const session = newSession(1);
+    const { column, row } = surfaceSlope(1, SLOPE_DOWN_RIGHT); // solid left and bottom
+    // The body's bottom-left corner above the diagonal, in the open top-right corner…
+    const x = column + 0.5 + PHYS.HW;
+    expect(bodyFits(session.world, x, row + 0.2 - PHYS.HH), 'in the open corner').toBe(true);
+    // …and below it, in the solid half.
+    expect(bodyFits(session.world, x, row + 0.7 - PHYS.HH), 'in the solid half').toBe(false);
+  });
+
+  it("walking over smoothed terrain, the feet ride slopes' diagonals", () => {
+    // Before the port a slope was a full cell: a grounded body's feet were always on a cell's top edge.
+    let ridden = 0;
+    for (const seed of [1, 12345, 777]) {
+      const session = newSession(seed);
+      for (let tick = 0; tick < 60 * 20; tick++) {
+        physicsStep(session, { right: true }, TICK_DT);
+        const feet = session.player.y + PHYS.HH;
+        const into = feet - Math.floor(feet);
+        if (session.player.grounded && into > 0.01 && into < 0.99) ridden++;
+      }
+    }
+    expect(ridden).toBeGreaterThan(60);
+  });
+
+  it('walks down a one-cell ledge instead of dropping off it', () => {
+    const ROW = SURFACE_BASE + 30;
+    const COL = MIDDLE;
+    const session = newSession(4242);
+    // A corridor running right whose floor drops by one cell half way along.
+    for (let c = COL - 2; c <= COL + 20; c++) {
+      const floor = c < COL + 10 ? ROW : ROW + 1;
+      for (let r = floor - (2 * SUB + 1); r < floor; r++) session.world.dug[key(c, r)] = true;
+    }
+    session.player.x = COL + 0.5;
+    session.player.y = ROW - PHYS.HH;
+    const steps: SimEvent[] = [];
+    for (let tick = 0; tick < 240; tick++) {
+      const { events, grounded } = physicsStep(session, { right: true }, TICK_DT);
+      steps.push(...events.filter((event) => event.type === 'step'));
+      if (tick > 0) expect(grounded, `airborne on tick ${tick}`).toBe(true);
+    }
+    expect(session.player.x).toBeGreaterThan(COL + 12);
+    expect(steps.map((event) => event.tiles)).toContain(-1);
   });
 });

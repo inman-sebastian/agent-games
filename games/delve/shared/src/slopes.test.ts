@@ -4,7 +4,19 @@
 // mined like any other cell.
 import { describe, it, expect } from 'vitest';
 import { blockAt, mineTile, mineable, newSession, solidAt, surfaceAt } from './engine';
-import { covers, FULL, insideShape, OPEN, SMOOTH_CHUNK, shapeAt, skyRowAt } from './slopes';
+import {
+  cellGenerator,
+  covers,
+  FULL,
+  insideShape,
+  OPEN,
+  SMOOTH_CHUNK,
+  shapeAt,
+  skyRowAt,
+  smoothFirstLoop,
+  smoothSecondLoop,
+  type SmoothGrid,
+} from './slopes';
 import type { SimEvent } from './types';
 
 /** Every sloped cell along the surface of `columns` columns from `from`. */
@@ -122,6 +134,52 @@ describe('slope geometry', () => {
       expect(shapeAt(seed, c, sky + 1), `column ${c}`).toBe(FULL);
       for (let r = surfaceAt(seed, c) - 2; r <= sky; r++)
         expect(shapeAt(seed, c, r)).not.toBe(FULL);
+    }
+  });
+});
+
+describe('chunk seams inside the world (#93)', () => {
+  it('chunks from column 0 are what one continuous pass leaves', () => {
+    // A chunk that started from the unsmoothed world at its seam put two floor slopes side by side there: a
+    // sawtooth the pass never makes, and one Terraria's collision lets a body's corner sink into.
+    for (let seed = 1; seed <= 40; seed++) {
+      const chunks = 6;
+      const firstColumn = -1;
+      const width = chunks * SMOOTH_CHUNK + 2;
+      let highest = Infinity;
+      let lowest = -Infinity;
+      for (let x = 0; x < width; x++) {
+        highest = Math.min(highest, surfaceAt(seed, firstColumn + x));
+        lowest = Math.max(lowest, surfaceAt(seed, firstColumn + x));
+      }
+      const firstRow = highest - 4;
+      const height = lowest - highest + 10;
+      const grid: SmoothGrid = {
+        firstColumn,
+        firstRow,
+        width,
+        height,
+        active: new Uint8Array(width * height),
+        slope: new Uint8Array(width * height),
+        half: new Uint8Array(width * height),
+      };
+      for (let x = 0; x < width; x++) {
+        for (let y = 0; y < height; y++) {
+          grid.active[x * height + y] = firstRow + y > surfaceAt(seed, firstColumn + x) ? 1 : 0;
+        }
+      }
+      smoothFirstLoop(grid, cellGenerator(seed, 1));
+      smoothSecondLoop(grid, cellGenerator(seed, 2));
+      // The last chunk's right seam reads a chunk this grid lacks, so compare the ones before it.
+      for (let column = 0; column < (chunks - 1) * SMOOTH_CHUNK; column++) {
+        for (let y = 0; y < height; y++) {
+          const index = (column - firstColumn) * height + y;
+          const want = !grid.active[index] ? OPEN : grid.half[index] ? FULL : grid.slope[index];
+          expect(shapeAt(seed, column, firstRow + y), `seed ${seed} cell ${column},${firstRow + y}`).toBe(
+            want,
+          );
+        }
+      }
     }
   });
 });

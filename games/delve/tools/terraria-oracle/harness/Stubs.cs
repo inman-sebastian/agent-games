@@ -1,6 +1,6 @@
-// Minimal stand-ins for the parts of Terraria that Liquid.cs and LiquidRenderer.cs touch. Only what compiles
-// them; water only, single player, no world generation. Liquid.cs, LiquidBuffer.cs and LiquidRenderer.cs are
-// the decompiled 1.4.0.5 files, unmodified.
+// Minimal stand-ins for the parts of Terraria that Liquid.cs, LiquidRenderer.cs, the Smooth World pass and the player
+// collision methods touch — only what compiles them, single player, one rock type. The Terraria files are the
+// decompiled 1.4.0.5 sources, unmodified (fetch.sh).
 using System;
 using System.Collections.Generic;
 
@@ -13,6 +13,12 @@ namespace Microsoft.Xna.Framework
     public static Vector2 Zero => new Vector2(0, 0);
     public static Vector2 operator +(Vector2 a, Vector2 b) => new Vector2(a.X + b.X, a.Y + b.Y);
     public static Vector2 operator *(Vector2 a, float s) => new Vector2(a.X * s, a.Y * s);
+    public static Vector2 operator -(Vector2 a, Vector2 b) => new Vector2(a.X - b.X, a.Y - b.Y);
+  }
+  public struct Vector4
+  {
+    public float X, Y, Z, W;
+    public Vector4(Vector2 xy, float z, float w) { X = xy.X; Y = xy.Y; Z = z; W = w; }
   }
   public struct Point
   {
@@ -24,6 +30,7 @@ namespace Microsoft.Xna.Framework
   {
     public int X, Y, Width, Height;
     public Rectangle(int x, int y, int w, int h) { X = x; Y = y; Width = w; Height = h; }
+    public bool Intersects(Rectangle value) => value.X < X + Width && X < value.X + value.Width && value.Y < Y + Height && Y < value.Y + value.Height;
   }
   public struct Color
   {
@@ -146,6 +153,9 @@ namespace Terraria
     public byte slope() => _slope;
     public void slope(byte s) => _slope = s;
     public bool inActive() => false;
+    public short frameY;
+    public bool topSlope() => _slope == 1 || _slope == 2;
+    public bool bottomSlope() => _slope == 3 || _slope == 4;
     /// <summary>Tile.SmoothSlope: only sand runs it in Smooth World, and DELVE has no sand.</summary>
     public static void SmoothSlope(int x, int y, bool applyToNeighbors, bool sync) { }
   }
@@ -174,7 +184,15 @@ namespace Terraria
     public static void SendData(int a, int b, int c, Terraria.Localization.NetworkText t, int d, float e, float f, float g, int h, int i, int j) { }
     public static void SendTileSquare(int who, int x, int y, int size, TileChangeType type) { }
   }
-  public static class Utils { public static void Swap<T>(ref T a, ref T b) { T t = a; a = b; b = t; } }
+  public static class Utils
+  {
+    public static void Swap<T>(ref T a, ref T b) { T t = a; a = b; b = t; }
+    public static T Clamp<T>(T value, T min, T max) where T : IComparable<T> =>
+      value.CompareTo(max) > 0 ? max : value.CompareTo(min) < 0 ? min : value;
+    /// <summary>Utils.FloatIntersect (Utils.cs:446): inclusive edges.</summary>
+    public static bool FloatIntersect(float r1StartX, float r1StartY, float r1Width, float r1Height, float r2StartX, float r2StartY, float r2Width, float r2Height) =>
+      (double) r1StartX <= (double) r2StartX + (double) r2Width && (double) r1StartY <= (double) r2StartY + (double) r2Height && ((double) r1StartX + (double) r1Width >= (double) r2StartX && (double) r1StartY + (double) r1Height >= (double) r2StartY);
+  }
 
   public class DustStub { public Vector2 velocity; public bool noGravity; }
   public static class Dust
@@ -201,6 +219,7 @@ namespace Terraria
   public static class Main
   {
     public static int maxTilesX, maxTilesY;
+    public static float bottomWorld = float.MaxValue; // StepDown's bottom-of-world floor, never reached
     public static Tile[,] tile;
     public static bool[] tileSolid = new bool[1000];
     public static bool[] tileSolidTop = new bool[1000];

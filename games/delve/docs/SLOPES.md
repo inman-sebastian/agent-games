@@ -64,13 +64,21 @@ swapped when only the right neighbour is solid, and ceilings first under a solid
   slope). DELVE's world is a pure function of the seed, unbounded and computed per cell; Terraria's Smooth World
   pass is sequential over a finite world, shares one random generator, and reads tiles it changed a moment
   earlier — a one-cell step would get two slopes side by side if each cell were judged alone. So the pass is
-  **replayed statement by statement over fixed chunks of 64 columns**, each starting from the unsmoothed
-  heightmap and reading the unsmoothed world beyond its seams, with a xorshift seeded by the world seed and the
-  chunk in place of `genRand`. Within a chunk the result is exactly Terraria's; the chunk seams are the
-  deviation. Half bricks are tracked while the pass runs (its rules read them) and become full cells after.
+  **replayed statement by statement over fixed chunks of 64 columns**. Its rules read one column either side,
+  and it runs two loops over the world: the first reads the column to its left after that loop and the one to
+  its right untouched; the second reads the left after both loops and the right after the first. So **from
+  column 0 rightward the chunks chain** (#93): each runs its first loop from its left neighbour's first-loop
+  result, and its second once its right neighbour has run its first — every seam then reads exactly what one
+  continuous pass would (`slopes.test.ts` checks the chain against a continuous run). Left of column 0, outside
+  the world, each chunk starts from the unsmoothed world. Chunks that started from the unsmoothed world at
+  every seam put two floor slopes side by side at about one seam in fifteen — a sawtooth the pass never makes,
+  and one Terraria's collision lets a body's corner sink into. `genRand`, one stream through the whole pass,
+  becomes a hash of the seed, the loop, the cell and the draw (`cellGenerator`): the second loop draws at every
+  cell it visits, so a stream would make a cell's result depend on how many cells a chunk visited before it.
+  Half bricks are tracked while the pass runs (its rules read them) and become full cells after.
   `solidAt` and `blockAt` answer from the shape (`Block.slope`), and `isDug` is just the dug map: smoothing
   fills the heightmap's surface row in places and clears the row below it in others, so "at or above the surface
-  is dug" no longer holds. Until collision is ported (#93), a slope collides as a full cell.
+  is dug" no longer holds.
 - **Checked against Terraria's code.** `tools/terraria-oracle/harness/fetch.sh` extracts the Smooth World pass
   from the decompiled `WorldGen.cs` unmodified; `SmoothOracle.cs` runs it (with `SlopeTile`, `PoundTile`,
   `KillTile`, `PlaceTile` and `SolidTile` stubbed to their exact effects during generation) on
@@ -79,8 +87,22 @@ swapped when only the right neighbour is solid, and ceilings first under a solid
 - **Mining** a slope is mining a cell: same hit points, same drops; dug, it's open like any cell.
 - **No save or protocol change.** A cell's shape is computed from the seed, and `dug` already records what's
   been mined. (The hammer would change that: shapes would then need storing and syncing.)
-- **Collision** ports Terraria's slope routines onto `physicsStep`, in cells, and is checked against Terraria's
-  own `Collision.cs` compiled with stubs (the oracle method from [FLUIDS.md](FLUIDS.md#verification--the-oracle)).
+- **Collision** (`shared/src/collision.ts`) is Terraria's player collision, ported whole rather than bolted onto
+  the old axis-separated resolve: `walkDownSlope`, `stepDown`, `stepUp`, `tileCollision` and `slopeCollision`,
+  statement by statement, for gravity pointing down and a world of full cells and slopes (no half bricks,
+  platforms, water walking or minecarts). They work in Terraria's units — a DELVE cell is a 16 px tile, velocity
+  is pixels per tick — so the rules read like the original. `physicsStep` keeps DELVE's own movement (run,
+  friction, gravity, jump, in cells per second), converts the tick's motion to pixels and calls them in
+  `Player.DryCollision`'s order (`Player.cs:15167-15330`): walk down a slope, step down when resting, step up
+  when not rising, collide with tiles, move, then ride slopes. Grounded means the collision stopped a
+  downward move. Two consequences of taking it whole: the body walks down a one-cell ledge instead of dropping
+  off it (`StepDown`), and it steps up while falling as well as while standing (`StepUp` only asks that it isn't
+  rising). The body is sized in whole pixels, as Terraria's are (29 × 58, 1.8125 × 3.625 cells). Terraria marks
+  "no tile found" with -1, which is a row above DELVE's row 0, so the port uses a value no row equals. `bodyFits`
+  (spawn, `unstick`, the fuzz tests' never-inside-rock invariant) lets the body overlap a slope's open half. **Checked against Terraria's code:** `fetch.sh` extracts the
+  five methods from `Collision.cs` unmodified; `CollisionOracle.cs` runs them on `collision-scenes.json`
+  (bodies at real DELVE surfaces and in random slope grids, in whole or sixteenth pixels so single-precision
+  C# and the port agree) and `collision.test.ts` requires the same result from each.
 - **Rendering** (`buildMask` in `cave-render.ts`, `mask_main` in `rock.wgsl`, in lockstep). A solid cell's shape
   rides in bits 1–3 of the GPU world window. The mask leaves pixels outside a slope's solid half open
   (`insideShape`: the diagonal belongs to the solid half) and treats the diagonal as an edge, eroded by the same

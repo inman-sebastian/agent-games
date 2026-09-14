@@ -5,3 +5,5 @@ bin/
 obj/
 SmoothWorld.generated.cs
 WorldGen.cs.txt
+Collision.generated.cs
+Collision.cs.txt

@@ -23,6 +23,16 @@ import {
   SUB,
 } from './blocks';
 import { tileRand } from './rng';
+import { FULL, OPEN, shapeAt } from './slopes';
+import {
+  slopeCollision,
+  stepDown,
+  stepUp,
+  tileCollision,
+  walkDownSlope,
+  type Body,
+  type ShapeLookup,
+} from './collision';
 import type { Input, SimEvent, WorldState, PlayerState, Session, WorldSize } from './types';
 
 export * from './blocks';
@@ -37,8 +47,11 @@ export * from './blocks';
 // character art: the sprite's figure is 18 x 29 art px against a 16-art-px block, so 1.12 x 1.81. The
 // hitbox is the figure's height exactly and a little narrower than its width, so shoulders and
 // swinging limbs overhang rather than snagging on corners.
-const HALF_WIDTH = 0.45 * SUB;
-const HALF_HEIGHT = 0.91 * SUB;
+//
+// In whole Terraria pixels (a cell is 16; #93): 29 x 58, a hair off the 0.9 x 1.82 it was. The collision is
+// Terraria's, which sizes bodies in whole pixels, and is checked against it at whole-pixel sizes (docs/SLOPES.md).
+const HALF_WIDTH = (29 / 64) * SUB;
+const HALF_HEIGHT = (58 / 64) * SUB;
 const GRAVITY = 46 * SUB;
 const MAX_FALL = 30 * SUB;
 const RUN_SPEED = 6 * SUB;
@@ -54,10 +67,6 @@ const FRICTION = 60 * SUB;
 // two-block tunnel has 0.18 above its head, so jumping indoors needs a three-block tunnel.
 const JUMP_VELOCITY = 10.7 * SUB;
 const REACH = 1 * SUB; // base mining reach: one BLOCK (Chebyshev) beyond the body's span. See withinReach.
-// One CELL, which after the 2x2 split is HALF A BLOCK — and that is the whole point of the split
-// (#44). A mined staircase now has half-block risers, so walking up one is a small correction rather
-// than the character hopping a whole block. It was 1 block before, 55% of body height; it is now 27%.
-const STEP_UP_TILES = 1;
 const COYOTE_TIME = 0.08; // jump just after leaving a ledge
 const JUMP_BUFFER = 0.1; // jump requested just before landing
 const MAX_STEP_DT = 1 / (30 * SUB); // clamp per-step dt so fast motion can't tunnel through a cell
@@ -168,7 +177,10 @@ export function newPlayer(
   };
 }
 
-/** Whether the player's body would be clear of rock centred at `(x, y)`. */
+/**
+ * Whether the player's body would be clear of rock centred at `(x, y)`. A slope's open half is clear (#93):
+ * the body may overlap a slope cell as long as it stays out of the solid triangle.
+ */
 export function bodyFits(
   world: WorldState,
   x: number,
@@ -182,7 +194,19 @@ export function bodyFits(
   const top = Math.floor(y - hh + EPSILON);
   const bottom = Math.floor(y + hh - EPSILON);
   for (let row = top; row <= bottom; row++) {
-    if (anySolidInRow(world, left, right, row)) return false;
+    for (let column = left; column <= right; column++) {
+      const shape = collisionShape(world, column, row);
+      if (shape === OPEN) continue;
+      if (shape === FULL) return false;
+      // The body's extent within the cell, 0–1 from its top-left; the diagonal itself is clear.
+      const u0 = Math.max(0, x - hw - column);
+      const u1 = Math.min(1, x + hw - column);
+      const v0 = Math.max(0, y - hh - row);
+      const v1 = Math.min(1, y + hh - row);
+      const intoSolid =
+        shape === 1 ? v1 - u0 : shape === 2 ? v1 - (1 - u1) : shape === 3 ? 1 - u0 - v0 : u1 - v0;
+      if (intoSolid > EPSILON) return false;
+    }
   }
   return true;
 }
@@ -245,6 +269,13 @@ export const inColumns = (world: WorldState, column: number): boolean =>
  */
 export const solidCell = (world: WorldState, column: number, row: number): boolean =>
   !inColumns(world, column) || (solidAt(world.seed, column, row) && !isDug(world, column, row));
+
+/** The shape the player collides with at a cell: OPEN once dug, FULL past the world's edges, else the world's. */
+export const collisionShape = (world: WorldState, column: number, row: number): number => {
+  if (!inColumns(world, column)) return FULL;
+  if (isDug(world, column, row)) return OPEN;
+  return shapeAt(world.seed, column, row);
+};
 
 /**
  * THE rule for whether a cell can be mined — the sim, the server and the client's reticle all ask this.
@@ -354,10 +385,11 @@ export function mineTile(
 }
 
 const EPSILON = 1e-4;
+const PIXELS_PER_CELL = 16; // a cell is one Terraria tile (docs/SLOPES.md)
 
 /**
  * Advance the session by `dt` seconds under `input`. Movement is continuous platformer physics
- * (run + gravity + jump) with axis-separated AABB tile collision against the shared world. Mining
+ * (run + gravity + jump) with Terraria's tile and slope collision (collision.ts) against the shared world. Mining
  * is DECOUPLED from movement (#3): `input.mine` names a tile to mine this frame, dug only if it's
  * solid and within REACH. Returns the events the presentation layer turns into juice.
  */
@@ -403,75 +435,49 @@ export function physicsStep(
   // --- gravity ---
   player.vy = Math.min(MAX_FALL, player.vy + GRAVITY * dt);
 
-  /**
-   * STEP-UP: walk over a one-tile rise instead of being stopped by it.
-   *
-   * Required by the surface heightmap (#44), not a nicety. The terrain's slope is bounded to about
-   * one tile per column, and one tile is a WALL to a walker with no assist — the regression test
-   * that drives the player right stopped dead at the first hill. Terraria and every other tile
-   * platformer does this for the same reason.
-   *
-   * Only while grounded, and only if the body actually fits up there, so it can never be used to
-   * climb a shaft or phase into a low ceiling.
-   */
-  const stepUp = (x: number): boolean => {
-    if (!player.grounded) return false;
-    for (let step = 1; step <= STEP_UP_TILES; step++) {
-      if (bodyFits(world, x, player.y - step, player)) {
-        player.y -= step;
-        // Emitted so the renderer can animate the rise. The sim's move is instant and stays
-        // instant; what the player sees does not have to be.
-        events.push({
-          type: 'step',
-          c: Math.floor(x),
-          r: Math.floor(player.y + HH),
-          tiles: step,
-        });
-        return true;
-      }
-    }
-    return false;
+  // --- collide: Terraria's player collision (#93, collision.ts), in its units — a cell is 16 px, velocity is px
+  // per tick — called in Player.DryCollision's order. DELVE's movement above stays DELVE's. ---
+  const width = 2 * HW * PIXELS_PER_CELL;
+  const height = 2 * HH * PIXELS_PER_CELL;
+  const perTick = dt * PIXELS_PER_CELL;
+  // What a resting body's vy is this tick: it was zeroed, then gravity added. The same arithmetic as vy below, so
+  // Terraria's exact `velocity.Y == gravity` test holds.
+  const gravity = GRAVITY * dt * perTick;
+  const shape: ShapeLookup = (column, row) => collisionShape(world, column, row);
+  const body: Body = {
+    x: player.x * PIXELS_PER_CELL - width / 2,
+    y: player.y * PIXELS_PER_CELL - height / 2,
+    vx: player.vx * perTick,
+    vy: player.vy * perTick,
   };
-
-  // --- integrate + resolve X (stop at walls; mining no longer happens here) ---
-  let nextX = player.x + player.vx * dt;
-  const rowTop = Math.floor(player.y - HH + EPSILON);
-  const rowBottom = Math.floor(player.y + HH - EPSILON);
-  if (player.vx > 0) {
-    const column = Math.floor(nextX + HW);
-    if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
-      nextX = column - HW - EPSILON;
-      player.vx = 0;
-    }
-  } else if (player.vx < 0) {
-    const column = Math.floor(nextX - HW);
-    if (anySolidInColumn(world, column, rowTop, rowBottom) && !stepUp(nextX)) {
-      nextX = column + 1 + HW + EPSILON;
-      player.vx = 0;
-    }
+  const startY = body.y;
+  body.vy = walkDownSlope(shape, body, width, height, gravity);
+  if (body.vy === gravity) body.y = stepDown(shape, body, width, height).y;
+  if (body.vy >= gravity) body.y = stepUp(shape, body, width, height).y;
+  const stepped = (startY - body.y) / PIXELS_PER_CELL;
+  const falling = body.vy;
+  const allowed = tileCollision(shape, body, width, height);
+  body.x += allowed.vx;
+  body.y += allowed.vy;
+  body.vx = allowed.vx;
+  body.vy = allowed.vy;
+  const settled = slopeCollision(shape, body, width, height);
+  player.x = (settled.x + width / 2) / PIXELS_PER_CELL;
+  player.y = (settled.y + height / 2) / PIXELS_PER_CELL;
+  player.vx = settled.vx / perTick;
+  player.vy = settled.vy / perTick;
+  // Grounded: the collision stopped a downward move — a floor, or a slope's diagonal.
+  player.grounded = falling > 0 && settled.vy < falling;
+  if (stepped !== 0) {
+    // Emitted so the renderer can animate the step. The sim's move is instant and stays instant; what the
+    // player sees does not have to be.
+    events.push({
+      type: 'step',
+      c: Math.floor(player.x),
+      r: Math.floor(player.y + HH),
+      tiles: stepped,
+    });
   }
-  player.x = nextX;
-
-  // --- integrate + resolve Y (land / bonk head) ---
-  let nextY = player.y + player.vy * dt;
-  const columnLeft = Math.floor(player.x - HW + EPSILON);
-  const columnRight = Math.floor(player.x + HW - EPSILON);
-  player.grounded = false;
-  if (player.vy > 0) {
-    const row = Math.floor(nextY + HH); // falling → check the floor below the feet
-    if (anySolidInRow(world, columnLeft, columnRight, row)) {
-      nextY = row - HH - EPSILON;
-      player.vy = 0;
-      player.grounded = true;
-    }
-  } else if (player.vy < 0) {
-    const row = Math.floor(nextY - HH); // rising → check the ceiling above the head
-    if (anySolidInRow(world, columnLeft, columnRight, row)) {
-      nextY = row + 1 + HH + EPSILON;
-      player.vy = 0;
-    }
-  }
-  player.y = nextY;
 
   // --- mining: a separate aim/target action, independent of movement (#3). Reach is a tile ring
   // (Chebyshev) around THE BODY, so base REACH=1 = every tile touching the player. ---
@@ -527,28 +533,4 @@ export function withinReach(player: PlayerState, column: number, row: number): b
   const dx = Math.max(left - column, 0, column - right);
   const dy = Math.max(top - row, 0, row - bottom);
   return Math.max(dx, dy) <= REACH;
-}
-
-function anySolidInColumn(
-  world: WorldState,
-  column: number,
-  rowTop: number,
-  rowBottom: number,
-): boolean {
-  for (let row = rowTop; row <= rowBottom; row++) {
-    if (solidCell(world, column, row)) return true;
-  }
-  return false;
-}
-
-function anySolidInRow(
-  world: WorldState,
-  columnLeft: number,
-  columnRight: number,
-  row: number,
-): boolean {
-  for (let column = columnLeft; column <= columnRight; column++) {
-    if (solidCell(world, column, row)) return true;
-  }
-  return false;
 }
