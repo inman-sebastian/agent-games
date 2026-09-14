@@ -1,7 +1,7 @@
 // cave-render.ts — the shared DELVE rock renderer. Pure, no game state: given a solidTile(c,r)
 // predicate and a world window, it composites the layered cave (background + top-lit rock + sky
-// + stalactites) into a 2D context. Used by the main thread (per-dig patches), the chunk Worker
-// (off-thread chunk generation) and the labs, so the look can never drift between them.
+// + stalactites) into a 2D context. The game draws its rock on the GPU (render/gpu/rock.wgsl); this is
+// the reference that port is gated against (`pnpm render-gate`), and what the labs and icons draw with.
 //
 // Many of the numbers in shadeRock/buildMask are hand-tuned noise octave frequencies/amplitudes
 // and brightness thresholds — a "family of coefficients" (see CODE-STYLE.md) kept inline with a
@@ -24,7 +24,7 @@ const makeCanvas = (w: number, h: number): OffscreenCanvas | HTMLCanvasElement =
 
 // ---- depth strata palette ----
 // Strata come from the resource registry; the owning context hands them in via setStrata (the
-// main thread / labs pass Blocks.STRATA; the Worker gets them posted in its init message).
+// game and the labs pass Blocks.STRATA).
 let STRATA: readonly StrataResource[] = [];
 export function setStrata(strata: readonly StrataResource[]): void {
   STRATA = strata ?? [];

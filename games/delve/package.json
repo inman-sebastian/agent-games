@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sim": "tsx tools/sim.ts",
-    "probe": "tsx tools/probe.ts"
+    "probe": "tsx tools/probe.ts",
+    "render-gate": "tsx tools/probe.ts labs/gpu-lab.html --wait 3000 --eval \"gpuLab.gate()\" --assert \"document.title === 'PASS'\""
   },
   "dependencies": {
     "@delve/shared": "workspace:*"

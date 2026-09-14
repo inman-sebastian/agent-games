@@ -68,16 +68,13 @@ optimising anything in the renderer:
 
 ```
 fps   120.0   frame 2.72ms
-phase chunks 0.4  damage 0.0  twinkle 0.3  entities 0.0  lighting 2.3
+phase damage 0.0  twinkle 0.3  entities 0.0  lighting 2.3  gpu 1.2
 light field 0.4ms  scrim 1.5ms
-bakes 408  1606.8ms round trip  inflight 0  chunk 12x6 cells
 ```
 
 The render passes run in sequence, so one timestamp between each is enough. `light field` / `scrim`
 split the lighting pass, because the two scale with completely different things (cells vs pixels) and
-the split is the only way to tell which one a change actually hit. `bakes` covers the chunk worker:
-the **rate** is what matters, not the round trip, since a queue of 400 at startup inflates the
-latency while costing the main thread nothing.
+the split is the only way to tell which one a change actually hit.
 
 Alongside it are per-pass toggles (`lighting`, `fog`, `twinkle`, `damage`) to isolate a pass by
 switching it off.
@@ -93,7 +90,7 @@ including the overlay upload. A `renderer` line names the path and adapter, the 
 the world window's size and version (the version moves on every dig and every window shift):
 
 ```sh
-pnpm probe index.html --size 3400x1900 --play --do "key:ArrowRight:4000" --grep "^(fps|phase|renderer|bakes)"
+pnpm probe index.html --size 3400x1900 --play --do "key:ArrowRight:4000" --grep "^(fps|phase|renderer)"
 ```
 
 ## `probe.ts` — the running game, as text (no MCP)
@@ -110,7 +107,7 @@ pnpm probe index.html --play --grep "^(fps|phase|light field)"
 pnpm probe index.html --size 3400x1900 --play --wait 4000 --grep "^(fps|phase)"
 pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
 pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"
-pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"
+pnpm render-gate   # = probe labs/gpu-lab.html --eval "gpuLab.gate()" --assert "document.title === 'PASS'"
 ```
 
 | Flag                      |                                                                                                                                                              |
@@ -122,6 +119,9 @@ pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"
 | `--do "steps"`            | `key:<code>:<ms>` · `tap:<code>` · `click:<selector>` · `mouse:<x>,<y>:<ms>` · `aim:<dc>,<dr>:<ms>` (pointer on a cell relative to the player) · `wait:<ms>` |
 | `--overlay` / `--grep re` | the debug overlay's lines, all or matching                                                                                                                   |
 | `--eval js`               | an expression evaluated in the page (repeatable); its JSON value is printed                                                                                  |
+| `--assert js`             | evaluated after the evals; probe exits 1 unless its value is exactly `true` — how a lab verdict becomes a failing command                                    |
+| `--shot file`             | a PNG of the viewport after everything else — the capture route for WebGPU pages                                                                             |
+| `--no-gpu`                | launch Chrome without WebGPU, to see what a player without it sees                                                                                           |
 
 Each run is a fresh browser profile, so a fresh player id and therefore a fresh world. Page errors
 thrown during the run are reported as `pageErrors`. If it can't express something you need, extend
@@ -145,29 +145,28 @@ Query params (all optional): `seed`, `c`,`r` (centre cell), `w`,`h` (region in C
 `miner` (0/1), `lamp` (lamp reach — crank it high to saturate the lighting). Window size
 is derived from `w`/`h`/`scale`, so the PNG is exactly the crop.
 
-`shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root (client/)
-(client/), default `labs/render.html` — so it also captures the style lab, the light lab, or
-the game headlessly:
+`shot.sh` takes an optional third arg — the **page** to shoot, a path under the Vite root
+(client/), default `labs/render.html` — so it also captures the style lab, the light lab and the
+material lab headlessly:
 
 ```sh
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html  # the light lab
 SHOT_BASE=http://localhost:5199 tools/shot.sh 'view=cave&ui=0&mat=platinum&depth=280&w=14&h=10&scale=3' /tmp/mat.png labs/material-lab.html  # a material in a cave
-SHOT_BASE=http://localhost:5199 tools/shot.sh 'play=1&w=30&h=18&scale=2' /tmp/game.png index.html      # the game itself (play=1 skips the title)
 ```
 
 ### Shooting the real game
 
-`index.html` boots to the title screen, so a capture of it used to show the title panel and nothing
-else — which is why a screenshot of the actual game meant reaching for Playwright. Pass **`play=1`**
-to skip straight into the mine:
+Not with `shot.sh`: its Chrome runs with `--disable-gpu`, and the game renders only through WebGPU
+(#80 retired the `?renderer=2d` switch that used to make this work), so it would capture the WebGPU
+required screen. Use probe, which has a real GPU adapter; `--play` skips the title screen:
 
-```
-SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&w=34&h=20&scale=1' /tmp/game.png index.html
+```sh
+pnpm probe index.html --play --shot /tmp/game.png
 ```
 
 Headless Chrome starts on a fresh profile, so this is always a new world at the surface — good for
-checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
-audio; that needs a real user gesture.
+checking lighting, terrain and the HUD, useless for checking saved state. It does not unlock audio;
+that needs a real user gesture.
 
 ## `client/labs/gpu-lab.html` — the WebGPU spike, CPU and GPU side by side
 
@@ -183,23 +182,30 @@ pnpm probe 'labs/gpu-lab.html' --wait 3000 --shot /tmp/gpu.png      # shot.sh ca
 pnpm probe index.html --no-gpu --eval "document.body.dataset.app"   # 'unsupported': the WebGPU required screen
 ```
 
-## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
+## `pnpm render-gate` — the GPU against its reference
 
-The gate already runs this (`client/src/render/chunks.test.ts`, through a software canvas). The lab
-runs the identical check through **Chrome's own 2D canvas**, with a picture, so a canvas difference
-can't hide behind the test double: every chunk in a carved region is baked with the game's
-`bakeChunk`, and again with more context than anything reads, and the two must match **exactly**.
-Text verdict (also the page `<title>`), so a headless check never reads pixels:
+`gpuLab.gate()` diffs the WebGPU renderer against `composeBand` over a fixed set of strata views and
+one view per registered ore material, and fails on drift past measured tolerances. What it checks,
+its thresholds and why they are fractions: [RENDERING.md](../docs/RENDERING.md#the-render-gate-80).
 
-```
-PASS every chunk matches unlimited context exactly (margin 3 vs 16)
-differing pixels 0
+```sh
+pnpm dev            # in another terminal
+pnpm render-gate    # exits 1 on FAIL
 ```
 
-Exact is possible because a chunk's band centre doesn't move with its margin, so both bakes share a
-strata ramp (the per-band ramp difference, #54, never enters). `?margin=1` reproduces the #44 seam bug
-(443 differing pixels); `?cx`, `?cy`, `?nx`, `?ny`, `?seed` move the region — keep `cy` below the
-surface, since the sky gradient is normalised per band.
+It is `probe labs/gpu-lab.html --wait 3000 --eval "gpuLab.gate()" --assert "document.title === 'PASS'"`,
+so the printed JSON is the gate's result:
+
+- **`failures`** — empty on a pass; otherwise one line per broken check, naming the view (label,
+  column,row, lit or unlit) and the fraction that fell below its bar, or `no view drew a twinkle
+glint`, or the GPU error.
+- **`views`** — every view with its `identical` and `withinSmall` (within 8 levels) percentages and
+  its `glints` pixel count. A material's view is labelled with its name, so a drifting WGSL twin
+  points at itself.
+
+To look at a failing view, open `labs/gpu-lab.html?mode=diff&c=<column>&r=<row>` (add `&light=0` for
+an unlit one), or `--shot` it through probe. **Red-check a change to the gate** by breaking a WGSL
+twin (return grey from its lit faces) and watching that material's view fail, then restore it.
 
 ## `client/labs/material-lab.html` — per-material inspector
 

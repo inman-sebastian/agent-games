@@ -45,7 +45,7 @@ want the FPS" (`probe --grep fps`), "I want to see if the bug reproduces" (write
 | How does a **WebGPU** page look? (shot.sh launches Chrome with `--disable-gpu`)      | **4**     | `pnpm probe <page> --wait 3000 --shot out.png`, then `Read` the PNG             |
 | What number does the running game show? (fps, frame breakdown, net, position, depth) | **4**     | `pnpm probe index.html --play --grep "<lines>"`                                 |
 | What happens after an input? (walk, jump, mine, click a button)                      | **4**     | `pnpm probe index.html --play --do "<steps>" --overlay`                         |
-| Does a rendering invariant hold in a real browser canvas?                            | **4**     | `pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"`            |
+| Does the GPU renderer still match the TypeScript reference?                          | **4**     | `pnpm render-gate` (needs `pnpm dev`; exits 1 on FAIL)                          |
 | Does it FEEL right — timing, weight, juice?                                          | **human** | That is the author's call; say what you changed and ask them to play it         |
 | None of the above, genuinely                                                         | **5**     | Browser MCP — after the gate line. Read text, never a full-viewport screenshot. |
 
@@ -57,7 +57,7 @@ Every one of these went to Playwright once. Each ended as a test that should hav
 | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | whether the reticle / reach / mining agrees with the sim    | a test on the shared rule (`withinReach`, `physicsStep`) — `shared/src/engine.test.ts` |
 | whether the character flips direction / faces the right way | a property over `physicsStep` inputs — facing is a sim rule                            |
-| whether light or rock is stale after digging                | `client/src/render/chunks.test.ts` (chunk vs unlimited context, digs vs full re-bake)  |
+| whether rock is stale after digging                         | `client/src/render/gpu/world-window.test.ts` (the window mirrors the world exactly)    |
 | whether an old save / reload behaves                        | `shared/src/hydrate.test.ts`; server side in `server/src/protocol.e2e.test.ts`         |
 | whether the client is online / reconciling                  | `client/src/net.test.ts`, `client/src/prediction.test.ts`                              |
 | whether movement feels the same after a constant change     | assert it in **world units** — seconds to top speed, blocks of skid (`engine.test.ts`) |
@@ -71,7 +71,8 @@ rule's consequence, one frame at a time, with nothing left behind to stop it reg
 ### 1 — `pnpm test` (the gate)
 
 Vitest: property/fuzz tests over the sim and world-gen, the real client↔server e2e (spawns a server),
-the chunk-rendering invariant through a software canvas, and the client modules under happy-dom.
+the GPU world window's mirror invariant, and the client modules under happy-dom. Node has no WebGPU,
+so the render itself is gated separately by `pnpm render-gate` (rung 4).
 Policy lives in [docs/TESTING.md](../../../games/delve/docs/TESTING.md#policy); the parts you must not skip:
 
 - **Red before green.** See every new test FAIL — break the code it guards, or write it before the
@@ -91,14 +92,14 @@ Policy lives in [docs/TESTING.md](../../../games/delve/docs/TESTING.md#policy); 
 ### 3 — `tools/shot.sh` (one small PNG, no MCP)
 
 ```sh
-SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&renderer=2d&w=30&h=18&scale=2' /tmp/game.png index.html
+SHOT_BASE=http://localhost:5173 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave=shaft' /tmp/crop.png
 ```
 
 `w`/`h` are CELLS (8 art px each), so the PNG is `w × 8 × scale` wide — keep it small. Pages:
 `labs/render.html` (default; world crops), `labs/material-lab.html`, `labs/light-lab.html`,
-`labs/style-lab.html`, `labs/char-lab.html`, `index.html` (pass `play=1` or you capture the title, and
-`renderer=2d`: shot.sh's Chrome has no GPU, so the game would show its WebGPU required screen — for the
-real GPU frame use `probe --shot`).
+`labs/style-lab.html`, `labs/char-lab.html`. **Not the game:** shot.sh's Chrome has no GPU and the
+game renders only through WebGPU, so `index.html` shows its WebGPU required screen. Capture the game
+with `pnpm probe index.html --play --shot out.png` (rung 4).
 
 ### 4 — `pnpm probe` (the live game, as text, no MCP)
 
@@ -111,7 +112,8 @@ pnpm probe index.html --size 3400x1900 --play --grep "^(fps|phase)"      # at a 
 pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
 pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"  # dig under the feet
 pnpm probe index.html --play --do "click:#muteBtn" --eval "document.getElementById('muteBtn').textContent"
-pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"      # a lab's PASS/FAIL
+pnpm render-gate                                                         # GPU vs reference, PASS/FAIL
+pnpm probe index.html --play --shot /tmp/game.png                        # the game, as a PNG
 pnpm probe 'labs/gpu-lab.html?light=0' --wait 3000 --shot /tmp/gpu.png  # a WebGPU page, as a PNG
 pnpm probe index.html --no-gpu --shot /tmp/nogpu.png                     # what a player without WebGPU sees
 ```
@@ -139,13 +141,15 @@ Then consider extending probe so the next time doesn't need it.
   fresh player; a dev-server restart loses at most ~2.5s of digging.
 - **A headless or background tab may cap `requestAnimationFrame`.** Read `frame` (ms of work), not
   `fps`, when judging cost.
-- **Near the surface, a chunk renders its sky per band** (#54) — compare rock renders below it.
+- **Near the surface, `composeBand` normalises the sky gradient per band** (#54), so lab renders
+  there differ from the game's one-gradient GPU sky — compare rock renders below it.
 
 ## Before handing a change over
 
 - [ ] The rule changed → a test covers it, and you watched it fail without the change
 - [ ] `pnpm test`, `pnpm typecheck`, `pnpm build` are green — say so with the counts
 - [ ] Anything visual → a `shot.sh` crop or a probe verdict you actually read
+- [ ] Anything touching `render/`, a material or a WGSL file → `pnpm render-gate` passes
 - [ ] Anything about feel → told the author what to play, rather than claiming it feels right
 - [ ] Every browser MCP call in the session had an honest gate line — or there were none
 - [ ] Docs updated first where a rule changed (CLAUDE.md: docs are the source of truth)

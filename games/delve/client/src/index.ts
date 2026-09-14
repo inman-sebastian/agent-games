@@ -6,14 +6,6 @@
 import * as engine from '@delve/shared';
 import type { Session, Input, TileCoord, SimEvent, StateMessage, WorldSize } from '@delve/shared';
 import { T, setStrata as setRenderStrata, mix, hashXY } from './render/cave-render';
-import {
-  CHUNK_COLS,
-  CHUNK_ROWS,
-  chunkX,
-  chunkY,
-  createChunkCache,
-  type ChunkWorker,
-} from './render/chunks';
 import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
@@ -56,10 +48,9 @@ const ctx = canvas.getContext('2d')!;
 // lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
 //
 // WebGPU is REQUIRED — the author's decision. Without it, or if the GPU device is lost, the game shows
-// the WebGPU required screen rather than falling back. `?renderer=2d` is a developer switch that keeps
-// the Canvas 2D path reachable while both renderers exist (gpu-lab's parity diffs); it isn't a fallback.
+// the WebGPU required screen rather than falling back. There is no Canvas 2D rock path in the game (#80);
+// composeBand survives only as the reference the GPU is gated against (labs/gpu-lab, `gate`).
 const gpuCanvas = document.getElementById('cgpu') as HTMLCanvasElement;
-const canvas2dRequested = /(\?|&)renderer=2d\b/.test(location.search);
 // In GPU mode the 2D drawing that sits between the rock and the overlay gets its own layers, in the
 // Canvas 2D frame's order: damage cracks (source-over), then twinkle glints (added). See RENDERING.md.
 const underCanvas = document.createElement('canvas');
@@ -69,7 +60,7 @@ const glintCtx = glintCanvas.getContext('2d')!;
 /** Slack around the lamp's box for a crack or a glint's arm reaching past its cell. */
 const LAYER_BOX_PAD_PX = 8;
 let gpu: GpuRenderer | null = null;
-let rendererNote = canvas2dRequested ? 'canvas 2d (?renderer=2d)' : 'starting WebGPU…';
+let rendererNote = 'starting WebGPU…';
 
 /** WebGPU can't render the game: stop everything and say so. There is no fallback. */
 function requireWebGpu(reason: string): void {
@@ -80,19 +71,17 @@ function requireWebGpu(reason: string): void {
   app.send('gpuUnavailable');
 }
 
-if (!canvas2dRequested) {
-  createGpuRenderer(gpuCanvas)
-    .then((renderer) => {
-      gpu = renderer;
-      rendererNote = `webgpu · ${renderer.adapter}`;
-      gpuCanvas.hidden = false;
-      canvas.style.opacity = '0';
-      void renderer.lost.then((reason) => requireWebGpu(`the GPU device was lost (${reason})`));
-    })
-    .catch((error: unknown) => {
-      requireWebGpu(error instanceof GpuUnavailable ? error.message : String(error));
-    });
-}
+createGpuRenderer(gpuCanvas)
+  .then((renderer) => {
+    gpu = renderer;
+    rendererNote = `webgpu · ${renderer.adapter}`;
+    gpuCanvas.hidden = false;
+    canvas.style.opacity = '0';
+    void renderer.lost.then((reason) => requireWebGpu(`the GPU device was lost (${reason})`));
+  })
+  .catch((error: unknown) => {
+    requireWebGpu(error instanceof GpuUnavailable ? error.message : String(error));
+  });
 
 // ---- state / persistence ----------------------------------------------------------------
 // load/save (the localStorage cache) live in ./save; turning a save back into a Session is
@@ -165,78 +154,35 @@ function floaty(x: number, y: number, text: string, col: string, big = false): v
   floaties.push({ x, y, text, col, t: 0, life: big ? 1.4 : 0.9, big });
 }
 
-// ---- rock chunks ------------------------------------------------------------------------
-// The rock is cached as world-anchored chunks, baked off-thread as they come into view and re-baked
-// when a dig makes them stale. The cache, its Worker protocol and the rules for what a dig invalidates
-// live in render/chunks.ts, where they are tested; this is only what the game plugs into it.
-
+// ---- the world the renderer reads ----------------------------------------------------------------
 // A cell is solid rock when it's below the surface and not yet dug. The world is unbounded — every
 // column below the surface is rock until you dig it (no side walls).
 const solidTile = (column: number, row: number): boolean =>
   engine.solidAt(s.world.seed, column, row) && !engine.isDug(s.world, column, row);
 
-// a cell's ore material (if it sits in an ore pocket), baked into the rock by composeBand so veins
-// feather into the strata. The same lookup the Worker uses; null → the cell renders as plain rock.
+// a cell's ore material, or null where it renders as plain rock (the twinkle edges read it)
 const materialAt = (column: number, row: number) =>
   oreMaterial(engine.oreAt(s.world.seed, column, row));
 
-/** The off-thread baker, where the browser can transfer an OffscreenCanvas back; otherwise null. */
-function chunkWorker(): ChunkWorker | null {
-  const canOffload =
-    typeof Worker !== 'undefined' &&
-    typeof OffscreenCanvas !== 'undefined' &&
-    !!OffscreenCanvas.prototype.transferToImageBitmap;
-  if (!canOffload) return null;
-  try {
-    // `new URL(..., import.meta.url)` has to stay in this file for Vite to bundle the Worker.
-    return new Worker(new URL('./render/chunk-worker.ts', import.meta.url), { type: 'module' });
-  } catch {
-    return null;
-  }
-}
-
 // The GPU renderer's mirror of the world around the view: it asks the world only about cells scrolling
-// into view and cells a dig changes (render/gpu/world-window.ts). Fed by the same hooks as the chunks.
+// into view and cells a dig changes (render/gpu/world-window.ts).
 const worldWindow = createWorldWindow({
   solid: solidTile,
-  // a cell's material id: its ore, where that ore has a registered material — the same test materialAt makes
-  material: (column, row) => {
-    const ore = engine.oreAt(s.world.seed, column, row);
-    return oreMaterial(ore) ? ore : 0;
-  },
+  // a cell's material id: its ore, where that ore has a registered material, else 0 for the strata stone
+  material: (column, row) =>
+    materialAt(column, row) ? engine.oreAt(s.world.seed, column, row) : 0,
   surface: (column) => surfaceOf(column),
 });
 
-/**
- * A cell changed in the world: tell whichever renderer is drawing the rock.
- *
- * Only one of them. The chunk cache re-bakes a dug cell's chunk synchronously on the main thread — about
- * 8 ms — so in GPU mode, where no chunk is ever drawn again, telling it anyway was a hitch on every dig.
- */
+/** A cell changed in the world (a dig, the player's or the server's). */
 function cellChanged(column: number, row: number): void {
-  if (gpu) worldWindow.dig(column, row);
-  else chunkCache.dig(column, row); // re-bake the chunks that read it
+  worldWindow.dig(column, row);
 }
-
-const chunkCache = createChunkCache({
-  sources: () => ({ solid: solidTile, surfaceAt: surfaceOf, materialAt }),
-  dugKeys: () => Object.keys(s.world.dug),
-  // The bake Worker only exists for the Canvas 2D developer path; the GPU never draws a chunk.
-  worker: canvas2dRequested ? chunkWorker() : null,
-  seed: () => s.world.seed,
-  strata: engine.STRATA,
-  makeCanvas: (width, height) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    return { canvas, ctx: canvas.getContext('2d')! };
-  },
-});
 
 // ---- lighting ---------------------------------------------------------------------------
 // The geometry-aware lighting system lives in render/lighting (shared with the labs, so they
 // light identically). We keep one instance; each frame we push the emitters — today only the miner's
-// lamp, since ore stopped glowing — then call lighting.render() with the viewport + solidTile.
+// lamp, since ore stopped glowing — then build its light field for the GPU to composite.
 const lighting = createLighting();
 
 // ---- per-phase frame timing (debug) -----------------------------------------------------
@@ -283,7 +229,7 @@ function render(t: number): void {
   ctx.clearRect(0, 0, LW, LH);
   // No renderer yet (WebGPU still starting, behind the title screen) or none at all (the WebGPU
   // required screen): draw nothing.
-  if (!gpu && !canvas2dRequested) return;
+  if (!gpu) return;
   const px = s.player.x + prediction.offsetX; // player centre (cells) + reconciliation smoothing
   const py = s.player.y + prediction.offsetY;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
@@ -303,13 +249,6 @@ function render(t: number): void {
   const colR = Math.floor(camX / T) + VIEW_COLS + 2;
   const rowT = Math.floor(camY / T) - 2;
   const rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
-  // the cached rock chunks spanning the view (placeholders while a bake is in flight), plus prefetch
-  // and eviction around it
-  // (Canvas 2D mode only: the GPU shades the rock every frame, so nothing bakes)
-  if (canvas2dRequested) {
-    chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
-  }
-  endPhase('chunks');
 
   // Distances in CELLS: full brightness within one block of the lamp, easing out over its reach. Both
   // were bare tile counts (1 and 0.5) that the 2x2 split halved in world terms.
@@ -329,15 +268,11 @@ function render(t: number): void {
   const lampBottom = Math.min(rowB, Math.floor(py) + lampReach);
   const screenX = Math.round(shx - camX); // world pixel → screen pixel, as ctx.translate has it
   const screenY = Math.round(shy - camY);
-  // Where damage and twinkle draw: the frame itself in Canvas 2D; their own layers in GPU mode.
-  const underG = gpu ? underCtx : ctx;
-  const glintG = gpu ? glintCtx : ctx;
-  if (gpu) {
-    for (const layer of [underCtx, glintCtx]) {
-      layer.clearRect(0, 0, LW, LH);
-      layer.save();
-      layer.translate(screenX, screenY);
-    }
+  // Damage and twinkle draw onto their own layers, which the GPU composites under the overlay.
+  for (const layer of [underCtx, glintCtx]) {
+    layer.clearRect(0, 0, LW, LH);
+    layer.save();
+    layer.translate(screenX, screenY);
   }
 
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
@@ -366,7 +301,7 @@ function render(t: number): void {
       const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
       const dirY = dirX === 0 ? Math.sign(towardY) : 0;
       const damageCtx = {
-        g: underG,
+        g: underCtx,
         x: dc * T,
         y: dr * T,
         scale: 1,
@@ -405,13 +340,13 @@ function render(t: number): void {
       minLit: 0.2,
     });
     if (twinkleEdges.length) {
-      glintG.save();
-      glintG.globalCompositeOperation = 'lighter';
+      glintCtx.save();
+      glintCtx.globalCompositeOperation = 'lighter';
       const offX = tL * T;
       const offY = tT * T;
       for (const edge of twinkleEdges) {
         edge.material.twinkle!({
-          g: glintG,
+          g: glintCtx,
           x0: edge.x0 + offX,
           y0: edge.y0 + offY,
           x1: edge.x1 + offX,
@@ -422,13 +357,11 @@ function render(t: number): void {
           litAt: edge.litAt,
         });
       }
-      glintG.restore();
+      glintCtx.restore();
     }
   }
-  if (gpu) {
-    underCtx.restore();
-    glintCtx.restore();
-  }
+  underCtx.restore();
+  glintCtx.restore();
 
   endPhase('twinkle');
 
@@ -495,46 +428,8 @@ function render(t: number): void {
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
   // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
   // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
-  if (gpu) {
-    // The GPU composites the overlay just drawn onto `canvas` under the same light field the Canvas 2D
-    // path uses. The field is built even with lighting off, because the frame's shape needs one.
-    if (debugFlags.lighting) {
-      lighting.addLight(
-        px * T,
-        (py - 0.1) * T,
-        0,
-        LAMP_COLOR,
-        LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
-      );
-    }
-    const field = lighting.field({ LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
-    endPhase('lighting');
-    const band = bandFor(camX, camY, LW, LH);
-    worldWindow.follow(band.left, band.top, band.cols, band.rows);
-    gpu.render({
-      camX,
-      camY,
-      width: LW,
-      height: LH,
-      world: worldWindow,
-      light: field,
-      lighting: debugFlags.lighting,
-      scrim: debugFlags.fog,
-      overlay: canvas,
-      layers: {
-        under: underCanvas,
-        glint: glintCanvas,
-        box: {
-          x: lampLeft * T + screenX - LAYER_BOX_PAD_PX,
-          y: lampTop * T + screenY - LAYER_BOX_PAD_PX,
-          width: (lampRight - lampLeft + 1) * T + 2 * LAYER_BOX_PAD_PX,
-          height: (lampBottom - lampTop + 1) * T + 2 * LAYER_BOX_PAD_PX,
-        },
-      },
-    });
-    endPhase('gpu');
-    return;
-  }
+  // The GPU composites the overlay just drawn onto `canvas` under this light field. The field is built
+  // even with lighting off, because the frame's shape needs one.
   if (debugFlags.lighting) {
     lighting.addLight(
       px * T,
@@ -543,19 +438,33 @@ function render(t: number): void {
       LAMP_COLOR,
       LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
     );
-    lighting.render({
-      g: ctx,
-      LW,
-      LH,
-      T,
-      camX,
-      camY,
-      surfaceAt: surfaceOf,
-      solidTile,
-      scrim: debugFlags.fog,
-    });
   }
+  const field = lighting.field({ LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
   endPhase('lighting');
+  const band = bandFor(camX, camY, LW, LH);
+  worldWindow.follow(band.left, band.top, band.cols, band.rows);
+  gpu.render({
+    camX,
+    camY,
+    width: LW,
+    height: LH,
+    world: worldWindow,
+    light: field,
+    lighting: debugFlags.lighting,
+    scrim: debugFlags.fog,
+    overlay: canvas,
+    layers: {
+      under: underCanvas,
+      glint: glintCanvas,
+      box: {
+        x: lampLeft * T + screenX - LAYER_BOX_PAD_PX,
+        y: lampTop * T + screenY - LAYER_BOX_PAD_PX,
+        width: (lampRight - lampLeft + 1) * T + 2 * LAYER_BOX_PAD_PX,
+        height: (lampBottom - lampTop + 1) * T + 2 * LAYER_BOX_PAD_PX,
+      },
+    },
+  });
+  endPhase('gpu');
 }
 
 // ---- input ------------------------------------------------------------------------------
@@ -728,7 +637,7 @@ let stepTiles = 0;
 let stepAge = 0;
 
 // turn a physics event (chip / break / jump) into juice: sound, particles, floaty, and the
-// cached-chunk patch when a tile breaks.
+// world-window update when a tile breaks.
 function onEvent(ev: SimEvent): void {
   const cx = ev.c * T + T / 2;
   const cy = ev.r * T + T / 2;
@@ -906,7 +815,6 @@ for (const key of Object.keys(debugFlags) as (keyof typeof debugFlags)[]) {
 }
 
 function updateDebug(): void {
-  const chunkStats = chunkCache.stats();
   const st = engine.stats(s.player);
   const up = (canvas.clientWidth / canvas.width).toFixed(2);
   const netInfo = net.netStatus();
@@ -922,8 +830,6 @@ function updateDebug(): void {
       .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
       .join('  ')}\n` +
     `light field ${lighting.fieldMs.toFixed(1)}ms  scrim ${lighting.scrimMs.toFixed(1)}ms\n` +
-    `bakes ${chunkStats.bakes}  ${chunkStats.bakeMs.toFixed(1)}ms round trip  inflight ${chunkStats.inflight}  chunk ${CHUNK_COLS}x${CHUNK_ROWS} cells\n` +
-    `chunks cached ${chunkStats.cached}  sync bakes ${chunkStats.syncBakes}  last ${chunkStats.lastSyncBakeMs.toFixed(2)}ms\n` +
     `fx    particles ${particles.length}  floaties ${floaties.length}  shake ${shake.toFixed(2)}  lights ${lighting.count}\n` +
     `save  dug ${Object.keys(s.world.dug).length}  dmg ${Object.keys(s.world.dmg).length}\n` +
     `held  ${engine.invCount(s.player)} materials\n` +
@@ -1035,7 +941,6 @@ function newGame(size: WorldSize): void {
   net.sendCommand({ kind: 'newGame', seed: s.world.seed, size });
   prediction.reset();
   snapCam();
-  chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
   worldWindow.reset();
   save(s);
   refreshInventory();
@@ -1118,7 +1023,6 @@ function fit(): void {
   gpuCanvas.style.height = canvas.style.height;
   gpuCanvas.style.left = canvas.style.left;
   gpuCanvas.style.top = canvas.style.top;
-  // chunk cache is world-space, so it survives resize — no invalidation needed.
 }
 addEventListener('resize', fit);
 
@@ -1162,7 +1066,6 @@ net.connect({
   onHello: (snapshot) => {
     s = engine.hydrate(snapshot);
     prediction.reset();
-    chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
     worldWindow.reset();
     snapCam();
     refreshInventory();

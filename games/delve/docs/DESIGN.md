@@ -747,7 +747,7 @@ acceleration or a per-step rate**, not just the ones the simulation reads — a 
 in disguise, and so is a count of cells used as a margin. **Bump `SAVE_FORMAT` and migrate.** And
 state feel in units a player perceives: **none** of these was caught by a test that existed
 beforehand — every test that guards one now was written after it was found. They needed a person
-playing, a measurement, or a purpose-built check like [patch-lab](../tools/README.md) that renders a
+playing, a measurement, or a purpose-built check like patch-lab (retired with the chunk cache in #80) that renders a
 region two ways and diffs them.
 
 ### Also queued
@@ -760,9 +760,5 @@ region two ways and diffs them.
 - **Placement beyond depth.** Superseded in principle by [BIOMES.md](BIOMES.md): biome resolves from
   several signals, then decides contents. `strata.top` and per-material `band` ranges become
   obsolete.
-- **Rendering perf** — the per-frame passes are done (above); what's left is the chunk BAKE rate.
-  Chunks are still `CHUNK_COLS`×`CHUNK_ROWS` in cells, so they cover a quarter of the world area they used to and
-  the worker bakes four times as many while you move. `MARGIN` also went from 1 to 3 cells for
-  correctness, which roughly doubles each bake's area. It keeps up (bakes are off-thread, the blits
-  cost 0.4ms), so this is a queued tidy, not a problem: doubling them restores the old world
-  area per chunk and makes the fixed margin a smaller share of every bake.
+- ~~**Rendering perf** — the chunk bake rate.~~ Moot: the WebGPU renderer shades the rock every frame
+  and #80 deleted the chunk cache ([RENDERING.md](RENDERING.md#direction-webgpu)).

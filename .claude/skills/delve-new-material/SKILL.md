@@ -14,8 +14,8 @@ Core idea: the **compositor** owns geometry; your material owns **colour only** 
 `shade(ctx) => Rgb`, built on one of the shared **surface-class primitives** (`stoneSurface` /
 `metalSurface` / `facetSurface` / `glassSurface`) so it reads as "the same world, made of X." The
 texture is the material's _class_ — pick it by what the material physically is, don't invent one.
-Ore is **baked** into the rock chunks (no overlay), so once you register the material there is **no
-extra render wiring** — the game, worker, and labs all pick it up by ore id.
+Ore is **baked** into the rock (no overlay), so once you register the material there is **no
+extra render wiring** — the game and labs pick it up by ore id.
 
 ## Step 1 — gameplay data (`shared/src/resources/<name>.ts`)
 
@@ -247,10 +247,10 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
    selected material at a depth inside its band:
    `WATCHDOG=8 SHOT_BASE=http://localhost:5173 tools/shot.sh 'view=cave&ui=0&mat=<slug>&depth=<bandMid>&w=14&h=10&scale=3' /tmp/mat-cave.png labs/material-lab.html`.
    (Change `seed=<n>` to see a different cave shape; drop `lit=0` to kill the lamp and see the raw surface.)
-5. **GPU parity.** With `pnpm dev` running,
-   `pnpm probe 'labs/gpu-lab.html?light=0&r=<a row in its band>' --wait 3000 --eval "gpuLab.runDiff().then(s => JSON.stringify({...s, outliers: s.outliers.length}))"`.
-   Over 99.9% identical is the bar the ported materials hold. A block of red in `?mode=diff` means
-   the twins disagree.
+5. **GPU parity: `pnpm render-gate` must pass** (with `pnpm dev` running). It finds a pocket of every
+   registered ore by itself, so your material gets its own view with no edit to the gate; a failure
+   names it in `failures`. To look closer, `?mode=diff&light=0&r=<row>` in `labs/gpu-lab.html` heat-maps
+   where the twins disagree. Thresholds and output: [RENDERING.md](../../../games/delve/docs/RENDERING.md#the-render-gate-80).
 6. Judge it against the value-gradient + surface-class conventions; tune the ramp/FX and re-shot. The
    interactive lab (`ui=1`, the default) shows twinkle animating — reach for Playwright only for that
    live feel, never for a still a `shot.sh` crop can answer.
@@ -259,8 +259,8 @@ inspect a material with no Playwright. Params: `mat=<slug>` (lowercased name, sp
 
 - **Icons are separate.** Inventory/codex icons use the authored `art.shape` + triad from step 1
   (via `ore-art.ts`), not the material shader — set both.
-- **No render wiring.** Ore bakes into chunks by id (game, worker, labs) once registered; don't
-  touch `index.ts`, `render/chunks.ts` or `chunk-worker.ts`.
+- **No render wiring.** Registration is all of it: the WGSL dispatch and palettes are generated, and
+  the game and labs pick the material up by id. Don't touch `index.ts` or `render/gpu/renderer.ts`.
 - **Strata** (a depth stratum, not an ore) is the simpler sibling: just a 6-stop ramp + `top` row
   as a `type: 'strata'` resource — no shader. Same palette rules.
 - Commit gameplay data (`@delve/shared`) and the shader (`@delve/client`) together; scope the

@@ -11,12 +11,13 @@ so every effect — including gradients, glows and vignette — stays chunky pix
 shaders.** Tracked in [#68](https://github.com/inman-sebastian/agent-games/issues/68); the spike that
 measures it first is [#69](https://github.com/inman-sebastian/agent-games/issues/69).
 
-**Today everything described below runs on Canvas 2D**, and the expensive parts are hand-written
-per-pixel JavaScript loops into `ImageData`: the rock mask, its distance fields and top light, the
-stone surface and every material "shader", the lighting glow, the dithered scrim and the vignette. The
-chunk cache, the bake Worker and the lighting cost caps exist to make that affordable. Those loops are
-already pure functions of position, material, light and time, which is exactly what fragment and
-compute shaders run in parallel.
+**When this was decided, everything described below ran on Canvas 2D**, and the expensive parts were
+hand-written per-pixel JavaScript loops into `ImageData`: the rock mask, its distance fields and top
+light, the stone surface and every material "shader", the lighting glow, the dithered scrim and the
+vignette. A chunk cache, a bake Worker and the lighting cost caps existed to make that affordable. Those
+loops were already pure functions of position, material, light and time, which is exactly what
+fragment and compute shaders run in parallel. The game now renders only through WebGPU (#77, #80); the
+TypeScript versions remain as the reference the GPU is gated against and as the labs' renderer.
 
 What that does and doesn't change:
 
@@ -96,10 +97,7 @@ frame back and diffs it for probe.
 - **The material shaders are the real porting cost.** There are 13 JavaScript `shade(ShadeCtx)`
   functions, plus the feathered material blend. The contract maps onto one WGSL function per material,
   selected by id, and the `delve-new-material` skill has to change with it.
-- **The render gates need a new basis.** `chunks.test.ts` and `soft-canvas.ts` test a pipeline that goes
-  away, and a CPU-vs-GPU diff only works while both exist. The likely replacements are golden-image
-  checks through probe plus invariant tests on the TypeScript that prepares GPU data. That's a decision
-  for the epic, not the spike.
+- **The render gates need a new basis.** Done in #80: see [The render gate](#the-render-gate-80).
 - **Unsupported browsers.** The renderer throws `GpuUnavailable` with a sentence for the page. The
   unsupported-browser screen is renderer-core work.
 
@@ -110,11 +108,9 @@ frame back and diffs it for probe.
 
 - **No silent fallback.** A browser without WebGPU — or one whose GPU device is lost mid-game — gets a
   **WebGPU required** screen: a terminal `unsupported` app state that says why and offers a reload.
-- **`?renderer=2d` is a developer switch, not a player fallback.** It keeps the Canvas 2D path
-  reachable for `gpu-lab`'s parity diffs while both renderers exist. The chunk bake Worker is only
-  created in that mode.
-- **Retiring Canvas 2D is the render-gates child of #68.** It waits on a verification basis that
-  doesn't depend on the CPU renderer.
+- **There is no Canvas 2D mode in the game.** A `?renderer=2d` developer switch kept it reachable
+  until #80 retired the chunk cache, its Worker and the switch, once the
+  [render gate](#the-render-gate-80) no longer needed the game's CPU path.
 
 **The world lives on the GPU as a window, not per frame.** `gpu/world-window.ts` keeps a CPU mirror of
 cell solidity and surface heights for the view plus a margin, and uploads it whole. The upload is tens
@@ -122,7 +118,7 @@ of kilobytes and costs nothing. The spike's 3.7 ms was the _world queries_, and 
 them:
 
 - **Scrolling shifts the mirror** and queries only the strips entering it.
-- **Digs, including the server's, update single cells** through the same hooks the chunk cache uses.
+- **Digs, including the server's, update single cells** (`worldWindow.dig`).
 - **A new world resets it.**
 
 The margin covers the top light's 12 rows of context above the view. The shader derives top-light
@@ -141,8 +137,8 @@ seeds and sky heights from the window itself.
 
    The scrim still darkens the player and the particles, as it does today.
 
-3. **Chunk bakes don't run.** The rock is shaded fresh every frame, so the chunk cache and its Worker
-   sit idle in GPU mode.
+3. **Nothing is baked.** The rock is shaded fresh every frame. (At #71 the chunk cache and its Worker
+   still existed and sat idle in GPU mode; #80 deleted them.)
 
 **Measured** with `pnpm probe` at a 3400×1900 window, walking right for 4 seconds:
 
@@ -153,9 +149,9 @@ seeds and sky heights from the window itself.
 
 Two things the integration turned up, both fixed:
 
-- **Digs were still re-baking chunks.** The chunk cache re-bakes a dug cell's chunk synchronously
+- **Digs were still re-baking chunks.** The chunk cache re-baked a dug cell's chunk synchronously
   (about 8 ms on the main thread), and it was still told about every dig in GPU mode, where no chunk is
-  ever drawn. Dig notifications now go only to the renderer that's drawing the rock.
+  ever drawn. Dig notifications then went only to the renderer drawing the rock; #80 removed the cache.
 - **Startup baked ~70 chunks for nothing.** While WebGPU is starting, no rock is drawn at all. Those
   frames sit behind the title screen.
 
@@ -203,6 +199,37 @@ lamp's box, a few hundred pixels square, instead of the screen.
 - **The sky is one gradient across the screen**, not one per chunk, so #54's banding doesn't happen.
   That's a difference in the GPU path's favour.
 
+### The render gate (#80)
+
+The GPU renderer is checked against `composeBand`, the TypeScript renderer, which acts as the golden
+image. There are no stored PNGs to re-bless: an art change needs its TypeScript and its WGSL twin to
+agree. `gpuLab.gate()` in `client/labs/gpu-lab.ts` renders each view both ways and diffs them:
+
+- **Seven strata views**, rows 26, 120, 400, 700, 1000, 1250 and 1385 (near the surface down to the
+  bedrock above the floor at row 1400), each unlit and lit.
+- **One unlit view per registered ore material**, found by scanning `oreAt` for a pocket and centred
+  so the pocket sits exposed on the carved tunnel floor, where the top light reaches it. A new material
+  is covered with no edit to the gate.
+
+**It fails when** any view has under 99.8% of pixels within 8 levels (`DIFF_SMALL`), any unlit view
+is under 99.9% identical, no view drew a twinkle glint (the additive blend went unchecked), or the GPU
+reported an error. It sets `document.title` to `PASS` or `FAIL` and returns
+`{ pass, failures, views }`, each view with its `identical`, `withinSmall` and `glints`.
+
+**Why fractions, not a maximum difference.** A few hundredths of a percent of pixels sit on a
+float-rounding edge (a quantise threshold, a distance tie) and land on a neighbouring band, sometimes
+far off, so a max limit fails on noise. A material drifting from its twin moves whole regions.
+Measured at #80: every unlit view ≥99.96% identical and every view ≥99.97% within 8.
+
+**Red-checked.** Making any one material's WGSL twin return grey on its lit faces fails the gate in
+that material's own view, for all 12 (copper, iron, silver, gold, emerald, ruby, diamond, mythril,
+platinum, obsidian, quartz, stonebricks). A subtle change to copper's noise weight (0.42 → 0.30) also
+fails.
+
+Run it with `pnpm render-gate` while `pnpm dev` is running; it exits 1 on failure. It isn't part of
+`pnpm test`, because Node has no WebGPU, so run it before handing over any change to `render/`, a
+material or a WGSL file. How to read its output: [tools/README.md](../tools/README.md#pnpm-render-gate--the-gpu-against-its-reference).
+
 ## Grounding
 
 Derived from studying real references the user vetted: **Dome Keeper**, **SteamWorld
@@ -247,9 +274,9 @@ not a view of a fixed field; its size is capped
    then the **lighting pass** ([LIGHTING.md](LIGHTING.md)) last (lamp glow + darkness scrim
    - vignette). Ore does **not** cast its own light.
 
-Layers 1–2 are drawn by `composeBand` in `cave-render.ts` and cached as chunks (see
-[ARCHITECTURE.md](ARCHITECTURE.md#the-rock-chunk-pipeline)); the overlays draw per-frame on
-top of the cached rock. A dig re-bakes only the affected chunk region.
+Layers 1–2 are specified by `composeBand` in `cave-render.ts` and shaded on the GPU every frame by its
+WGSL port (see [ARCHITECTURE.md](ARCHITECTURE.md#how-the-rock-reaches-the-screen)); the overlays
+composite on top. A dig updates one cell of the world window, and the next frame shows it.
 
 ## Sky
 
@@ -269,7 +296,7 @@ horizon colour. It's the only part of the frame that isn't tile-driven.
 
 **It will also stop being static.** With a [day/night cycle](DESIGN.md#the-world) the two stops
 become a function of time, interpolated between phase keyframes — which means the sky can no longer
-be baked into a world-space chunk (see below).
+be a pure function of world position (see below).
 
 ## Background depth & parallax
 
@@ -279,11 +306,11 @@ silhouettes (`BG_SILHOUETTE_*`) are the primitive version of it.
 
 Two constraints worth knowing before building it, because they shape the implementation:
 
-- **Parallax can't live in the chunk cache.** Layers 1–2 are cached as **world-space** chunks, which
-  works because a tile's appearance depends only on its world position. A parallax layer moves at a
-  _different rate_ than the world, so its appearance depends on the **camera**, not the tile — so it
-  needs its own per-frame pass (or a cache keyed by camera offset), not a place in `composeBand`.
-  The same is true of the time-varying sky.
+- **Parallax isn't a function of world position.** Layers 1–2 are shaded as a pure function of world
+  position (what the retired chunk cache relied on, and what the render gate compares). A parallax layer
+  moves at a _different rate_ than the world, so its appearance depends on the **camera**, not the
+  tile. With the rock shaded every frame there's no cache to fight any more, but it still doesn't
+  belong inside `composeBand`'s world-space contract. The same is true of the time-varying sky.
 - **Lamp-only visibility fights background detail underground.** The ambient floor is zero and the
   scrim reaches full on an unlit pixel ([LIGHTING.md](LIGHTING.md)), so anything beyond lamp reach
   is _black_ — including background layers. Underground parallax therefore only reads inside the
@@ -329,7 +356,7 @@ the authoring spec and the material contract.
 - **Placement** is a pure `f(seed,c,r)` in `shared/src/blocks.ts` (`oreAt`): a low-frequency
   value-noise field is thresholded into blobby pockets; a coarse region grid gives each pocket
   a single ore type (weighted by depth band), so adjacent same-ore cells read as one mass.
-- **Baked, not overlaid.** Ore is composited into the rock chunk via
+- **Baked, not overlaid.** Ore is composited into the rock via
   `materialAt = (c,r) => oreMaterial(oreAt(seed,c,r))` passed to `composeBand`, so it feathers
   into the strata seamlessly (there is no `drawOreBlock` overlay anymore). It's simply _there_;
   there is **no reveal** step.
