@@ -3,7 +3,7 @@
 // (render/gpu/water.wgsl). Step 1 of the plan in docs/FLUIDS.md: the look and the feel, no flow yet.
 //
 // Mouse: click drops a pebble · drag through the water stirs it.
-// Keys: N next scene · R reset · space pause.
+// Keys: N next scene · R reset · space pause · P snap the water to art pixels (for comparison).
 // `window.fluidLab` exposes controls and stats for `pnpm probe`.
 import { STRATA, solidAt, surfaceAt, SUB } from '@delve/shared';
 import { setStrata, composeBand, buildMask, T } from '../src/render/cave-render';
@@ -47,7 +47,7 @@ const build = (c0: number, r0: number, c1: number, r1: number): void => {
 
 interface Kind {
   surface: SurfaceParams;
-  /** Look uniforms: surface, highlight, shallow, deep, deepest (rgb 0–255, a = tint opacity). */
+  /** Look uniforms: surface line, body tint (rgb 0–255, a = tint opacity). */
   colours: number[][];
   /** waver amplitude px, frequency, speed, shimmer density */
   waver: number[];
@@ -57,11 +57,8 @@ interface Kind {
 const WATER: Kind = {
   surface: WATER_SURFACE,
   colours: [
-    [143, 211, 255, 1], // #8fd3ff
-    [77, 155, 230, 1], // #4d9be6
-    [77, 101, 180, 0.5], // #4d65b4
-    [72, 74, 119, 0.66], // #484a77
-    [50, 51, 83, 0.8], // #323353
+    [143, 211, 255, 1], // #8fd3ff surface line
+    [77, 101, 180, 0.55], // #4d65b4 body, see-through
   ],
   waver: [1, 0.35, 3, 0.012],
   droplet: '#8fd3ff',
@@ -71,11 +68,8 @@ const LAVA: Kind = {
   // thick: slower, stiffer ripples that die fast and never throw far (slow in time, lesson 2)
   surface: { waveSpeed: 40, tension: 30, damping: 4, maxOffset: 4 },
   colours: [
-    [251, 255, 134, 1], // #fbff86
-    [249, 194, 43, 1], // #f9c22b
-    [251, 107, 29, 0.85], // #fb6b1d
-    [232, 59, 59, 0.9], // #e83b3b
-    [174, 35, 52, 0.95], // #ae2334
+    [251, 255, 134, 1], // #fbff86 surface line
+    [232, 59, 59, 0.92], // #e83b3b body, nearly opaque
   ],
   waver: [1, 0.2, 1.2, 0.02],
   droplet: '#f9c22b',
@@ -162,12 +156,17 @@ const SCENES: Scene[] = [
 const sceneCanvas = document.getElementById('scene') as HTMLCanvasElement;
 const spriteCanvas = document.getElementById('sprites') as HTMLCanvasElement;
 const hud = document.getElementById('hud') as HTMLElement;
+// the water draws at device resolution so its surface moves smoothly; the rock inside it stays pixelated
+const deviceScale = UPSCALE * devicePixelRatio;
+sceneCanvas.width = Math.round(width * deviceScale);
+sceneCanvas.height = Math.round(height * deviceScale);
+spriteCanvas.width = width;
+spriteCanvas.height = height;
 for (const canvas of [sceneCanvas, spriteCanvas]) {
-  canvas.width = width;
-  canvas.height = height;
   canvas.style.width = `${width * UPSCALE}px`;
   canvas.style.height = `${height * UPSCALE}px`;
 }
+let snap = false;
 const sprites = spriteCanvas.getContext('2d')!;
 const rockCanvas = Object.assign(document.createElement('canvas'), { width, height });
 const rock = rockCanvas.getContext('2d')!;
@@ -199,8 +198,8 @@ const rockTexture = device.createTexture({
   usage:
     GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
 });
-/** Look: 16 bytes of header, 10 palette vec4s, 2 waver vec4s. */
-const LOOK_BYTES = 16 + 40 * 4 + 8 * 4;
+/** Look: 32 bytes of header, 4 colour vec4s, 2 waver vec4s. */
+const LOOK_BYTES = 32 + 16 * 4 + 8 * 4;
 const lookBuffer = device.createBuffer({
   size: LOOK_BYTES,
   usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -266,9 +265,11 @@ function draw(time: number): void {
   const look = new Float32Array(LOOK_BYTES / 4);
   new Uint32Array(look.buffer, 0, 2).set([width, height]);
   look[2] = time;
+  look[3] = deviceScale;
+  new Uint32Array(look.buffer, 16, 1).set([snap ? 1 : 0]);
   KINDS.forEach((kind, k) => {
-    kind.colours.forEach((colour, band) => look.set(colour, 4 + (k * 5 + band) * 4));
-    look.set(kind.waver, 44 + k * 4);
+    kind.colours.forEach((colour, band) => look.set(colour, 8 + (k * 2 + band) * 4));
+    look.set(kind.waver, 24 + k * 4);
   });
   device.queue.writeBuffer(lookBuffer, 0, look);
   const encoder = device.createCommandEncoder();
@@ -431,6 +432,7 @@ addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.code === 'KeyN') loadScene(sceneIndex + 1);
   else if (event.code === 'KeyR') loadScene(sceneIndex);
   else if (event.code === 'Space') paused = !paused;
+  else if (event.code === 'KeyP') snap = !snap;
   else return;
   event.preventDefault();
 });
@@ -452,7 +454,7 @@ function frame(now: number): void {
   drawMotes();
   hud.innerHTML =
     `<b>DELVE · water lab</b> — ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
-    `click drop a pebble · drag stir · N scene · R reset · space pause` +
+    `click drop a pebble · drag stir · N scene · R reset · space pause · P ${snap ? '<b>snapped to art pixels</b>' : 'smooth surface'}` +
     (gpuError ? `\n<b>GPU error:</b> ${gpuError}` : '');
   requestAnimationFrame(frame);
 }
@@ -472,6 +474,7 @@ Object.assign(window, {
       gpuError,
     }),
     pause: (value: boolean) => (paused = value),
+    snap: (value: boolean) => (snap = value),
   },
 });
 

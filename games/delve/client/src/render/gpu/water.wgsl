@@ -1,20 +1,24 @@
-// water.wgsl — surface water drawn in pixel style (#89), at art resolution over the rock. For each art pixel
-// column the CPU hands over where its water starts (the body's level plus the surface offset) and ends (the
-// rock below). Inside that span, over open pixels:
+// water.wgsl — surface water (#89), drawn at screen resolution over pixel-art rock. For each art column the CPU
+// hands over where its water starts (the level plus the surface offset, fractional) and ends (the rock below).
 //
-//   the top pixel     a bright surface line
-//   the next          a lighter line
-//   below             the rock behind, wavering, seen through a tint that deepens in steps with depth
+//   the surface line  one art pixel thick, following the surface smoothly between columns
+//   the body          one see-through tint over the rock behind, which wavers
 //   near the top      sparse shimmer pixels drifting along
 //
-// See docs/FLUIDS.md, "Rendering". Colours are Resurrect 64, 0–255.
+// The rock stays pixelated (sampled per art pixel). Only the water's position is smooth: snapped to whole art
+// pixels, a 1–3 px ripple stepped a pixel at a time and read as a low frame rate. `snap` restores that for
+// comparison. See docs/FLUIDS.md, "Rendering". Colours are Resurrect 64, 0–255.
 
 struct Look {
-  size: vec2u,
+  size: vec2u,        // art pixels
   time: f32,
-  pad: f32,
-  // per kind (0 water, 1 lava), five bands: surface, highlight, shallow, deep, deepest (rgb, a = tint opacity)
-  colours: array<vec4f, 10>,
+  scale: f32,         // device pixels per art pixel
+  snap: u32,          // 1: snap the water to whole art pixels
+  pad0: u32,
+  pad1: u32,
+  pad2: u32,
+  // per kind (0 water, 1 lava): surface line rgb; body tint rgb, a = opacity
+  colours: array<vec4f, 4>,
   // per kind: x waver amplitude px, y frequency along y, z speed, w shimmer density (0..1)
   waver: array<vec4f, 2>,
 }
@@ -40,6 +44,12 @@ fn is_open(x: i32, y: i32) -> bool {
   return open[u32(y) * look.size.x + u32(x)] == 1u;
 }
 
+fn wet(column: i32) -> bool {
+  if (column < 0 || u32(column) >= look.size.x) { return false; }
+  let c = columns[u32(column)];
+  return c.x <= c.y;
+}
+
 fn hash(x: i32, y: i32) -> u32 {
   var h = (u32(x) * 73856093u) ^ (u32(y) * 19349663u);
   h ^= h >> 13u;
@@ -49,35 +59,40 @@ fn hash(x: i32, y: i32) -> u32 {
 
 @fragment
 fn water_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let x = i32(position.x);
-  let y = i32(position.y);
+  // where this device pixel falls in art pixels, fractional, and the art pixel it's in
+  var art = position.xy / look.scale;
+  if (look.snap == 1u) { art = floor(art) + 0.5; }
+  let x = i32(floor(art.x));
+  let y = i32(floor(art.y));
   let background = rock_at(x, y);
+  if (!wet(x) || !is_open(x, y)) { return vec4f(background, 1.0); }
   let column = columns[u32(x)];
-  let top = i32(round(column.x));
-  let bottom = i32(column.y);
-  if (y < top || y > bottom || !is_open(x, y)) { return vec4f(background, 1.0); }
+  let bottom = f32(column.y) + 1.0;
+
+  // the surface height here: blended toward the neighbouring column across the pixel, so it moves smoothly
+  let across = art.x - (f32(x) + 0.5);
+  let side = select(x - 1, x + 1, across > 0.0);
+  var top = column.x;
+  if (wet(side)) { top = mix(column.x, columns[u32(side)].x, abs(across)); }
+  if (look.snap == 1u) { top = round(column.x); }
+  if (art.y < top || art.y >= bottom) { return vec4f(background, 1.0); }
+
   let kind = min(u32(column.z), 1u);
-  let band = kind * 5u;
   let waver = look.waver[kind];
+  if (art.y < top + 1.0) { return vec4f(look.colours[kind * 2u].rgb / 255.0, 1.0); }
 
-  let depth = y - top;
-  if (depth == 0) { return vec4f(look.colours[band].rgb / 255.0, 1.0); }
-  if (depth == 1) { return vec4f(look.colours[band + 1u].rgb / 255.0, 1.0); }
-
-  // what's behind wavers: a whole-pixel horizontal offset that moves with time
+  // what's behind wavers: a whole-art-pixel horizontal offset that moves with time
   let sway = i32(round(sin(f32(y) * waver.y + look.time * waver.z) * waver.x));
-  let behind = select(background, rock_at(x + sway, y), is_open(x + sway, y) == is_open(x, y));
-
-  var tint = look.colours[band + 2u];
-  if (depth >= 12) { tint = look.colours[band + 3u]; }
-  if (depth >= 28) { tint = look.colours[band + 4u]; }
-  var colour = mix(behind, tint.rgb / 255.0, tint.a);
+  let behind = select(background, rock_at(x + sway, y), is_open(x + sway, y));
+  let body = look.colours[kind * 2u + 1u];
+  var colour = mix(behind, body.rgb / 255.0, body.a);
 
   // shimmer: sparse light pixels drifting along just under the surface
+  let depth = i32(floor(art.y - top));
   if (depth < 7) {
     let drift = i32(floor(look.time * 6.0));
     let roll = f32(hash((x + drift * (1 - 2 * (depth % 2))) / 2, y) % 1000u) / 1000.0;
-    if (roll < waver.w) { colour = mix(colour, look.colours[band].rgb / 255.0, 0.6); }
+    if (roll < waver.w) { colour = mix(colour, look.colours[kind * 2u].rgb / 255.0, 0.5); }
   }
   return vec4f(colour, 1.0);
 }

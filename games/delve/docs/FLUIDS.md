@@ -81,15 +81,19 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
 
 ## Rendering
 
-- **Where water is:** in each body column, from the level plus that column's offset (rounded to a whole
-  art pixel) down to the rock.
-- **Drawn at art resolution** over the rock:
-  - the top pixel of each column is a bright surface line, `#8fd3ff`, with a `#4d9be6` line under it;
-  - below, the rock behind shows through a `#4d65b4` tint, deepening toward `#484a77` in steps with
-    depth;
-  - the background is sampled with a small horizontal wave offset that moves over time, so what's
-    behind the water wavers;
-  - sparse shimmer pixels drift along the surface band.
+- **Where water is:** in each body column, from the level plus that column's offset down to the rock.
+- **Smooth surface, pixel rock.** The water is drawn at screen resolution: the surface height blends
+  between neighbouring columns and moves in sub-pixel steps, while the rock inside and behind it is
+  sampled per art pixel.
+  - The first version snapped the water to whole art pixels. A 1–3 px ripple then stepped a pixel at a
+    time, cut square notches, and the author read it as a low frame rate.
+  - The lab's **P** key restores the snapped version for comparison.
+- **One surface line and one body tint.**
+  - The surface is a line one art pixel thick: water `#8fd3ff`, lava `#fbff86`.
+  - Below it, one see-through tint over the rock behind: water `#4d65b4` at 55%, lava `#e83b3b` at 92%.
+  - The first version stepped through shallow, deep and deepest tints; the author found the bands odd.
+- **Life:** the rock behind wavers by a whole art pixel over time, and sparse shimmer pixels drift under
+  the surface.
 
 ## Verification
 
