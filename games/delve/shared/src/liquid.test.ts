@@ -243,6 +243,17 @@ describe('the cell-pipe liquid', () => {
     expect(moved).toBe(0);
   });
 
+  it("keeps a stream falling into a pool out of the pool's surface", () => {
+    // a pool at the bottom of a shaft, and a stream falling into it from a trickle above
+    const { liquid, at } = scene(box(6, 30, (_, row) => (row >= 24 ? '~' : '.')));
+    run(liquid, 1, () => liquid.add(at(2, 2), Math.round(UNIT / 12))); // 20 cells a second: a steady stream
+    const runs = waterRuns(liquid, 2, UNIT / 50);
+    expect(runs.length).toBeGreaterThan(0);
+    // the pool (risen about five rows under the pour) stops at its own surface, far below the stream's start
+    expect(runs[0].topRow).toBeGreaterThan(12);
+    expect(runs[0].surface - runs[0].topRow).toBeLessThan(1);
+  });
+
   it("draws a deep pool from its volume, so compression doesn't sink its surface", () => {
     const { liquid } = scene(box(8, 32, (_, row) => (row >= 6 ? '~' : '.')));
     run(liquid, 4);

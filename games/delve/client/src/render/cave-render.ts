@@ -128,7 +128,7 @@ export const CORNER_ROUND_NOISE = 0.65;
 
 /**
  * Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. Exported for the
- * water lab (#89), whose bodies fill the open pixels the stone leaves.
+ * liquid lab (#90), whose water wets the open pixels the stone leaves.
  */
 export function buildMask(
   isSolid: SolidTile,

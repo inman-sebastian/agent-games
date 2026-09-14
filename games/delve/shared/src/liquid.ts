@@ -284,8 +284,10 @@ export interface WaterRun {
 }
 
 /**
- * The resting water in one column: runs of wet cells standing on rock, from the bottom up. Water falling
- * through air isn't part of a run.
+ * The resting water in one column: runs of wet cells standing on rock, from the bottom up. A run climbs only
+ * through cells held up by a nearly full cell below: the first partly full cell is its top, and water above
+ * that (a stream falling into the pool) isn't part of it. Counted in, a stream's thin cells dragged the
+ * pool's surface down and the stream vanished from the picture.
  */
 export function waterRuns(liquid: Liquid, column: number, minimumUnits = 1): WaterRun[] {
   const runs: WaterRun[] = [];
@@ -301,6 +303,7 @@ export function waterRuns(liquid: Liquid, column: number, minimumUnits = 1): Wat
       if (liquid.isSolid(cell) || liquid.volume[cell] < minimumUnits) break;
       units += liquid.volume[cell];
       top--;
+      if (liquid.volume[cell] < SUPPORT_FROM * UNIT) break;
     }
     const topRow = top + 1;
     runs.push({ bottomRow: row, topRow, surface: row + 1 - units / UNIT });
