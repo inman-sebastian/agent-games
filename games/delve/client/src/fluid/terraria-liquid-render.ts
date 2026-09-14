@@ -520,98 +520,147 @@ export function drawTerrariaLiquid(
     waterTargets.set(liquid, target);
   }
   const lava = liquid.kind === LIQUID_LAVA;
-  // art px under the nearest surface above, per column, and that spread sideways: lava's heat
-  const depth = new Int32Array(width);
-  const distance = new Int32Array(width);
+  const count = width * height;
+  // each pixel's kind, settled before anything is painted (Clear: nothing drawn there)
+  const kinds = new Uint8Array(count);
+  const air = new Uint8Array(count);
+  const rock = new Uint8Array(count);
   for (let y = 0; y < height; y++) {
-    const row = y * width;
     for (let x = 0; x < width; x++) {
-      // the surface is open air, judged by cell: not rock (its eroded edge pixels included), and no liquid
-      // drawn there — so a cell the sim briefly empties inside moving lava, which the draw fills, doesn't count
-      const cellIndex = Math.floor(y / cell) * liquid.width + Math.floor(x / cell);
-      const surface = target.cells[cellIndex] === 0 && !liquid.isSolid(cellIndex);
-      depth[x] = surface ? 0 : depth[x] + 1;
+      const pixel = y * width + x;
+      const solid =
+        !open[pixel] || liquid.isSolid(Math.floor(y / cell) * liquid.width + Math.floor(x / cell));
+      const kind = open[pixel]
+        ? settleKind(target, liquid, cell, x, y, target.shown[pixel])
+        : Texel.Clear;
+      kinds[pixel] = kind;
+      rock[pixel] = solid ? 1 : 0;
+      // open air, by pixel: nothing drawn and not rock — so the empty top of a partly filled tile counts, and
+      // heat starts where the lava does, not at its tile's top
+      air[pixel] = kind === Texel.Clear && !solid ? 1 : 0;
     }
-    if (lava) surfaceDistance(depth, distance);
-    for (let x = 0; x < width; x++) {
-      const pixel = row + x;
-      let kind = target.shown[pixel];
-      if (!open[pixel]) continue; // rock stays in front
-      const column = Math.floor(x / cell);
-      const cellIndex = Math.floor(y / cell) * liquid.width + column;
-      // open air beside a cell: not rock, nothing drawn (Terraria's undrawn trail counts as air)
-      const airAt = (neighbour: number, inRow: boolean): boolean =>
-        inRow && target.cells[neighbour] === 0 && !liquid.isSolid(neighbour);
-      const airLeft = airAt(cellIndex - 1, column > 0);
-      const airRight = airAt(cellIndex + 1, column < liquid.width - 1);
-      if (kind === Texel.Clear) {
-        // a gap a partly filled tile leaves inside the body — a drawn cell under a drawn cell, closed in by liquid
-        // or rock either side — is body, not a hole; a crop toward open air is an edge and stays
-        const above = cellIndex - liquid.width;
-        if (!target.cells[cellIndex] || above < 0 || !target.cells[above]) continue;
-        if (airLeft || airRight) continue;
-        kind = Texel.Body;
+  }
+  // lava's heat: its distance to open air, in 2D, never through rock
+  const distance = lava
+    ? surfaceDistance(air, rock, width, height, new Int32Array(count))
+    : undefined;
+  for (let pixel = 0; pixel < count; pixel++) {
+    const kind = kinds[pixel];
+    if (kind === Texel.Clear) continue;
+    const offset = pixel * 4;
+    let colour: Rgb;
+    if (distance) {
+      const x = pixel % width;
+      const worldX = originX + x;
+      const worldY = originY + (pixel - x) / width;
+      // the cooling depth wanders, so hot and cool lava meet along an organic line, not a straight band
+      const cooling = LAVA_COOLING_DEPTH * (0.7 + vnoise(worldX * 0.05, worldY * 0.03, 7) * 0.6);
+      const heat = Math.max(0, 1 - distance[pixel] / cooling);
+      // the brightest rim only on the real surface, not on the inner edges between partly filled tiles
+      colour =
+        kind === Texel.TopOuter && distance[pixel] <= 2
+          ? LAVA_BANDS[LAVA_BANDS.length - 1]
+          : moltenSurface(worldX, worldY, worldX, worldY, heat, time, LAVA_BANDS);
+    } else {
+      switch (kind) {
+        case Texel.TopOuter:
+          colour = style.surface;
+          break;
+        case Texel.TopInner:
+        case Texel.SideOuter:
+        case Texel.Shimmer:
+          colour = style.light;
+          break;
+        case Texel.SideInner:
+          colour = style.mid;
+          break;
+        default:
+          colour = seeThrough(pixels, offset, style);
       }
-      if ((kind === Texel.Body || kind === Texel.Shimmer) && target.cells[cellIndex]) {
-        // a face toward open air gets its side edge, even where Terraria's trail beside it kept one from showing
-        const localX = x - column * cell;
-        if (airLeft && localX < 2) kind = localX === 0 ? Texel.SideOuter : Texel.SideInner;
-        else if (airRight && localX >= cell - 2)
-          kind = localX === cell - 1 ? Texel.SideOuter : Texel.SideInner;
-      }
-      const offset = pixel * 4;
-      let colour: Rgb;
-      if (lava) {
-        // the molten surface, lit from within: its rim hottest, cooling with distance from the surface
-        const worldX = originX + x;
-        const worldY = originY + y;
-        // the cooling depth wanders, so hot and cool lava meet along an organic line, not a straight band
-        const cooling = LAVA_COOLING_DEPTH * (0.7 + vnoise(worldX * 0.05, worldY * 0.03, 7) * 0.6);
-        const heat = Math.max(0, 1 - distance[x] / cooling);
-        // the brightest rim only on the real surface, not on the inner edges between partly filled tiles
-        colour =
-          kind === Texel.TopOuter && distance[x] <= 2
-            ? LAVA_BANDS[LAVA_BANDS.length - 1]
-            : moltenSurface(worldX, worldY, worldX, worldY, heat, time, LAVA_BANDS);
-      } else {
-        switch (kind) {
-          case Texel.TopOuter:
-            colour = style.surface;
-            break;
-          case Texel.TopInner:
-          case Texel.SideOuter:
-          case Texel.Shimmer:
-            colour = style.light;
-            break;
-          case Texel.SideInner:
-            colour = style.mid;
-            break;
-          default:
-            colour = seeThrough(pixels, offset, style);
-        }
-      }
-      paint(pixels, offset, colour);
-      pixels[offset + 3] = 255;
     }
+    paint(pixels, offset, colour);
+    pixels[offset + 3] = 255;
   }
 }
 
 /**
- * Each column's depth under its own surface, spread sideways one pixel per pixel (a 1D distance transform), into
- * `out`: the distance to the nearest surface along the row or straight up. Lava's heat is measured from it, so
- * where the surface steps, hot and cool lava blend across instead of meeting in a vertical seam.
+ * What an open pixel shows, from the water target's texel: the gaps a partly filled tile leaves inside the body
+ * are filled, and a face toward open air gets its side edge (docs/FLUIDS.md, "The look": hard edges).
  */
-export function surfaceDistance(depth: Int32Array, out: Int32Array): Int32Array {
-  const width = depth.length;
-  let carried = Infinity;
-  for (let x = 0; x < width; x++) {
-    carried = Math.min(depth[x], carried + 1);
-    out[x] = carried;
+function settleKind(
+  target: WaterTarget,
+  liquid: TerrariaLiquid,
+  cell: number,
+  x: number,
+  y: number,
+  shown: Texel,
+): Texel {
+  let kind = shown;
+  const column = Math.floor(x / cell);
+  const cellIndex = Math.floor(y / cell) * liquid.width + column;
+  // open air beside a cell: not rock, nothing drawn (Terraria's undrawn trail counts as air)
+  const airAt = (neighbour: number, inRow: boolean): boolean =>
+    inRow && target.cells[neighbour] === 0 && !liquid.isSolid(neighbour);
+  const airLeft = airAt(cellIndex - 1, column > 0);
+  const airRight = airAt(cellIndex + 1, column < liquid.width - 1);
+  if (kind === Texel.Clear) {
+    // a gap inside the body — a drawn cell under a drawn cell, closed in by liquid or rock either side — is body,
+    // not a hole; a crop toward open air is an edge and stays
+    const above = cellIndex - liquid.width;
+    if (!target.cells[cellIndex] || above < 0 || !target.cells[above]) return Texel.Clear;
+    if (airLeft || airRight) return Texel.Clear;
+    kind = Texel.Body;
   }
-  carried = Infinity;
-  for (let x = width - 1; x >= 0; x--) {
-    carried = Math.min(out[x], carried + 1);
-    out[x] = carried;
+  if ((kind === Texel.Body || kind === Texel.Shimmer) && target.cells[cellIndex]) {
+    const localX = x - column * cell;
+    if (airLeft && localX < 2) kind = localX === 0 ? Texel.SideOuter : Texel.SideInner;
+    else if (airRight && localX >= cell - 2)
+      kind = localX === cell - 1 ? Texel.SideOuter : Texel.SideInner;
+  }
+  return kind;
+}
+
+/**
+ * Every pixel's distance to open air, in 4-connected steps, into `out` (a two-pass chamfer distance transform: down
+ * the rows then back up, each row swept both ways). Rock is a barrier: its pixels stay far and are never
+ * updated, so distance never passes through them. Lava's heat is measured from it, so hot and cool lava blend smoothly around every step
+ * and corner of the surface, and air behind a wall doesn't warm the lava in front of it.
+ */
+export function surfaceDistance(
+  air: Uint8Array,
+  rock: Uint8Array,
+  width: number,
+  height: number,
+  out: Int32Array,
+): Int32Array {
+  const far = width + height;
+  const sweepRow = (row: number): void => {
+    for (let x = 1; x < width; x++) {
+      const pixel = row + x;
+      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel - 1] + 1);
+    }
+    for (let x = width - 2; x >= 0; x--) {
+      const pixel = row + x;
+      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel + 1] + 1);
+    }
+  };
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const pixel = row + x;
+      if (rock[pixel]) out[pixel] = far;
+      else if (air[pixel]) out[pixel] = 0;
+      else out[pixel] = y > 0 ? Math.min(far, out[pixel - width] + 1) : far;
+    }
+    sweepRow(row);
+  }
+  for (let y = height - 2; y >= 0; y--) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      const pixel = row + x;
+      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel + width] + 1);
+    }
+    sweepRow(row);
   }
   return out;
 }

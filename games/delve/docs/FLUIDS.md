@@ -94,10 +94,13 @@ gradients. Water and edges are flat palette colours; lava's transitions use the 
   `moltenSurface` lumps a heat field with world-anchored value noise, quantises it into lava's six-stop ramp
   (`LAVA_BANDS`: `#6e2727 #ae2334 #e83b3b #fb6b1d #f79617 #f9c22b`) with the shared Bayer dither, and moves: the
   molten blobs drift, and a crust of darker plates floats on the hot top, split by glowing seams. **Heat** is
-  the geometry's say, like rock's top-light: hottest at the surface line (`#f9c22b`), cooling with the distance
-  to the nearest surface — open air, judged by cell: not rock, nothing drawn, so a cell the sim briefly empties
-  inside moving lava doesn't count — straight up, or sideways along the row (`surfaceDistance`), so where the surface
-  steps the hot and cool lava blend across instead of meeting in a vertical seam — over about 56 art px, along a
+  the geometry's say, like rock's top-light: hottest at the surface line (`#f9c22b`), cooling with each pixel's
+  **distance to open air** (`surfaceDistance`, a two-pass 2D distance transform). Open air is judged by pixel:
+  nothing drawn and not rock, so the empty top of a partly filled tile counts and heat starts where the lava
+  does, while a cell the sim briefly empties inside moving lava (drawn filled) doesn't. Rock is a barrier, so air
+  behind a wall never warms the lava in front of it. Measured in 2D, heat changes by at most a step between
+  neighbours, so it wraps smoothly round every step and corner of the surface — measuring down columns and along
+  rows left hard lines at corners and where tiles were filled to different heights. It cools over about 56 art px, along a
   wandering line to a calm, solid dark body (it sits exactly on a band, so there's no dither checker,
   and its texture fades with the heat — the rock's rule that grit reads busy).
 - **Lava is emissive.** It's drawn after the lighting pass, so darkness never dims it, and every lava tile open

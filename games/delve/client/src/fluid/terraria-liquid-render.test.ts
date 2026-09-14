@@ -260,15 +260,76 @@ describe('the liquid picture', () => {
     expect(changed).toBeGreaterThan(20);
   });
 
-  it("measures lava's heat from the nearest surface sideways too, so a stepped surface blends across", () => {
-    // columns 0–2 sit right under a surface; columns 3–6 are 40 px down under a higher one
-    const depth = Int32Array.from([0, 0, 0, 40, 40, 40, 40]);
-    const distance = surfaceDistance(depth, new Int32Array(depth.length));
-    expect(Array.from(distance)).toEqual([0, 0, 0, 1, 2, 3, 4]);
-    // and it never exceeds the column's own depth
-    expect(Array.from(surfaceDistance(Int32Array.from([5, 9, 2]), new Int32Array(3)))).toEqual([
-      4, 3, 2,
-    ]);
+  it("measures lava's heat from where the lava actually starts, not from the top of a partly filled tile", () => {
+    const liquid = scene(
+      ['##########', '#........#', '#~~~~~~~~#', '#~~~~~~~~#', '#~~~~~~~~#', '##########'],
+      LIQUID_LAVA,
+    );
+    // the top row partly filled, to different heights
+    [40, 90, 140, 200, 255, 120, 60, 180].forEach(
+      (level, k) => (liquid.level[2 * liquid.width + 1 + k] = level),
+    );
+    const pixels = drawOverWall(liquid, LAVA_STYLE);
+    const width = liquid.width * CELL;
+    const hottest = LAVA_BANDS[LAVA_BANDS.length - 1].join(',');
+    // the first lava pixel down each column is the hot rim, however full its tile
+    for (let x = CELL; x < width - CELL; x++) {
+      let y = 0;
+      while (y < liquid.height * CELL) {
+        const index = (y * width + x) * 4;
+        if (
+          LAVA_BANDS.some(
+            (c) =>
+              c[0] === pixels[index] && c[1] === pixels[index + 1] && c[2] === pixels[index + 2],
+          )
+        )
+          break;
+        y++;
+      }
+      const index = (y * width + x) * 4;
+      expect(
+        `${pixels[index]},${pixels[index + 1]},${pixels[index + 2]}`,
+        `column ${x}, row ${y}`,
+      ).toBe(hottest);
+    }
+  });
+
+  it("measures lava's heat as a distance to open air in 2D: smooth round corners, and never through rock", () => {
+    // 0 air, 1 lava, 2 rock: a stepped surface over lava, and a rock wall with air only on its far side
+    const map = [
+      '000000000000',
+      '111110000000',
+      '111110000000',
+      '111111110000',
+      '111111112000',
+      '111111112000',
+      '111111112000',
+    ];
+    const width = map[0].length;
+    const height = map.length;
+    const air = new Uint8Array(width * height);
+    const rock = new Uint8Array(width * height);
+    map.forEach((line, y) =>
+      [...line].forEach((c, x) => {
+        air[y * width + x] = c === '0' ? 1 : 0;
+        rock[y * width + x] = c === '2' ? 1 : 0;
+      }),
+    );
+    const distance = surfaceDistance(air, rock, width, height, new Int32Array(width * height));
+    const at = (x: number, y: number): number => distance[y * width + x];
+    // no step of more than one between neighbours that aren't rock: no hard line anywhere
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (rock[y * width + x]) continue;
+        if (x + 1 < width && !rock[y * width + x + 1])
+          expect(Math.abs(at(x, y) - at(x + 1, y))).toBeLessThanOrEqual(1);
+        if (y + 1 < height && !rock[(y + 1) * width + x])
+          expect(Math.abs(at(x, y) - at(x, y + 1))).toBeLessThanOrEqual(1);
+      }
+    }
+    // right beside the rock wall, the lava is as far from air as its depth and the step allow — the air
+    // on the wall's far side doesn't reach through
+    expect(at(7, 6)).toBeGreaterThan(2);
   });
 
   it('edges a face toward open air even where Terraria left none for its trail', () => {
