@@ -17,6 +17,11 @@ export interface SurfaceParams {
    * a big step (a breach) rings at the grid frequency as a sawtooth trailing the surge.
    */
   viscosity: number;
+  /**
+   * Drag growing with speed, per (px/s) per second: a fast bulk surge (a breach levelling) is braked hard, a slow
+   * ripple barely. With damping alone, a levelling surge overshot and sloshed like a rubber band.
+   */
+  drag: number;
   /** The furthest a column can be pushed from the level, art px — a splash, not a geyser. */
   maxOffset: number;
 }
@@ -26,6 +31,7 @@ export const WATER_SURFACE: SurfaceParams = {
   tension: 18,
   damping: 1.6,
   viscosity: 40,
+  drag: 0.03,
   maxOffset: 10,
 };
 
@@ -66,7 +72,6 @@ export function createSurface(columns: number, params: SurfaceParams = WATER_SUR
     const substeps = Math.max(1, Math.ceil((params.waveSpeed * dt) / 0.5));
     const sub = dt / substeps;
     const stiffness = params.waveSpeed * params.waveSpeed;
-    const keep = Math.max(0, 1 - params.damping * sub);
     for (let k = 0; k < substeps; k++) {
       for (let column = 0; column < columns; column++) {
         // the ends are reflective: a missing neighbour mirrors the column itself
@@ -80,7 +85,8 @@ export function createSurface(columns: number, params: SurfaceParams = WATER_SUR
           params.viscosity * (leftV + rightV - 2 * velocity[column]);
       }
       for (let column = 0; column < columns; column++) {
-        velocity[column] = (velocity[column] + pull[column] * sub) * keep;
+        const brake = params.damping + params.drag * Math.abs(velocity[column]);
+        velocity[column] = (velocity[column] + pull[column] * sub) * Math.max(0, 1 - brake * sub);
         const next = offset[column] + velocity[column] * sub;
         if (Math.abs(next) > params.maxOffset) {
           offset[column] = Math.sign(next) * params.maxOffset;

@@ -6,7 +6,8 @@
 //   the line    one art pixel thick at the surface, following it smoothly between columns
 //   the body    one see-through tint over the rock behind
 //   glints      short dashes gliding along just under the surface, fading in and out
-//   streams     falling water from a spill, with highlights sliding down it
+//   streams     falling sheets from a spill: they cross the lip ⅔ of the head deep at the critical speed and
+//               fall as a parabolic band; through a hole in a floor, a column thinning as it speeds up
 //
 // The rock stays pixelated (sampled per art pixel); everything that moves moves every frame. Snapped to whole
 // art pixels, ripples stepped and read as a low frame rate, and a 6 Hz shimmer read as choppy at a steady
@@ -38,10 +39,14 @@ struct BodyInfo {
 }
 
 struct Stream {
-  x: f32,
-  top: f32,
-  bottom: f32,
+  x: f32,             // the column it falls from
+  top: f32,           // the row of its lip
+  bottom: f32,        // the row it lands on
   kind: f32,
+  flow: f32,          // px of volume per second
+  thickness: f32,     // how deep it crosses the lip, px
+  side: f32,          // 1 pours off rightward, -1 leftward, 0 straight down
+  speed: f32,         // how fast it crosses the lip, px/s
 }
 
 @group(0) @binding(0) var<uniform> look: Look;
@@ -56,7 +61,8 @@ const GLINT_SPEED: f32 = 7.0;          // art px/s
 const GLINT_SPACING: f32 = 26.0;       // art px between glint slots
 const GLINT_HALF_LENGTH: f32 = 1.5;    // art px
 const AIR_ABOVE: u32 = 0x10000u;        // open air over a body's water: drawn as water under a raised surface
-const STREAM_HALF_WIDTH: f32 = 1.5;    // art px
+const STREAM_MIN_WIDTH: f32 = 3.0;     // art px: a trickle still reads as falling water
+const GRAVITY: f32 = 736.0;            // art px/s², the player's (fluid/bodies.ts WATER_FLOW.gravity)
 
 @vertex
 fn water_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
@@ -104,15 +110,45 @@ fn water_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
   let background = rock_at(x, y);
   if (!is_open(x, y)) { return vec4f(background, 1.0); }
 
-  // streams first: falling water from a spill, highlights sliding down it
-  for (var s = 0u; s < look.streams; s++) {
+  // streams first: falling sheets from a spill — until they enter water
+  let liquid_here = liquid[u32(y) * look.size.x + u32(x)];
+  let in_water = liquid_here != 0u && (liquid_here & AIR_ABOVE) == 0u;
+  for (var s = 0u; s < look.streams && !in_water; s++) {
     let stream = streams[s];
-    if (abs(art.x - (stream.x + 0.5)) < STREAM_HALF_WIDTH && art.y >= stream.top && art.y < stream.bottom + 1.0) {
+    if (art.y >= stream.bottom + 1.0) { continue; }
+    let lip_top = stream.top - stream.thickness;
+    var depth = -1.0;       // down from the sheet's upper face, px; < 0 outside it
+    var along = 0.0;        // seconds of travel from the lip
+    if (stream.side != 0.0) {
+      // off a lip: it crosses `thickness` deep at `speed`, and its upper and lower faces fall as parabolas. A
+      // vertical cut through a falling sheet keeps its thickness (the same flow crosses it).
+      let edge = stream.x + select(1.0, 0.0, stream.side > 0.0);
+      let out = stream.side * (art.x - edge);
+      if (out >= 0.0) {
+        along = out / stream.speed;
+        let upper = lip_top + 0.5 * GRAVITY * along * along;
+        if (art.y >= upper && art.y < upper + stream.thickness) { depth = art.y - upper; }
+      }
+    } else {
+      // through a hole in a floor, down a shaft: a column thinning as it speeds up
+      let fallen = max(art.y - stream.top, 0.0) + 1.0;
+      let width = clamp(stream.flow / sqrt(2.0 * GRAVITY * fallen), STREAM_MIN_WIDTH, 8.0);
+      along = sqrt(2.0 * fallen / GRAVITY);
+      let from_edge = 0.5 * width - abs(art.x - (stream.x + 0.5));
+      if (art.y >= stream.top && from_edge > 0.0) { depth = 1.0 + from_edge; }
+    }
+    if (depth >= 0.0) {
       let kind = u32(stream.kind);
+      let line = look.colours[kind * 2u].rgb / 255.0;
+      // the upper face gets the surface's line, as the pool it left does
+      if (depth < 1.0) { return vec4f(line, 1.0); }
       let body = look.colours[kind * 2u + 1u];
-      var colour = mix(background, body.rgb / 255.0, min(1.0, body.a + 0.25));
-      let slide = fract((art.y - look.time * 90.0) / 9.0);
-      if (slide < 0.22) { colour = mix(colour, look.colours[kind * 2u].rgb / 255.0, 0.6); }
+      var colour = mix(background, body.rgb / 255.0, min(1.0, body.a + 0.2));
+      // a few streaks running along the flow, sliding away from the lip
+      let lane = i32(floor(depth / 3.0));
+      let seed = hash(lane, i32(stream.x) + 31 * i32(s));
+      let dash = fract(along * 2.5 - look.time * 1.6 + f32(seed % 997u) / 997.0);
+      if ((seed >> 12u) % 3u == 0u && dash < 0.3) { colour = mix(colour, line, 0.35); }
       return vec4f(colour, 1.0);
     }
   }

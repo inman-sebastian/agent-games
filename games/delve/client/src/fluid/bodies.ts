@@ -1,7 +1,7 @@
 // bodies.ts — surface water's bodies and how digging moves them (#89, step 2). A body is a VOLUME (a whole
 // number of pixels) and the cave shape around it; its level is where that volume reaches when the shape fills
 // from its lowest point up, so it's always flat. Past its rim, or through a hole dug under it, the excess
-// leaves as a stream at a set rate and lands in whatever is below. See docs/FLUIDS.md, "Flow".
+// leaves as a stream, faster the higher it stands over the lip, and lands in whatever is below. See docs/FLUIDS.md, "Flow".
 //
 // Pure and deterministic: no DOM, no randomness, integer volumes.
 
@@ -9,11 +9,19 @@ export const WATER = 1;
 export const LAVA = 2;
 
 export interface FlowParams {
-  /** Pixels of volume per second a stream carries. */
+  /** Pixels of volume per second a stream carries however little stands over the lip. */
   streamRate: number;
+  /**
+   * Art px/s². Water leaves an opening at the speed it would have falling from the surface above it, so a body
+   * standing high over its lip pours fast. At a fixed rate, a breached reservoir's water stood over the lip as a
+   * wall for many seconds. The lab's gravity, the player's.
+   */
+  gravity: number;
+  /** The discharge coefficient: the jet contracts leaving an opening, to about 0.6 of it. */
+  discharge: number;
 }
 
-export const WATER_FLOW: FlowParams = { streamRate: 900 };
+export const WATER_FLOW: FlowParams = { streamRate: 900, gravity: 736, discharge: 0.6 };
 
 /**
  * How deep below a basin's level a floor pit can be and still count as part of the basin, art px, and how big.
@@ -24,6 +32,8 @@ export const PIT_DEPTH = 3;
 /** A place a stream lands that holds fewer pixels than this, and spills, is a ledge: the stream runs off it. */
 export const LEDGE_CAPACITY = 24;
 const PIT_LIMIT = 256;
+/** Open px a lip needs beside its drop to pour off sideways; in a narrower shaft a stream falls straight. */
+const SIDE_POUR_ROOM = 12;
 
 export interface Body {
   readonly id: number;
@@ -52,6 +62,18 @@ export interface Stream {
   readonly top: number;
   readonly bottom: number;
   readonly kind: number;
+  /** Pixels of volume per second it carries. */
+  readonly flow: number;
+  /** Which way it pours off the lip: 1 right, -1 left, 0 straight down (a hole in a floor, a shaft). */
+  readonly side: number;
+  /** How deep it crosses the lip, px: ⅔ of the head over an open lip, or the height of a gap under water. */
+  readonly thickness: number;
+  /** How fast it crosses the lip, px/s. */
+  readonly speed: number;
+  /** Poured over an open lip (the surface bends down to it), rather than jetting out of a gap under water. */
+  readonly free: boolean;
+  /** A later segment of the same fall, run off a ledge: drawn as part of the one before. */
+  readonly continues: boolean;
 }
 
 export interface WaterSim {
@@ -402,14 +424,55 @@ export function createWaterSim(
    * starting a pool there that overflows into the next ledge down: a cascade of tiny pools. Each fall is a
    * stream segment to draw. Returns where the water finally lands.
    */
-  function fall(body: Body, spill: number): number {
+  /**
+   * How the water crosses the lip at `spill`, standing `head` px over it. Through an opening `a` px high (the
+   * head, over an open lip) it leaves at √(2g·h) for the depth h over the opening's middle, contracted to the
+   * discharge coefficient: flow = C·a·√(2g·(head − a/2)). Over an open lip that's the weir law, ~head^1.5.
+   */
+  function pour(spill: number, head: number) {
+    const x = spill % width;
+    const top = (spill - x) / width;
+    // off the side with rock under the lip, into open space; down a shaft or a hole, straight down
+    const roomFrom = (step: number): boolean => {
+      for (let k = 1; k <= SIDE_POUR_ROOM; k++) if (!isOpen(x + step * k, top + 1)) return false;
+      return true;
+    };
+    const rockLeft = !isOpen(x - 1, top + 1);
+    const rockRight = !isOpen(x + 1, top + 1);
+    const side = rockLeft && roomFrom(1) ? 1 : rockRight && roomFrom(-1) ? -1 : 0;
+    // the opening: open rows over the lip, up to rock (a gap's ceiling) or the head
+    let opening = 0;
+    const lipColumn = x - side;
+    const lipTop = isOpen(lipColumn, top) ? top : top - 1; // the lip's own top pixel may be rock or chipped away
+    while (opening < head && isOpen(lipColumn, lipTop - opening)) opening++;
+    const free = side === 0 || opening >= head;
+    const a = Math.max(1, Math.min(head, opening));
+    // the jet leaves at the full √(2g·h); the contraction narrows it (the vena contracta), not slows it
+    const exit = Math.sqrt(2 * params.gravity * Math.max(0, head - a / 2));
+    const jet = params.discharge * a * exit;
+    const flow = params.streamRate + jet;
+    const thickness = Math.max(1.5, free ? (head * 2) / 3 : params.discharge * a);
+    const speed = Math.max(Math.sqrt(params.gravity * thickness), jet / thickness);
+    return { side, flow, thickness, speed, free };
+  }
+
+  function fall(body: Body, spill: number, crossing: ReturnType<typeof pour>): number {
     let from = spill;
     let land = from;
     for (let hop = 0; hop < 16; hop++) {
       const x = from % width;
       const top = (from - x) / width;
       land = landing(x, top);
-      streams.push({ from: body.id, x, top, bottom: (land - x) / width, kind: body.kind });
+      // past the first lip, a ledge's runoff continues the same fall
+      streams.push({
+        from: body.id,
+        x,
+        top,
+        bottom: (land - x) / width,
+        kind: body.kind,
+        ...(hop === 0 ? crossing : { ...pour(from, 0), flow: crossing.flow }),
+        continues: hop > 0,
+      });
       // into water: done. A dry notch that happens to lie in some basin (below where that pool could rise) is
       // still only a ledge until the pool reaches it.
       if (bodyInBasin(land, body.kind) && owner[land] !== 0) break;
@@ -433,15 +496,24 @@ export function createWaterSim(
     return land;
   }
 
+  /** How many rows a spilling body's shown water stands over its spill point's row. */
+  function headOf(body: Body): number {
+    const shown = Math.min(body.volume, body.view.length);
+    if (shown === 0) return 0;
+    const topRow = Math.floor(body.view[shown - 1] / width);
+    return Math.max(0, Math.floor(body.spill / width) - topRow);
+  }
+
   function step(dt: number): void {
     streams.length = 0;
     for (const body of [...bodies]) {
       if (!bodies.includes(body) || body.spill < 0 || body.volume <= body.fill.length) continue;
-      // the excess leaves through the spill point at the stream's rate
-      body.owed += params.streamRate * dt;
+      // the excess leaves through the spill point, faster the higher it stands over it
+      const crossing = pour(body.spill, headOf(body));
+      body.owed += crossing.flow * dt;
       const amount = Math.min(body.volume - body.fill.length, Math.floor(body.owed));
       body.owed -= amount;
-      const land = fall(body, body.spill);
+      const land = fall(body, body.spill, crossing);
       if (amount <= 0) continue;
       body.volume -= amount;
       const target = bodyInBasin(land, body.kind);

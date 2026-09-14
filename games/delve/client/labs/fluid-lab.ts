@@ -22,7 +22,14 @@ import {
   type Surface,
   type SurfaceParams,
 } from '../src/fluid/surface';
-import { createWaterSim, WATER, LAVA, type Body, type WaterSim } from '../src/fluid/bodies';
+import {
+  createWaterSim,
+  WATER,
+  LAVA,
+  type Body,
+  type Stream,
+  type WaterSim,
+} from '../src/fluid/bodies';
 import waterWgsl from '../src/render/gpu/water.wgsl?raw';
 
 setStrata(STRATA);
@@ -84,7 +91,7 @@ const KINDS: Record<number, Kind> = {
   [LAVA]: {
     id: LAVA,
     // thick: slower, stiffer ripples that die fast and never throw far (slow in time)
-    surface: { waveSpeed: 40, tension: 30, damping: 4, viscosity: 20, maxOffset: 4 },
+    surface: { waveSpeed: 40, tension: 30, damping: 4, viscosity: 20, drag: 0.03, maxOffset: 4 },
     colours: [
       [251, 255, 134, 1], // #fbff86
       [232, 59, 59, 0.92], // #e83b3b
@@ -218,7 +225,7 @@ const lookBuffer = device.createBuffer({
 const liquidBuffer = storage(width * height * 4);
 const bodyBuffer = storage(MAX_BODIES * 32);
 const offsetBuffer = storage(width * 16 * 4);
-const streamBuffer = storage(MAX_STREAMS * 16);
+const streamBuffer = storage(MAX_STREAMS * 32);
 const openBuffer = storage(width * height * 4);
 const bindGroup = device.createBindGroup({
   layout: pipeline.getBindGroupLayout(0),
@@ -432,10 +439,10 @@ function disturbAt(body: Body, x: number, speed: number, radius: number): void {
 
 // ---- drawing --------------------------------------------------------------------------------------------------------
 
-/** How far back from a lip the surface bends down to it: at least this many art px… */
+/** Over an open lip the surface bends down to the sheet leaving it, over this many sheet thicknesses… */
+const SPILLWAY_REACH_PER_THICKNESS = 2;
 const SPILLWAY_MIN_REACH = 6;
-/** …and this many per pixel the surface stands above the lip. */
-const SPILLWAY_REACH_PER_DROP = 1.5;
+const SPILLWAY_MAX_REACH = 24;
 
 function draw(time: number): void {
   const info = new Float32Array(MAX_BODIES * 8);
@@ -453,22 +460,22 @@ function draw(time: number): void {
       const spring = entry ? (entry.surface.offset[span.x0 + c - entry.x0] ?? 0) : 0;
       offsets[start + c] = (top >= 0 ? top : height) + spring;
     }
-    // over a lip it pours from, the surface bends down to the lip instead of ending in a cliff of water
+    // over a lip it pours from, the surface bends down to the top of the sheet leaving it
     for (const stream of sim.streams) {
-      if (stream.from !== body.id) continue;
+      // (a jet out of a gap under water leaves the surface above it alone)
+      if (stream.from !== body.id || stream.continues || !stream.free) continue;
       const lipColumn = stream.x - span.x0;
-      const nearest = Math.max(0, Math.min(columns - 1, lipColumn));
-      const drop = stream.top - offsets[start + nearest];
-      if (drop <= 0) continue;
-      const reach = Math.max(SPILLWAY_MIN_REACH, drop * SPILLWAY_REACH_PER_DROP);
+      const lipSurface = stream.top - stream.thickness;
+      const reach = Math.min(
+        SPILLWAY_MAX_REACH,
+        Math.max(SPILLWAY_MIN_REACH, stream.thickness * SPILLWAY_REACH_PER_THICKNESS),
+      );
       for (let c = 0; c < columns; c++) {
         const t = 1 - Math.abs(c - lipColumn) / reach;
         if (t <= 0) continue;
         const bend = t * t * (3 - 2 * t); // smoothstep: flat far off, steepest at the lip
-        offsets[start + c] = Math.max(
-          offsets[start + c],
-          offsets[start + c] + (stream.top - offsets[start + c]) * bend,
-        );
+        const bent = offsets[start + c] + (lipSurface - offsets[start + c]) * bend;
+        offsets[start + c] = Math.max(offsets[start + c], bent);
       }
     }
     offsetCount = start + columns;
@@ -477,10 +484,23 @@ function draw(time: number): void {
   device.queue.writeBuffer(liquidBuffer, 0, shownFrame.liquid);
   device.queue.writeBuffer(bodyBuffer, 0, info);
   device.queue.writeBuffer(offsetBuffer, 0, offsets);
-  const streamData = new Float32Array(MAX_STREAMS * 4);
-  const streamCount = Math.min(MAX_STREAMS, sim.streams.length);
-  sim.streams.slice(0, streamCount).forEach((stream, index) => {
-    streamData.set([stream.x, stream.top, stream.bottom, stream.kind === LAVA ? 1 : 0], index * 4);
+  const sheets = sheetsOf(sim.streams);
+  const streamData = new Float32Array(MAX_STREAMS * 8);
+  const streamCount = Math.min(MAX_STREAMS, sheets.length);
+  sheets.slice(0, streamCount).forEach((stream, index) => {
+    streamData.set(
+      [
+        stream.x,
+        stream.top,
+        stream.bottom,
+        stream.kind === LAVA ? 1 : 0,
+        stream.flow,
+        stream.thickness,
+        stream.side,
+        stream.speed,
+      ],
+      index * 8,
+    );
   });
   device.queue.writeBuffer(streamBuffer, 0, streamData);
 
@@ -578,11 +598,29 @@ function stepMotes(dt: number): void {
     if (!Number.isFinite(droplets[i].y)) droplets.splice(i, 1);
 }
 
-/** A stream landing keeps disturbing the surface it pours into. */
+/**
+ * One sheet per pour: a chain's segments (run off little ledges) as one fall from the first lip to where it
+ * finally lands. Drawn apart, a ledge's own segment showed as a box on the lip.
+ */
+function sheetsOf(streams: readonly Stream[]): Stream[] {
+  const sheets: Stream[] = [];
+  for (const stream of streams) {
+    const last = sheets[sheets.length - 1];
+    if (last && last.from === stream.from && stream.continues)
+      sheets[sheets.length - 1] = { ...last, bottom: stream.bottom };
+    else sheets.push(stream);
+  }
+  return sheets;
+}
+
+/** A stream landing keeps disturbing the surface it pours into, where its sheet comes down. */
 function streamsRipple(): void {
-  for (const stream of sim.streams) {
-    const water = waterAt(stream.x, stream.bottom);
-    if (water) disturbAt(water.body, stream.x, 30 + 20 * Math.sin(elapsed * 17 + stream.x), 2);
+  for (const sheet of sheetsOf(sim.streams)) {
+    const fallTime = Math.sqrt((2 * Math.max(0, sheet.bottom - sheet.top)) / GRAVITY);
+    const x = sheet.x + sheet.side * (sheet.speed * fallTime + sheet.thickness / 2);
+    const water = waterAt(x, sheet.bottom);
+    if (water)
+      disturbAt(water.body, x, 30 + 20 * Math.sin(elapsed * 17 + sheet.x), 2 + sheet.thickness / 2);
   }
 }
 
@@ -797,6 +835,7 @@ Object.assign(window, {
         level: sim.levelOf(body),
         capacity: body.fill.length,
         spills: body.spill >= 0,
+        amplitude: surfaces.get(body.id)?.surface.amplitude ?? 0,
       })),
       streams: sim.streams.map((stream) => ({ ...stream })),
       water: sim.total(WATER),

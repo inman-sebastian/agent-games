@@ -332,6 +332,57 @@ describe('surface water bodies', () => {
     );
   });
 
+  it('pours a tall head out fast: a deep breach leaves no wall of water standing over the lip', () => {
+    // a reservoir on a shelf, its wall dug away down to a low stub, over a deep cave
+    const width = 200;
+    const height = 60;
+    const stubTop = 25;
+    const open = new Uint8Array(width * height);
+    for (let y = 0; y < height - 1; y++)
+      for (let x = 1; x < width - 1; x++) {
+        const shelf = x <= 100 && y >= 30;
+        const stub = x === 100 && y >= stubTop;
+        if (!shelf && !stub) open[y * width + x] = 1;
+      }
+    const sealed = open.slice();
+    for (let y = 0; y < stubTop; y++) sealed[y * width + 100] = 0;
+    const sim = createWaterSim(width, height, sealed);
+    const volume = 99 * 29; // full to row 1
+    sim.add(WATER, 50, 2, volume);
+    sim.setOpen(open);
+    run(sim, 1.5, () => expect(sim.total(WATER)).toBe(volume));
+    // a second and a half on, the reservoir has poured down to its lip: nothing drawn over it higher than a few
+    // px (at a fixed rate it took over two and a half seconds, and the rest stood as a wall)
+    for (let y = 0; y < stubTop - 4; y++)
+      for (let x = 1; x < 100; x++)
+        expect(sim.bodyAt(y * width + x), `water at ${x},${y}`).toBeNull();
+  });
+
+  it('jets out of a gap dug under the waterline as thick as the gap, fast, not as a sheet as deep as the pool', () => {
+    // a reservoir on a shelf behind a wall; a gap three px high dug through the wall well below the surface
+    const width = 60;
+    const height = 40;
+    const open = new Uint8Array(width * height);
+    for (let y = 0; y < height - 1; y++)
+      for (let x = 1; x < width - 1; x++) {
+        const shelf = x <= 20 && y >= 30;
+        const wall = x === 20 && y < 30 && !(y >= 26 && y <= 28);
+        if (!shelf && !wall) open[y * width + x] = 1;
+      }
+    const sealed = open.slice();
+    for (let y = 26; y <= 28; y++) sealed[y * width + 20] = 0;
+    const sim = createWaterSim(width, height, sealed);
+    sim.add(WATER, 10, 2, 19 * 28); // full to row 2: about 26 px over the gap's floor
+    sim.setOpen(sealed.map((_, i) => open[i]));
+    sim.step(1 / 60);
+    const jet = sim.streams[0];
+    expect(jet.side).toBe(1);
+    expect(jet.free).toBe(false);
+    expect(jet.thickness).toBeLessThanOrEqual(3);
+    // √(2g·h) for the ~25 px over the gap's middle: ~190 px/s (a sheet over an open lip that deep crosses at ~100)
+    expect(jet.speed).toBeGreaterThan(150);
+  });
+
   it('is deterministic', () => {
     const make = () => {
       const { width, height, open } = grid([

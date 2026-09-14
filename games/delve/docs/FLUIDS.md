@@ -73,6 +73,9 @@ of those pixels. (Step 1 has fixed bodies. Step 2 moves volume between them.)
   disturbance travels outward as ripples at `waveSpeed`;
 - **viscosity** diffuses velocity between neighbours. It damps the shortest ripples and leaves long waves:
   without it, a breach's big step rang at the grid frequency as a sawtooth trailing the surge;
+- **drag** grows with a column's speed: a fast bulk surge (a breach levelling) is braked hard, a slow ripple
+  barely. With linear damping alone, a levelling surge overshot past level and sloshed back and forth; the
+  author called it a rubber band snapping;
 - **disturb** adds velocity to the columns under an impact, scaled by the impact's speed, falling off
   with distance.
 
@@ -96,8 +99,17 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   - The spill point is the top of the column that actually goes down. The search can meet the drop
     through a notch beside it (the rock mask chips wall corners); a spill at the notch drew a zero-length
     stream.
-  - The excess leaves as a **stream** at `streamRate` (900 px of volume per second), falls straight
-    down, and joins the body whose water it lands in, or starts a new body.
+  - The excess leaves as a **stream** and joins the body whose water it lands in, or starts a new body.
+  - **The higher the water stands over the opening, the faster it leaves** (Torricelli). Through an
+    opening `a` px high under a head `h`, the jet leaves at √(2g·(h − a/2)), contracted to 0.6 of the
+    opening (the discharge coefficient): flow = 0.6·a·√(2g·(h − a/2)), plus a `streamRate` trickle of
+    900 px/s. Over an open lip the opening is the whole head, and that's the weir law, ~h^1.5.
+    - At a fixed 900 px/s, a breached reservoir's water stood over the lip as a wall for 15+ seconds, then
+      merged all at once into a huge surge. Now a deep breach empties in about a second.
+    - The opening is the open rows over the lip up to rock: a gap dug under the waterline jets out as
+      thick as the gap, fast, while an open lip pours a sheet ⅔ of the head deep (the critical depth).
+    - A lip with open space beside its drop pours off sideways; in a shaft or through a hole in a floor, it
+      falls straight.
   - **Ledges don't pool.** A landing on a basin smaller than `LEDGE_CAPACITY` (24 px), such as a knob on a
     wall face, runs off that ledge's own spill and keeps falling, as another stream segment. The lab showed
     a stepped cascade of tiny pools down a waterfall. A dry landing inside a larger basin (below where
@@ -126,8 +138,10 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
     there.
   - The first version moved _shown pixels_ toward the true state at the stream rate, top first. It left
     walls of water standing where the rock had been (the author's report).
-- **Over a lip it pours from, the drawn surface bends down to the lip** (smoothstep, reach 1.5× the
-  drop). Without it, a draining pool ended in a vertical cliff of water at the edge. Lab only.
+- **Over an open lip, the drawn surface bends down to the top of the sheet leaving it** (smoothstep, reach
+  2 sheet thicknesses, within 6–24 px). Without it, a draining pool ended in a cliff of water at the edge;
+  with a reach proportional to the head, a tall pool bent across its whole width (the author: too extreme).
+  A jet from a gap under water leaves the surface alone. Lab only.
 - **Tests** (`bodies.test.ts`, each red-checked):
   - fills flat;
   - overflows a rim as a stream into the next basin, conserving every pixel;
@@ -143,6 +157,9 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
     knob, to the floor (fails with the old view, spill point or landing);
   - never counts a pixel twice in a basin, over any rough floor (property; fails when pit pixels were
     queued twice, which inflated capacity);
+  - pours a tall head out fast: no wall of water over the lip of a deep breach (fails at a fixed rate);
+  - jets out of a gap under the waterline as thick as the gap, at √(2g·h) (fails when a gap pours like
+    an open lip);
   - deterministic.
 
 **Lab: digging patches the rock.** A dig used to re-render the whole screen of rock and its mask on the
@@ -167,6 +184,14 @@ CPU: 115–215 ms, a lag spike on every cell. The lab now re-renders a strip of 
   - The surface is a line one art pixel thick: water `#8fd3ff`, lava `#fbff86`.
   - Below it, one see-through tint over the rock behind: water `#4d65b4` at 55%, lava `#e83b3b` at 92%.
   - The first version stepped through shallow, deep and deepest tints; the author found the bands odd.
+- **Streams are falling sheets.** Off a lip, the sheet crosses it `thickness` deep at its `speed`, and its
+  upper and lower faces fall as parabolas: a vertical cut through a falling sheet keeps its thickness,
+  because the same flow crosses it. Its upper face carries the surface line; a few streaks run along the
+  flow. Down a shaft or through a hole in a floor, a column that thins as it speeds up. A sheet stops where
+  it enters water. A fall run off ledges draws as one sheet from the first lip.
+  - The first streams were 3 px lines at any flow. The first sheets had stripes across the flow, which
+    read as rungs, and an open-lip sheet from a gap under water, as deep as the whole pool (the author:
+    way off).
 - **Life:** short glints glide continuously along just under the surface, fading in and out.
   - Everything that moves moves every frame. The first shimmer stepped 6 times a second, and the rock
     behind wavered a whole art pixel at a time. At a measured steady 60 fps the author still read the
