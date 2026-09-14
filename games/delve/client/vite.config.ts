@@ -34,6 +34,7 @@ export default defineConfig({
         patchLab: resolve(__dirname, 'labs/patch-lab.html'),
         uiIron: resolve(__dirname, 'labs/ui-iron.html'),
         charLab: resolve(__dirname, 'labs/char-lab.html'),
+        fluidLab: resolve(__dirname, 'labs/fluid-lab.html'),
       },
     },
   },

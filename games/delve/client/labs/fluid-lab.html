@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — fluid lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #05060a;
+        overflow: hidden;
+        font:
+          12px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #cdd6e2;
+      }
+      #c {
+        position: fixed;
+        inset: 0;
+        image-rendering: pixelated;
+        display: block;
+        touch-action: none;
+        cursor: crosshair;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 10px;
+        z-index: 2;
+        white-space: pre;
+        line-height: 1.5;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+        background: rgba(5, 6, 10, 0.72);
+        padding: 6px 10px;
+      }
+      #hud b {
+        color: #f2c14e;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+    <!-- A sandbox for the cellular-automaton fluid (shared/src/fluid.ts, docs/FLUIDS.md): pour water
+     and lava, dig and build rock, and read the per-tick cost — active cells, changed cells, and what
+     replicating them would cost the netcode. Controls are listed in the HUD. -->
+    <script type="module" src="./fluid-lab.ts"></script>
+  </body>
+</html>

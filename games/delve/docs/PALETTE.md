@@ -113,6 +113,25 @@ Basalt already do.
 
 Ramps to author: **The Mine Head** · **Woodland** · **Crags** · **Ocean**.
 
+## Fluids
+
+> **Lab-provisional** — used by `client/labs/fluid-lab.html` while the simulation is prototyped
+> ([FLUIDS.md](FLUIDS.md)). Confirm in play before the game adopts them.
+
+A fluid cell draws a **body** whose height is its level, quantised to whole art pixels. A cell
+open to the air above also gets a **surface** line, one pixel of the lightest stop. The depth
+stop is used from the second cell down, so deep water reads as darker than a puddle.
+
+| Fluid | Deep      | Body      | Surface   | Notes                                                                     |
+| ----- | --------- | --------- | --------- | ------------------------------------------------------------------------- |
+| Water | `#323353` | `#4d65b4` | `#8fd3ff` | Drawn at ~70% alpha, so rock reads through it. Cool, like the void        |
+| Lava  | `#6e2727` | `#ea4f36` | `#f9c22b` | Opaque. **Deliberately breaks the one-saturated-element rule**: see below |
+
+Lava is the one sanctioned exception to ore being the only vivid thing underground. A hazard that
+has to be seen through the dark, and that [telegraphs itself](LIGHTING.md) as an emitter, can't be
+muted. It stays readable without colour as well: it's opaque where water is translucent, and it moves
+visibly slower.
+
 ## Ore triads & shapes
 
 Each ore has a `[dark, mid, highlight]` triad and a **crystal shape**, defined in

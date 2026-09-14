@@ -161,6 +161,18 @@ Headless Chrome starts on a fresh profile, so this is always a new world at the 
 checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
 audio; that needs a real user gesture.
 
+## `client/labs/fluid-lab.html` — the fluid step, as numbers
+
+Runs the real `stepFluid` over a hand-built rock field. Pour, dig and build with the pointer; the HUD
+reports active, stepped and changed cells, a replication upper bound, and exact mass (it flags
+**DRIFT** if conservation ever breaks). `?scene=N` opens a scene directly: 0 dam break, 1 caves,
+2 U-bend, 3 lava over water. `window.fluidLab` exposes the field, so ask with probe rather than a
+screenshot. `shot.sh` captures only the first moments of a scene, before much has flowed:
+
+```sh
+pnpm probe 'labs/fluid-lab.html?scene=1' --size 3400x1900 --wait 5000 --eval "document.getElementById('hud').textContent"
+```
+
 ## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
 
 The gate already runs this (`client/src/render/chunks.test.ts`, through a software canvas). The lab

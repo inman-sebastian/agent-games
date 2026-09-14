@@ -66,6 +66,10 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
   wrong unit and not one pre-existing test noticed — every invariant held while the game felt
   different. An invariant proves the sim is consistent; only a world-unit assertion proves it still
   feels the way it was tuned.
+- **Fluid** (`shared/src/fluid.test.ts`, #30) — the cellular automaton under random terrain and
+  pours: exact mass conservation every tick, never in rock or over-full, deterministic, a closed basin
+  settles flat to one unit, lava slower than water, kinds never mix, a settled lake sleeps until a
+  breach is reported, and fluid outside the active region freezes without loss.
 - **The world's bounds** (`shared/src/bounds.test.ts`, #26) — size presets, the bedrock floor and
   the side edges: nothing out of bounds or below the floor is ever `mineable` or broken by
   `mineTile`, a body walking into either edge stops inside the world, every ore band ends above the
