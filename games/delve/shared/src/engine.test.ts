@@ -251,6 +251,50 @@ describe('#8 regression — horizontal movement is unbounded', () => {
   });
 });
 
+describe('facing is the movement rule, and only the movement rule', () => {
+  // The miner used to turn toward the MOUSE while mining, which fought the direction they were
+  // walking and flickered: `facing` is part of PlayerState, so the server owns it and replaces it on
+  // every snapshot, and it is not part of `Input` — a client-side facing could never reach the
+  // server to be agreed on. The rule has exactly one home, here, and it reads horizontal input.
+  const step = (session: Session, input: Partial<Input>): void => {
+    physicsStep(session, { left: false, right: false, jump: false, mine: null, ...input }, TICK_DT);
+  };
+
+  it('never changes without horizontal input, whatever is being aimed at or mined', () => {
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.array(fc.integer({ min: -6, max: 6 }), { minLength: 1, maxLength: 40 }),
+        fc.boolean(),
+        (seed, offsets, jump) => {
+          const session = newSession(seed);
+          const before = session.player.facing;
+          for (const offset of offsets) {
+            // aim all over the place, including behind the miner — mining must not steer them
+            const column = Math.floor(session.player.x) + offset;
+            const row = Math.floor(session.player.y + PHYS.HH + 0.01);
+            step(session, { jump, mine: { column, row } });
+          }
+          expect(session.player.facing).toBe(before);
+        },
+      ),
+    );
+  });
+
+  it('follows the held direction, and holds it after release', () => {
+    const session = newSession(1);
+    step(session, { left: true });
+    expect(session.player.facing).toBe('left');
+    step(session, { right: true });
+    expect(session.player.facing).toBe('right');
+    step(session, { left: true });
+    expect(session.player.facing).toBe('left');
+    // releasing does not reset it — you keep facing the way you were last going
+    for (let i = 0; i < 30; i++) step(session, {});
+    expect(session.player.facing).toBe('left');
+  });
+});
+
 describe('derived stats at base levels', () => {
   it('a fresh player has sane base dig power/interval/lamp (attributes are neutral)', () => {
     const st = stats(newSession(1).player);

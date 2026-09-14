@@ -745,7 +745,8 @@ function render(t: number): void {
 // ---- input ------------------------------------------------------------------------------
 // Decoupled controls (#3): move with A/D or ←/→, jump with W/↑/Space. MINING is its own action —
 // aim at a tile and hold to mine it (within reach), independent of moving:
-//   • mouse / touch: the tile under the cursor, held down to mine (a reticle shows it)
+//   • mouse / touch: the tile under the cursor, held down to mine (a reticle shows it) — aiming
+//     does not turn the miner; only moving does
 //   • keyboard: hold J/K to mine in the aim direction (S/↓ aims down, else held side / facing)
 type HeldKey = 'left' | 'right' | 'jump' | 'down' | 'mine';
 const held: Record<HeldKey, boolean> = {
@@ -837,7 +838,8 @@ addEventListener('keyup', (e: KeyboardEvent) => {
 });
 
 // pointer: a reticle ALWAYS follows the cursor (aim.has once it's moved over the canvas); holding
-// the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons.
+// the button (aim.down) mines the aimed tile. Movement is keyboard / on-screen buttons — and so is
+// FACING: the cursor aims, it never turns the miner (see sampleInput).
 const aim = { cx: 0, cy: 0, has: false, down: false };
 function setAim(e: PointerEvent): void {
   aim.cx = e.clientX;
@@ -970,14 +972,11 @@ function sampleInput(): Input {
   const hover = pointerTile();
   const mineNow = aim.down ? hover : held.mine ? keyboardAimTile() : null;
   curTarget = hover || (held.mine ? keyboardAimTile() : null); // reticle follows the cursor
-  if (aim.down && hover) {
-    s.player.facing =
-      hover.column < Math.floor(s.player.x)
-        ? 'left'
-        : hover.column > Math.floor(s.player.x)
-          ? 'right'
-          : s.player.facing;
-  }
+  // Facing is NOT set here. It belongs to the movement rule in engine.physicsStep and nowhere else:
+  // aiming across the miner used to turn them, which fought the walk direction and flickered on
+  // every snapshot — `facing` lives in PlayerState, which the server owns and replaces wholesale,
+  // and it is not part of Input, so a mouse-derived facing could never reach the server to be
+  // agreed on. You aim independently of where you're facing; the reticle shows where you're aiming.
   return { left: held.left, right: held.right, jump: held.jump, mine: mineNow };
 }
 

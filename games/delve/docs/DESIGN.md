@@ -39,12 +39,19 @@ how much you've dug. See [The decided design](#inventory-capacity-limits-variety
 Smooth 2D-platformer movement with a **separate aim/mine action** — mining is decoupled
 from movement, so you can mine while running, jumping, or standing still:
 
-- **Move:** A/D or ←/→ to run, W / ↑ / Space to jump.
+- **Move:** A/D or ←/→ to run, W / ↑ / Space to jump. **Movement is also the only thing that turns
+  the miner** — see below.
 - **Mine (mouse):** aim with the cursor and **hold to mine** the targeted tile (within
-  reach); a reticle shows what you're aiming at.
+  reach); a reticle shows what you're aiming at. Aiming does **not** turn the miner.
 - **Mine (keyboard):** hold **J/K** to mine in the aim direction — S/↓ aims down, A/D or
   ←/→ aim to that side, otherwise the way you're facing.
 - **Touch:** on-screen ◄ ► / jump buttons to move; tap or hold a tile to mine it.
+- **Facing** is a property of movement and of nothing else, and the rule lives in exactly one place
+  (`physicsStep`). The cursor used to turn the miner as well, which meant sweeping the cursor past a
+  standing miner spun them back and forth — and it could never be right anyway: `facing` is part of
+  the authoritative `PlayerState` the server replaces on every snapshot, while the cursor position
+  is not part of `Input`, so a mouse-derived facing had no way to reach the server to be agreed on.
+  You aim where you like; you face where you walk.
 - **Start / pause:** the game opens on a **title screen** (Descend to play); **Esc** pauses and
   opens the pause menu (Esc again resumes). Opening Inventory / Collection pauses too — the whole
   screen flow is a small state machine (see [ARCHITECTURE.md](ARCHITECTURE.md#state-machines)).
