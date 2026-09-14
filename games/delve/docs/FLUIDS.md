@@ -191,9 +191,16 @@ differs inside it is shading, blended per pixel.
 - **Life:** two slow sines travelling opposite ways shift where the field is sampled by up to 1 px, moving a
   kink along the surface (Celeste's idle surface). Sparse glints grow and shrink in place and drift.
 
-**Falling water** is a shading inside the shape, never a separate drawing: where the interpolated falling
-amount passes ½, Mid at 60% with thin Light streaks scrolling down at the fall's speed, in a third of the
-art-px lanes. **Foam** flickers on the outline where falling water churns at the top of a pool.
+**Falling water** is the pool's own tint with no outline, thinned by density, never a separate drawing.
+Where the interpolated falling amount passes ½, it shows from a fill of 0.2 and is fully dense by 0.65; a
+thinner pixel is drawn only when noise sliding down at the fall's speed (in 2 px droplets) says so, so a
+trickle reads as droplets falling, a thick pour as solid water, with a few light streaks riding down it.
+Falling water isn't air to the pool's outline: the outline stops where a fall joins a pool instead of
+wrapping it. **Foam** flickers on a pool's outline where a fall comes into it.
+
+- **Why:** outlined like pools, falls read as separate ribbons and trickles as cartoon lines against the
+  dithered rock (the author's review); the rock and the pools are soft and dithered, and now the falls
+  are too.
 
 **Lava** is the same renderer with the lava palette: 95% opaque, its fall fully opaque, streaks at a third
 of water's speed, idle motion at 0.3×. In the sim it keeps 2% of its face velocity per second (water 20%),

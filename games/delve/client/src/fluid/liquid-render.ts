@@ -46,7 +46,7 @@ export const WATER_STYLE: LiquidStyle = {
   foam: hex('#c7dcd0'),
   specular: hex('#ffffff'),
   opacity: 0.45,
-  fallOpacity: 0.6,
+  fallOpacity: 0.45, // the same as the body, so a fall and the pool it joins are one tint
   depthRange: 40,
   fallSpeed: 90,
 };
@@ -95,6 +95,11 @@ const VISIBLE_FLOW = 0.05;
 const THIN_STREAM_FILL = 0.53;
 /** …and growing this much per cell/s more, up to full. */
 const FILL_PER_FLOW = 0.04;
+/** Falling water shows from this interpolated fill, and is fully dense this much above it. */
+const FALL_VISIBLE_FROM = 0.2;
+const FALL_DENSITY_RANGE = 0.45;
+/** Falling droplets are this many art px long as they slide down. */
+const DROPLET_LENGTH = 2;
 /** Water moving faster than this, cells/s, and not resting in a pool, is shaded as falling. */
 const FALLING_SPEED = 6;
 /** 4×4 Bayer thresholds, world-anchored, for darkening with depth. */
@@ -310,9 +315,10 @@ export function drawLiquid(
       }
     }
   }
-  // which pixels are wet, and how much falling water is at each
+  // which pixels are standing water (wet), and how dense the falling water is at the rest
   const wet = new Uint8Array(width * height);
   const falling = new Float32Array(width * height);
+  const fallDensity = new Float32Array(width * height);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const index = y * width + x;
@@ -326,9 +332,17 @@ export function drawLiquid(
         continue;
       const centreX = x + 0.5;
       const centreY = y + 0.5 - idleOffset(originX + x, time, idle);
-      if (sample(frame, solid, field.fill, centreX, centreY) < WET_THRESHOLD) continue;
+      const value = sample(frame, solid, field.fill, centreX, centreY);
+      if (value < FALL_VISIBLE_FROM) continue;
+      const fall = sample(frame, solid, field.falling, centreX, centreY);
+      if (fall >= 0.5) {
+        // falling water has no edge of its own: its density fades out through the threshold
+        fallDensity[index] = Math.min(1, (value - FALL_VISIBLE_FROM) / FALL_DENSITY_RANGE);
+        continue;
+      }
+      if (value < WET_THRESHOLD) continue;
       wet[index] = 1;
-      falling[index] = sample(frame, solid, field.falling, centreX, centreY);
+      falling[index] = fall;
     }
   }
   const airAt = (x: number, y: number): boolean =>
@@ -337,7 +351,9 @@ export function drawLiquid(
     x < width &&
     y < height &&
     open[y * width + x] === 1 &&
-    wet[y * width + x] === 0;
+    wet[y * width + x] === 0 &&
+    // falling water isn't air: the pool's outline stops where a fall joins it instead of wrapping it
+    fallDensity[y * width + x] === 0;
   // depth below the air over each column of wet pixels; water under rock (a flooded passage) starts deep
   const depth = new Int16Array(width * height).fill(-1);
   for (let x = 0; x < width; x++) {
@@ -351,26 +367,29 @@ export function drawLiquid(
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const index = y * width + x;
-      if (!wet[index]) continue;
-      const offset = index * 4;
       const worldX = originX + x;
       const worldY = originY + y;
+      if (fallDensity[index] > 0) {
+        drawFalling(pixels, index * 4, worldX, worldY, fallDensity[index], time, style);
+        continue;
+      }
+      if (!wet[index]) continue;
+      const offset = index * 4;
       const fall = falling[index];
       const onEdge = airAt(x, y - 1) || airAt(x - 1, y) || airAt(x + 1, y);
       if (onEdge) {
-        // foam where falling water churns at the surface of a pool; the plain outline everywhere else
-        const churning = fall > 0.2 && fall < 0.8 && airAt(x, y - 1);
+        // foam where falling water churns into the surface of a pool; the plain outline everywhere else
+        const fallingInto =
+          (y > 0 && fallDensity[index - width] > 0) ||
+          (y > 1 && fallDensity[index - 2 * width] > 0);
+        const churning = fallingInto || (fall > 0.2 && airAt(x, y - 1));
         const flicker = hash(worldX, Math.floor(time * FOAM_RATE)) % 3 !== 0;
         paint(pixels, offset, churning && flicker ? style.foam : style.surface);
         continue;
       }
       const below = depth[index];
-      if (below === 1 && fall < 0.5) {
+      if (below === 1) {
         paint(pixels, offset, style.light);
-        continue;
-      }
-      if (fall >= 0.5) {
-        drawFalling(pixels, offset, worldX, worldY, time, style);
         continue;
       }
       blend(pixels, offset, style.mid, style.opacity);
@@ -385,23 +404,28 @@ export function drawLiquid(
 }
 
 /**
- * Falling water: the same tint as the pool it joins, a little denser, with thin light streaks scrolling down
- * at the fall's speed. No edges of its own: the outline is the shape's.
+ * Falling water: the pool's own tint, with no outline, thinned by density. Where a fall is thick every pixel
+ * is drawn; where it thins, only some are, picked by noise that slides down at the fall's speed, so a
+ * trickle reads as droplets falling rather than a line. A few light streaks ride down the thick part.
+ * Outlined like a pool, falls read as separate ribbons and trickles as cartoon lines.
  */
 function drawFalling(
   pixels: Uint8ClampedArray,
   offset: number,
   worldX: number,
   worldY: number,
+  density: number,
   time: number,
   style: LiquidStyle,
 ): void {
+  const scrolled = Math.floor((worldY - time * style.fallSpeed) / DROPLET_LENGTH);
+  const chance = (hash(worldX, scrolled) % 1000) / 1000;
+  if (chance >= density) return;
   blend(pixels, offset, style.mid, style.fallOpacity);
   const lane = hash(worldX, 7);
-  if (lane % STREAK_RARITY !== 0) return;
-  const scrolled = worldY - time * style.fallSpeed + (lane % 97);
-  const segment = Math.floor(scrolled / STREAK_LENGTH);
-  if (hash(worldX, segment) % 2 === 0) paint(pixels, offset, style.light);
+  if (lane % STREAK_RARITY !== 0 || density < 1) return;
+  const streakSegment = Math.floor((worldY - time * style.fallSpeed + (lane % 97)) / STREAK_LENGTH);
+  if (hash(worldX, streakSegment) % 2 === 0) blend(pixels, offset, style.light, 0.6);
 }
 
 /** Short horizontal dashes under the surface that grow and shrink in place and drift slowly. */
