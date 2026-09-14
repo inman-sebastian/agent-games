@@ -73,25 +73,38 @@ fails if the picture changes on an odd update).
 
 ## The look
 
-Everything is whole pixels of the [Resurrect 64](PALETTE.md) ramps below: no translucent blends, no
-gradients, no dither.
+Everything is whole pixels of the [Resurrect 64](PALETTE.md) ramps below: no translucent blends and no smooth
+gradients. Water and edges are flat palette colours; lava's transitions use the rock's Bayer dither.
 
 - **Hard edges.** Terraria's waterfall trail — ten tiles of fading copies under falling liquid (three under
   lava) — is still computed, because the oracle checks it, but where it only fades into the air (a tail) it
   isn't drawn: it read as a smooth gradient, and its per-tile opacity steps as a checker. Where it bridges a
-  gap to more liquid further down the stream, it's drawn solid, so a falling mass has no holes.
+  gap to more liquid further down the stream, it's drawn solid, so a falling mass has no holes. Two things follow
+  from not drawing the tails, both handled at paint time: a face that Terraria left unedged (its trail beside
+  it counted as liquid) gets its side edge where the cell beside it is open air with nothing drawn; and the
+  pixels a partly filled tile leaves uncovered inside the body (a drawn cell under a drawn cell, closed in
+  either side) are body, not holes.
 - **Top-lit rim, dimmer sides**, as rock is lit from above: a top edge is **Surface** outside and **Light**
   inside; a side edge is **Light** outside and **Mid** inside. The shimmer runs just under top edges.
 - **Water is see-through, in palette.** A water body pixel takes the water ramp colour that matches the
   brightness of what's behind it: dark behind → **Deep**, the cave wall → **Body**, bright → **Mid**. The cave
   reads through the water as shapes in blue, and every pixel stays a palette colour. The split points are tuned
   to the Stone background's two wall tones; each stratum's background will want its own.
-- **Lava is opaque and emissive.** A hot skin: rim and shimmer **Surface** and **Light**, then **Mid** for six
-  art px under the surface line, then the darker **Body** below — a hard band, no gradient.
-  It's drawn after the lighting pass, so darkness never dims it, and every lava tile open to the air above or
-  beside it is a **light**: a lamp-field emitter in **Light** orange (`LAVA_LIGHT`), so lava lights the cave out
-  of the void by the same rules as the miner's lamp ([LIGHTING.md](LIGHTING.md)) — pooling down open space,
-  dying a couple of blocks into rock. Water isn't emissive; it's lit and darkened like the rock around it.
+- **Lava is a molten surface**, in the same language as the rock ([MATERIALS.md](MATERIALS.md#shared-visual-language--surface-classes-non-negotiable)):
+  `moltenSurface` lumps a heat field with world-anchored value noise, quantises it into lava's six-stop ramp
+  (`LAVA_BANDS`: `#6e2727 #ae2334 #e83b3b #fb6b1d #f79617 #f9c22b`) with the shared Bayer dither, and moves: the
+  molten blobs drift, and a crust of darker plates floats on the hot top, split by glowing seams. **Heat** is
+  the geometry's say, like rock's top-light: hottest at the surface line (`#f9c22b`), cooling with the distance
+  to the nearest surface — open air, judged by cell: not rock, nothing drawn, so a cell the sim briefly empties
+  inside moving lava doesn't count — straight up, or sideways along the row (`surfaceDistance`), so where the surface
+  steps the hot and cool lava blend across instead of meeting in a vertical seam — over about 56 art px, along a
+  wandering line to a calm, solid dark body (it sits exactly on a band, so there's no dither checker,
+  and its texture fades with the heat — the rock's rule that grit reads busy).
+- **Lava is emissive.** It's drawn after the lighting pass, so darkness never dims it, and every lava tile open
+  to the air above or beside it is a **light**: a lamp-field emitter in lava orange (`LAVA_LIGHT`), so lava
+  lights the cave out of the void by the same rules as the miner's lamp ([LIGHTING.md](LIGHTING.md)) — pooling
+  down open space, dying a couple of blocks into rock. Water isn't emissive; it's lit and darkened like the rock
+  around it.
 
 **Palette (Resurrect 64).**
 

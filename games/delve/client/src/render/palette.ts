@@ -267,6 +267,40 @@ export function facetSurface(
 }
 
 /**
+ * A MOLTEN surface — lava. The same DNA as the solid surfaces (world-anchored value-noise octaves lumping a
+ * brightness, quantised into a 6-band Resurrect-64 ramp with the shared Bayer dither), but the field moves:
+ * churning blobs drift with `time`, and a cooled crust of darker plates floats on the hottest lava, split by
+ * glowing seams. `heat` (0..1) is the geometry's say, as `brightness` is for rock: hottest under the
+ * surface, cooling toward the dark centre. `bands` is the ramp dark → hot.
+ */
+export function moltenSurface(
+  worldX: number,
+  worldY: number,
+  px: number,
+  py: number,
+  heat: number,
+  time: number,
+  bands: Rgb[],
+): Rgb {
+  const flow = time * MOLTEN_FLOW;
+  // texture fades with the heat, so the cool depths stay a calm dark body (the rock's rule: grit reads busy)
+  const texture = 0.08 + heat * 0.42;
+  // cool lava sits exactly on a band (b × 5 whole: a solid dark body, no 50% dither checker); hot lava climbs
+  let b = 0.2 + heat * 0.74;
+  b += (vnoise(worldX * 0.07 + flow * 0.6, worldY * 0.11 - flow * 0.15, TEX + 21) - 0.5) * texture;
+  b += (vnoise(worldX * 0.26 - flow, worldY * 0.26 + flow * 0.4, TEX + 22) - 0.5) * texture * 0.4;
+  // the crust: cooled plates drifting across the hot top, darker, their edges glowing seams; fewer as it cools
+  const crust = vnoise(worldX * 0.13 + flow * 0.35, worldY * 0.2, TEX + 23);
+  const plate = 0.62 + (1 - heat) * 0.5;
+  if (crust > plate + 0.04) b -= 0.38 * heat;
+  else if (crust > plate) b = Math.max(b, 0.55 + heat * 0.4);
+  return quantize(bands, b, px, py);
+}
+
+/** How fast lava's molten field drifts, in noise units per second: slow, thick. */
+const MOLTEN_FLOW = 0.9;
+
+/**
  * A glossy GLASS surface — even smoother than metal and slightly deepened (glass reads dark + wet),
  * with almost no texture of its own. The sharp specular highlights that sell "glass" come from the
  * material layering a tight `sparkle` on top; this is just the smooth, dark body.

@@ -164,6 +164,12 @@ class primitive and layer FX _on top_. The classes:
 - **`glassSurface(wx, wy, px, py, b, colors)`** — smooth dark glossy, brightness pulled down so it
   reads as glass even when lit. Obsidian.
 
+- **`moltenSurface(wx, wy, px, py, heat, time, bands)`** — lava ([FLUIDS.md](FLUIDS.md#the-look)). Not a
+  solid material, but the same DNA: noise octaves lump a `heat` (the geometry's say, as `brightness` is
+  for rock) into a ramp with the Bayer dither — except the field drifts with `time`, and a crust of darker
+  plates with glowing seams floats on the hottest part. TypeScript only so far; its WGSL twin comes with
+  liquid in the game.
+
 A material may also compose a _structured_ surface on top of a class (e.g. `stonebricks.ts` lays a
 running-bond brick pattern over `stoneSurface`) — still Resurrect-64, still world-anchored.
 

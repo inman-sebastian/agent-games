@@ -3,8 +3,9 @@
 // 8 art px cells, checked exactly against Terraria's own code (tools/terraria-oracle). What it draws is DELVE's:
 // a texture on Terraria's layout with a top-lit rim, whole Resurrect 64 colours, water you see the cave
 // through, lava that's opaque and lights the dark, and no fading trail. See docs/FLUIDS.md, "The look".
-import { LIQUID_LAVA, type TerrariaLiquid } from '@delve/shared';
+import { LIQUID_LAVA, vnoise, type TerrariaLiquid } from '@delve/shared';
 import { paint, type LiquidStyle, type Rgb, WATER_STYLE } from './liquid-render';
+import { hexRgb, moltenSurface } from '../render/palette';
 
 // LiquidRenderer.WATERFALL_LENGTH, water then lava
 const WATERFALL_LENGTH = [10, 3];
@@ -476,6 +477,8 @@ export function prepareLiquidDraw(liquid: TerrariaLiquid, firstWorldRow = 0): Li
  */
 interface WaterTarget {
   shown: Uint8Array;
+  /** Per cell: 1 where liquid was drawn (liquid, or a gap the trail bridges). */
+  cells: Uint8Array;
   /** Half the liquid update count it was rendered at. */
   renderedHalf: number;
 }
@@ -491,8 +494,12 @@ const waterTargets = new WeakMap<TerrariaLiquid, WaterTarget>();
  */
 const SEE_THROUGH_DEEP = 54;
 const SEE_THROUGH_BODY = 100;
-/** Lava stays Mid this many art px under its surface line, and is the darker Body below: a hot skin. */
-const LAVA_HOT_DEPTH = 6;
+/** Art px under its surface over which lava cools from its hottest to its dark centre. */
+const LAVA_COOLING_DEPTH = 56;
+/** Lava's molten ramp, dark → hot (Resurrect 64). */
+export const LAVA_BANDS = ['#6e2727', '#ae2334', '#e83b3b', '#fb6b1d', '#f79617', '#f9c22b'].map(
+  hexRgb,
+);
 
 /**
  * Draw the liquid into `pixels` (RGBA), in whole palette colours (docs/FLUIDS.md, "The look"). Water is drawn
@@ -504,7 +511,7 @@ export function drawTerrariaLiquid(
   pixels: Uint8ClampedArray,
   style: LiquidStyle = WATER_STYLE,
 ): void {
-  const { liquid, open, width, height } = frame;
+  const { liquid, open, width, height, originX, originY, time, cell } = frame;
   const half = Math.floor(liquid.updateCount() / UPDATES_PER_RENDER);
   let target = waterTargets.get(liquid);
   if (!target || target.shown.length !== width * height || target.renderedHalf !== half) {
@@ -513,38 +520,100 @@ export function drawTerrariaLiquid(
     waterTargets.set(liquid, target);
   }
   const lava = liquid.kind === LIQUID_LAVA;
-  // art px under the nearest top edge above, per column: lava's hot skin
+  // art px under the nearest surface above, per column, and that spread sideways: lava's heat
   const depth = new Int32Array(width);
-  for (let pixel = 0; pixel < width * height; pixel++) {
-    const kind = target.shown[pixel];
-    const x = pixel % width;
-    if (kind === Texel.Clear) depth[x] = 0;
-    else if (kind === Texel.TopOuter || kind === Texel.TopInner) depth[x] = 0;
-    else depth[x]++;
-    if (kind === Texel.Clear || !open[pixel]) continue; // rock stays in front
-    const offset = pixel * 4;
-    let colour: Rgb;
-    switch (kind) {
-      case Texel.TopOuter:
-        colour = style.surface;
-        break;
-      case Texel.TopInner:
-      case Texel.SideOuter:
-        colour = style.light;
-        break;
-      case Texel.SideInner:
-        colour = style.mid;
-        break;
-      case Texel.Shimmer:
-        colour = lava ? style.surface : style.light;
-        break;
-      default:
-        if (lava) colour = depth[x] <= LAVA_HOT_DEPTH ? style.mid : style.body;
-        else colour = seeThrough(pixels, offset, style);
+  const distance = new Int32Array(width);
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      // the surface is open air, judged by cell: not rock (its eroded edge pixels included), and no liquid
+      // drawn there — so a cell the sim briefly empties inside moving lava, which the draw fills, doesn't count
+      const cellIndex = Math.floor(y / cell) * liquid.width + Math.floor(x / cell);
+      const surface = target.cells[cellIndex] === 0 && !liquid.isSolid(cellIndex);
+      depth[x] = surface ? 0 : depth[x] + 1;
     }
-    paint(pixels, offset, colour);
-    pixels[offset + 3] = 255;
+    if (lava) surfaceDistance(depth, distance);
+    for (let x = 0; x < width; x++) {
+      const pixel = row + x;
+      let kind = target.shown[pixel];
+      if (!open[pixel]) continue; // rock stays in front
+      const column = Math.floor(x / cell);
+      const cellIndex = Math.floor(y / cell) * liquid.width + column;
+      // open air beside a cell: not rock, nothing drawn (Terraria's undrawn trail counts as air)
+      const airAt = (neighbour: number, inRow: boolean): boolean =>
+        inRow && target.cells[neighbour] === 0 && !liquid.isSolid(neighbour);
+      const airLeft = airAt(cellIndex - 1, column > 0);
+      const airRight = airAt(cellIndex + 1, column < liquid.width - 1);
+      if (kind === Texel.Clear) {
+        // a gap a partly filled tile leaves inside the body — a drawn cell under a drawn cell, closed in by liquid
+        // or rock either side — is body, not a hole; a crop toward open air is an edge and stays
+        const above = cellIndex - liquid.width;
+        if (!target.cells[cellIndex] || above < 0 || !target.cells[above]) continue;
+        if (airLeft || airRight) continue;
+        kind = Texel.Body;
+      }
+      if ((kind === Texel.Body || kind === Texel.Shimmer) && target.cells[cellIndex]) {
+        // a face toward open air gets its side edge, even where Terraria's trail beside it kept one from showing
+        const localX = x - column * cell;
+        if (airLeft && localX < 2) kind = localX === 0 ? Texel.SideOuter : Texel.SideInner;
+        else if (airRight && localX >= cell - 2)
+          kind = localX === cell - 1 ? Texel.SideOuter : Texel.SideInner;
+      }
+      const offset = pixel * 4;
+      let colour: Rgb;
+      if (lava) {
+        // the molten surface, lit from within: its rim hottest, cooling with distance from the surface
+        const worldX = originX + x;
+        const worldY = originY + y;
+        // the cooling depth wanders, so hot and cool lava meet along an organic line, not a straight band
+        const cooling = LAVA_COOLING_DEPTH * (0.7 + vnoise(worldX * 0.05, worldY * 0.03, 7) * 0.6);
+        const heat = Math.max(0, 1 - distance[x] / cooling);
+        // the brightest rim only on the real surface, not on the inner edges between partly filled tiles
+        colour =
+          kind === Texel.TopOuter && distance[x] <= 2
+            ? LAVA_BANDS[LAVA_BANDS.length - 1]
+            : moltenSurface(worldX, worldY, worldX, worldY, heat, time, LAVA_BANDS);
+      } else {
+        switch (kind) {
+          case Texel.TopOuter:
+            colour = style.surface;
+            break;
+          case Texel.TopInner:
+          case Texel.SideOuter:
+          case Texel.Shimmer:
+            colour = style.light;
+            break;
+          case Texel.SideInner:
+            colour = style.mid;
+            break;
+          default:
+            colour = seeThrough(pixels, offset, style);
+        }
+      }
+      paint(pixels, offset, colour);
+      pixels[offset + 3] = 255;
+    }
   }
+}
+
+/**
+ * Each column's depth under its own surface, spread sideways one pixel per pixel (a 1D distance transform), into
+ * `out`: the distance to the nearest surface along the row or straight up. Lava's heat is measured from it, so
+ * where the surface steps, hot and cool lava blend across instead of meeting in a vertical seam.
+ */
+export function surfaceDistance(depth: Int32Array, out: Int32Array): Int32Array {
+  const width = depth.length;
+  let carried = Infinity;
+  for (let x = 0; x < width; x++) {
+    carried = Math.min(depth[x], carried + 1);
+    out[x] = carried;
+  }
+  carried = Infinity;
+  for (let x = width - 1; x >= 0; x--) {
+    carried = Math.min(out[x], carried + 1);
+    out[x] = carried;
+  }
+  return out;
 }
 
 /** A water body pixel: the water ramp colour matching the brightness of what's behind it. */
@@ -565,11 +634,19 @@ function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined)
   const target: WaterTarget =
     reuse && reuse.shown.length === width * height
       ? reuse
-      : { shown: new Uint8Array(width * height), renderedHalf: -1 };
+      : {
+          shown: new Uint8Array(width * height),
+          cells: new Uint8Array(liquid.width * liquid.height),
+          renderedHalf: -1,
+        };
+  if (target.cells.length !== liquid.width * liquid.height) {
+    target.cells = new Uint8Array(liquid.width * liquid.height);
+  }
   target.shown.fill(Texel.Clear);
   // hard edges: the waterfall trail's faded tiles are drawn only where they bridge a gap to liquid further down
   // the stream; a trail that only fades into the air (a tail) isn't drawn
-  const drawn = new Uint8Array(liquid.width * liquid.height);
+  const drawn = target.cells;
+  drawn.fill(0);
   for (let column = 0; column < liquid.width; column++) {
     let liquidBelow = false;
     for (let row = liquid.height - 1; row >= 0; row--) {
