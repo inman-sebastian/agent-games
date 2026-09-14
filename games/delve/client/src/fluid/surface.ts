@@ -12,6 +12,11 @@ export interface SurfaceParams {
   tension: number;
   /** Fraction of velocity lost per second. */
   damping: number;
+  /**
+   * Velocity diffusion between neighbours, px²/s: damps the shortest ripples and leaves long waves. Without it
+   * a big step (a breach) rings at the grid frequency as a sawtooth trailing the surge.
+   */
+  viscosity: number;
   /** The furthest a column can be pushed from the level, art px — a splash, not a geyser. */
   maxOffset: number;
 }
@@ -20,6 +25,7 @@ export const WATER_SURFACE: SurfaceParams = {
   waveSpeed: 90,
   tension: 18,
   damping: 1.6,
+  viscosity: 40,
   maxOffset: 10,
 };
 
@@ -66,8 +72,12 @@ export function createSurface(columns: number, params: SurfaceParams = WATER_SUR
         // the ends are reflective: a missing neighbour mirrors the column itself
         const left = column > 0 ? offset[column - 1] : offset[column];
         const right = column < columns - 1 ? offset[column + 1] : offset[column];
+        const leftV = column > 0 ? velocity[column - 1] : velocity[column];
+        const rightV = column < columns - 1 ? velocity[column + 1] : velocity[column];
         pull[column] =
-          stiffness * (left + right - 2 * offset[column]) - params.tension * offset[column];
+          stiffness * (left + right - 2 * offset[column]) -
+          params.tension * offset[column] +
+          params.viscosity * (leftV + rightV - 2 * velocity[column]);
       }
       for (let column = 0; column < columns; column++) {
         velocity[column] = (velocity[column] + pull[column] * sub) * keep;

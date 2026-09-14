@@ -1,8 +1,8 @@
 // water.wgsl — surface water (#89), drawn at screen resolution over pixel-art rock.
 //
 //   liquid      a per-art-pixel mask says which body's liquid covers it (fluid/bodies.ts)
-//   surface     each body's level plus its spring surface's offsets; a crest above the level is found by
-//               looking a few pixels down for the body under it
+//   surface     each column's surface height (its top plus the spring surface's offset); above the body's
+//               water, the open air it rises into is marked AIR_ABOVE
 //   the line    one art pixel thick at the surface, following it smoothly between columns
 //   the body    one see-through tint over the rock behind
 //   glints      short dashes gliding along just under the surface, fading in and out
@@ -46,7 +46,7 @@ struct Stream {
 
 @group(0) @binding(0) var<uniform> look: Look;
 @group(0) @binding(1) var rock: texture_2d<f32>;
-@group(0) @binding(2) var<storage, read> liquid: array<u32>;      // per art pixel: 0 dry, else body index + 1
+@group(0) @binding(2) var<storage, read> liquid: array<u32>;      // per art pixel: 0 dry, body index + 1, | AIR_ABOVE over it
 @group(0) @binding(3) var<storage, read> bodies: array<BodyInfo>;
 @group(0) @binding(4) var<storage, read> offsets: array<f32>;
 @group(0) @binding(5) var<storage, read> streams: array<Stream>;
@@ -55,7 +55,7 @@ struct Stream {
 const GLINT_SPEED: f32 = 7.0;          // art px/s
 const GLINT_SPACING: f32 = 26.0;       // art px between glint slots
 const GLINT_HALF_LENGTH: f32 = 1.5;    // art px
-const CREST_REACH: i32 = 10;           // how far a crest can rise above the level, art px
+const AIR_ABOVE: u32 = 0x10000u;        // open air over a body's water: drawn as water under a raised surface
 const STREAM_HALF_WIDTH: f32 = 1.5;    // art px
 
 @vertex
@@ -79,7 +79,7 @@ fn is_open(x: i32, y: i32) -> bool {
 
 fn body_index(x: i32, y: i32) -> i32 {
   if (!inside(x, y)) { return -1; }
-  return i32(liquid[u32(y) * look.size.x + u32(x)]) - 1;
+  return i32(liquid[u32(y) * look.size.x + u32(x)] & (AIR_ABOVE - 1u)) - 1;
 }
 
 // a body's surface height over a column, fractional
@@ -117,9 +117,8 @@ fn water_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f {
     }
   }
 
-  // the body under this pixel: its liquid, or liquid a few pixels below for a crest above the level
-  var index = body_index(x, y);
-  for (var k = 1; index < 0 && k <= CREST_REACH; k++) { index = body_index(x, y + k); }
+  // the body under this pixel: its water, or the water below the open air it's in (for a raised surface)
+  let index = body_index(x, y);
   if (index < 0) { return vec4f(background, 1.0); }
   let b = bodies[u32(index)];
 

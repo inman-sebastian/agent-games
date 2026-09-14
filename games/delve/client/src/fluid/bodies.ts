@@ -21,6 +21,8 @@ export const WATER_FLOW: FlowParams = { streamRate: 900 };
  * of a pixel or two all along a floor, and treating each as a spill kept a pool trickling into itself.
  */
 export const PIT_DEPTH = 3;
+/** A place a stream lands that holds fewer pixels than this, and spills, is a ledge: the stream runs off it. */
+export const LEDGE_CAPACITY = 24;
 const PIT_LIMIT = 256;
 
 export interface Body {
@@ -35,6 +37,8 @@ export interface Body {
   seeds: number[];
   /** Pixel indices in the order the basin fills, up to its rim (or the first way down). */
   fill: Int32Array;
+  /** Where its water is drawn: `fill`, or past the rim for a spilling body still holding more (see measure). */
+  view: Int32Array;
   /** Where the basin overflows: the first open pixel below its level, or -1 if it can hold anything. */
   spill: number;
   /** Fractional volume owed to the current stream. */
@@ -61,14 +65,8 @@ export interface WaterSim {
   /** The rock changed (a dig, a build): every basin is re-measured. */
   setOpen(open: Uint8Array): void;
   step(dt: number): void;
-  /**
-   * The body whose liquid is SHOWN at a pixel, or null. What's shown follows the true state at the stream rate,
-   * so a dig that joins a pool to an empty basin drains one side and fills the other visibly, instead of
-   * teleporting the water into its new level.
-   */
+  /** The body whose liquid covers a pixel, or null. */
   bodyAt(index: number): Body | null;
-  /** Show the true state at once (a scene being set up). */
-  snap(): void;
   /** A body's level: the row of its highest filled pixel. */
   levelOf(body: Body): number;
   /** Total liquid of a kind, for conservation checks. */
@@ -87,8 +85,8 @@ export function createWaterSim(
   let nextId = 1;
   /** Which body covers each pixel (0 none), rebuilt whenever volumes change. */
   const owner = new Int32Array(width * height);
-  /** Which body's liquid is shown at each pixel (0 none): it follows `owner` at the stream rate. */
-  const shown = new Int32Array(width * height);
+  /** Which body's water is drawn at each pixel (0 none), from each body's view. */
+  const shownOwner = new Int32Array(width * height);
   /** Which body's basin each pixel is in, filled or not (0 none): where landing liquid joins. */
   const basin = new Int32Array(width * height);
   const visited = new Int32Array(width * height);
@@ -110,10 +108,13 @@ export function createWaterSim(
   /**
    * Is the open pixel at `start`, just below the basin's `level`, only a shallow enclosed pit (the eroded floor
    * under a pool), or the way down to somewhere deeper? A pit is every below-level pixel connected to it lying
-   * within PIT_DEPTH rows of the level. Returns the pit's pixels, or null for a real way down.
+   * within PIT_DEPTH rows of the level. Returns the pit's pixels, or null for a real way down — and then sets
+   * `dropAt` to the top of the column it goes down, the actual lip: `start` can be a notch beside it.
    */
+  let dropAt = -1;
   function pitFrom(start: number, level: number): number[] | null {
     generation++;
+    dropAt = start;
     const pit: number[] = [];
     const stack = [start];
     visited[start] = generation;
@@ -121,7 +122,13 @@ export function createWaterSim(
       const i = stack.pop()!;
       const x = i % width;
       const y = (i - x) / width;
-      if (y > level + PIT_DEPTH || pit.length > PIT_LIMIT) return null;
+      if (pit.length > PIT_LIMIT) return null;
+      if (y > level + PIT_DEPTH) {
+        let top = y;
+        while (top - 1 > level && isOpen(x, top - 1)) top--;
+        dropAt = top * width + x;
+        return null;
+      }
       pit.push(i);
       for (const [nx, ny] of [
         [x - 1, y],
@@ -143,12 +150,20 @@ export function createWaterSim(
    * pixel BELOW that level is either a shallow pit in the floor, which becomes part of the basin, or the way
    * down: where the basin spills, and filling stops. A bucket queue per row keeps it linear.
    */
-  function measure(body: Body): void {
+  /**
+   * The flood behind `measure`. Stopping at the spill gives the basin; not stopping — stepping over each way
+   * down without descending into it, up to `limit` pixels — gives where a spilling body's water is while it
+   * drains, for drawing.
+   */
+  function flood(
+    body: Body,
+    stopAtSpill: boolean,
+    limit: number,
+  ): { fill: number[]; level: number; spill: number } {
     basinStamp++;
     const buckets: number[][] = Array.from({ length: height }, () => []);
     const fill: number[] = [];
-    const seedRows = body.seeds.map((i) => Math.floor(i / width));
-    let lowest = Math.max(...seedRows);
+    let lowest = Math.max(...body.seeds.map((i) => Math.floor(i / width)));
     let level = lowest;
     let spill = -1;
     const push = (x: number, y: number): void => {
@@ -160,7 +175,7 @@ export function createWaterSim(
       lowest = Math.max(lowest, y);
     };
     for (const seed of body.seeds) push(seed % width, Math.floor(seed / width));
-    while (spill < 0) {
+    while (fill.length < limit) {
       while (lowest >= 0 && buckets[lowest].length === 0) lowest--;
       if (lowest < 0) break;
       const i = buckets[lowest].pop()!;
@@ -170,11 +185,14 @@ export function createWaterSim(
         claimed[i] = 0; // let the pit search see it
         const pit = pitFrom(i, level);
         if (!pit) {
-          spill = i;
-          break;
+          if (spill < 0) spill = dropAt;
+          claimed[i] = basinStamp;
+          if (stopAtSpill) break;
+          continue; // step over the way down
         }
+        // claim the whole pit before pushing its neighbours, or a pit pixel is queued as a neighbour and filled twice
+        for (const p of pit) claimed[p] = basinStamp;
         for (const p of pit) {
-          claimed[p] = basinStamp;
           fill.push(p);
           const px = p % width;
           const py = (p - px) / width;
@@ -192,20 +210,74 @@ export function createWaterSim(
       push(x, y + 1);
       push(x, y - 1);
     }
+    return { fill, level, spill };
+  }
+
+  /**
+   * Fill a basin from its seeds, lowest pixel first. The level is the highest row filled so far. A reachable
+   * pixel BELOW that level is either a shallow pit in the floor, which becomes part of the basin, or the way
+   * down: where the basin spills, and filling stops.
+   */
+  function measure(body: Body): void {
+    const basinFlood = flood(body, true, Infinity);
     // A basin that spills can't hold liquid at its rim's own row: water standing that high is already over
     // the rim.
-    let kept = fill;
-    if (spill >= 0) kept = fill.filter((i) => Math.floor(i / width) !== level);
+    let kept = basinFlood.fill;
+    if (basinFlood.spill >= 0)
+      kept = kept.filter((i) => Math.floor(i / width) !== basinFlood.level);
     // lowest rows first, so any volume fills the basin flat — pits included
-    kept.sort((a, b) => Math.floor(b / width) - Math.floor(a / width) || a - b);
+    const lowestFirst = (a: number, b: number): number =>
+      Math.floor(b / width) - Math.floor(a / width) || a - b;
+    kept.sort(lowestFirst);
     body.fill = Int32Array.from(kept);
-    body.spill = spill;
+    body.spill = basinFlood.spill;
+    // where its water shows: the basin, or, for a body holding more than its basin while it drains, the space
+    // above the rim too — so a pool that's pouring away visibly drains instead of vanishing. That space is
+    // stacked row by row on the basin's own water, never beside it: water shown past the rim, over the drop,
+    // would stand in the air.
+    if (body.spill >= 0 && body.volume > body.fill.length) {
+      basinStamp++;
+      const view = Array.from(kept);
+      for (const i of view) claimed[i] = basinStamp;
+      // standing on rock or on water already shown
+      const supported = (i: number): boolean =>
+        i >= 0 &&
+        rock[i] === 1 &&
+        claimed[i] !== basinStamp &&
+        (i + width >= width * height || rock[i + width] !== 1 || claimed[i + width] === basinStamp);
+      let row = basinFlood.fill.filter((i) => Math.floor(i / width) === basinFlood.level);
+      while (view.length < body.volume && row.length > 0) {
+        // the row spreads sideways over whatever holds it up, and stops at the edge of the drop
+        const shown: number[] = [];
+        const stack = row.filter(supported);
+        for (const i of stack) claimed[i] = basinStamp;
+        while (stack.length > 0) {
+          const i = stack.pop()!;
+          shown.push(i);
+          const x = i % width;
+          for (const side of [x > 0 ? i - 1 : -1, x < width - 1 ? i + 1 : -1]) {
+            if (!supported(side)) continue;
+            claimed[side] = basinStamp;
+            stack.push(side);
+          }
+        }
+        shown.sort((a, b) => a - b);
+        view.push(...shown);
+        row = shown.map((i) => i - width);
+      }
+      body.view = Int32Array.from(view);
+    } else {
+      body.view = body.fill;
+    }
   }
 
   function rebuildOwners(): void {
     owner.fill(0);
     basin.fill(0);
+    shownOwner.fill(0);
     for (const body of bodies) {
+      const shown = Math.min(body.volume, body.view.length);
+      for (let k = 0; k < shown; k++) shownOwner[body.view[k]] = body.id;
       const filled = Math.min(body.volume, body.fill.length);
       for (let k = 0; k < body.fill.length; k++) {
         basin[body.fill[k]] = body.id;
@@ -217,7 +289,6 @@ export function createWaterSim(
   /** Merge `gone` into `keep`: one volume, and both bodies' seeds to fill from. */
   function merge(keep: Body, gone: Body): void {
     keep.volume += gone.volume;
-    for (let i = 0; i < shown.length; i++) if (shown[i] === gone.id) shown[i] = keep.id;
     keep.seeds = [...new Set([...keep.seeds, ...gone.seeds])];
     bodies.splice(bodies.indexOf(gone), 1);
     measure(keep);
@@ -300,6 +371,7 @@ export function createWaterSim(
         volume,
         seeds: [at],
         fill: new Int32Array(0),
+        view: new Int32Array(0),
         spill: -1,
         owed: 0,
       };
@@ -324,6 +396,43 @@ export function createWaterSim(
     settle();
   }
 
+  /**
+   * A stream from `spill` falls straight down. Where it lands on a ledge too small to hold a pool (the eroded
+   * rock's bumps along a wall face), it runs off that ledge's own spill point and keeps falling, instead of
+   * starting a pool there that overflows into the next ledge down: a cascade of tiny pools. Each fall is a
+   * stream segment to draw. Returns where the water finally lands.
+   */
+  function fall(body: Body, spill: number): number {
+    let from = spill;
+    let land = from;
+    for (let hop = 0; hop < 16; hop++) {
+      const x = from % width;
+      const top = (from - x) / width;
+      land = landing(x, top);
+      streams.push({ from: body.id, x, top, bottom: (land - x) / width, kind: body.kind });
+      // into water: done. A dry notch that happens to lie in some basin (below where that pool could rise) is
+      // still only a ledge until the pool reaches it.
+      if (bodyInBasin(land, body.kind) && owner[land] !== 0) break;
+      const probe: Body = {
+        id: -1,
+        kind: body.kind,
+        volume: 0,
+        seeds: [land],
+        fill: new Int32Array(0),
+        view: new Int32Array(0),
+        spill: -1,
+        owed: 0,
+      };
+      measure(probe);
+      if (probe.spill < 0 || probe.fill.length >= LEDGE_CAPACITY) break;
+      // a basin whose overflow runs back into the source isn't a ledge: it fills
+      const onward = landing(probe.spill % width, Math.floor(probe.spill / width));
+      if (bodyInBasin(onward, body.kind) === body) break;
+      from = probe.spill;
+    }
+    return land;
+  }
+
   function step(dt: number): void {
     streams.length = 0;
     for (const body of [...bodies]) {
@@ -332,15 +441,14 @@ export function createWaterSim(
       body.owed += params.streamRate * dt;
       const amount = Math.min(body.volume - body.fill.length, Math.floor(body.owed));
       body.owed -= amount;
-      const sx = body.spill % width;
-      const sy = (body.spill - sx) / width;
-      const land = landing(sx, sy);
-      streams.push({ from: body.id, x: sx, top: sy, bottom: (land - sx) / width, kind: body.kind });
+      const land = fall(body, body.spill);
       if (amount <= 0) continue;
       body.volume -= amount;
       const target = bodyInBasin(land, body.kind);
       if (target && target !== body) {
         target.volume += amount;
+        // a spilling body drawn from its view needs the view to reach its new volume
+        if (target.spill >= 0 && target.volume > target.view.length) measure(target);
       } else {
         const fresh: Body = {
           id: nextId++,
@@ -348,6 +456,7 @@ export function createWaterSim(
           volume: amount,
           seeds: [land],
           fill: new Int32Array(0),
+          view: new Int32Array(0),
           spill: -1,
           owed: 0,
         };
@@ -358,37 +467,6 @@ export function createWaterSim(
     // a body that emptied is gone
     for (let k = bodies.length - 1; k >= 0; k--) if (bodies[k].volume <= 0) bodies.splice(k, 1);
     settle();
-    follow(dt);
-  }
-
-  /**
-   * Move what's shown toward the true state: for each body, clear up to the stream rate's worth of shown pixels
-   * it no longer holds (highest first: a level falls) and fill as many it now holds (lowest first: a basin fills
-   * from the bottom).
-   */
-  function follow(dt: number): void {
-    const allowance = Math.max(1, Math.ceil(params.streamRate * dt));
-    const toClear = new Map<number, number[]>();
-    const toFill = new Map<number, number[]>();
-    for (let i = 0; i < shown.length; i++) {
-      const was = shown[i];
-      const now = owner[i];
-      if (was === now) continue;
-      if (was !== 0) (toClear.get(was) ?? toClear.set(was, []).get(was)!).push(i);
-      if (now !== 0) (toFill.get(now) ?? toFill.set(now, []).get(now)!).push(i);
-    }
-    // row-major order: the front of a list is its highest pixels, the back its lowest
-    for (const list of toClear.values()) {
-      for (let k = 0; k < Math.min(allowance, list.length); k++) shown[list[k]] = 0;
-    }
-    for (const [id, list] of toFill) {
-      let filled = 0;
-      for (let k = list.length - 1; k >= 0 && filled < allowance; k--) {
-        if (shown[list[k]] !== 0) continue;
-        shown[list[k]] = id;
-        filled++;
-      }
-    }
   }
 
   return {
@@ -399,9 +477,8 @@ export function createWaterSim(
     add,
     setOpen,
     step,
-    snap: () => shown.set(owner),
     bodyAt: (index) => {
-      const id = shown[index];
+      const id = shownOwner[index];
       return id === 0 ? null : (bodies.find((body) => body.id === id) ?? null);
     },
     levelOf,

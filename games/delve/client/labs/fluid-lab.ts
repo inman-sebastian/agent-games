@@ -84,7 +84,7 @@ const KINDS: Record<number, Kind> = {
   [LAVA]: {
     id: LAVA,
     // thick: slower, stiffer ripples that die fast and never throw far (slow in time)
-    surface: { waveSpeed: 40, tension: 30, damping: 4, maxOffset: 4 },
+    surface: { waveSpeed: 40, tension: 30, damping: 4, viscosity: 20, maxOffset: 4 },
     colours: [
       [251, 255, 134, 1], // #fbff86
       [232, 59, 59, 0.92], // #e83b3b
@@ -269,12 +269,17 @@ function refreshRock(): void {
 
 /**
  * What's shown this frame, read once from the sim: which body index each pixel shows, and for each body the
- * columns it spans and its top row in each. The top differs by column while water is flowing from one side
- * of a pool to the other, so the surface is drawn per column, not at one level.
+ * columns it spans and its top and bottom row in each. Open air above a body's water, up to rock or another
+ * body, is marked with AIR_ABOVE and the body's index: a surface higher than the body's level (a surge, a
+ * crest) is drawn there.
  */
+const AIR_ABOVE = 0x10000;
 interface Shown {
   liquid: Uint32Array<ArrayBuffer>;
-  spans: Map<number, { index: number; x0: number; x1: number; tops: Int32Array }>;
+  spans: Map<
+    number,
+    { index: number; x0: number; x1: number; tops: Int32Array; bottoms: Int32Array }
+  >;
 }
 let shownFrame: Shown = { liquid: new Uint32Array(0), spans: new Map() };
 
@@ -289,42 +294,102 @@ function scanShown(): void {
     if (index === undefined) continue;
     liquid[i] = index + 1;
     const x = i % width;
+    const y = (i - x) / width;
     let span = spans.get(body.id);
     if (!span) {
-      span = { index, x0: x, x1: x + 1, tops: new Int32Array(width).fill(-1) };
+      span = {
+        index,
+        x0: x,
+        x1: x + 1,
+        tops: new Int32Array(width).fill(-1),
+        bottoms: new Int32Array(width).fill(-1),
+      };
       spans.set(body.id, span);
     }
     if (x < span.x0) span.x0 = x;
     if (x + 1 > span.x1) span.x1 = x + 1;
-    if (span.tops[x] < 0) span.tops[x] = (i - x) / width; // row-major: the first seen is the highest
+    if (span.tops[x] < 0) span.tops[x] = y; // row-major: the first seen is the highest
+    span.bottoms[x] = y;
+  }
+  // the open air over each body's water, column by column from the bottom
+  for (let x = 0; x < width; x++) {
+    let over = 0;
+    for (let y = height - 1; y >= 0; y--) {
+      const i = y * width + x;
+      if (liquid[i] !== 0) over = liquid[i];
+      else if (!open[i]) over = 0;
+      else if (over !== 0) liquid[i] = AIR_ABOVE | over;
+    }
   }
   shownFrame = { liquid, spans };
 }
 
-/** Keep one surface per body, spanning its liquid; a surface that changes span keeps its ripples. */
-function syncSurfaces(): void {
-  const live = new Set<number>();
+/** Each column's drawn surface as the previous frame left it, to carry across the sim's changes. */
+type Carried = { id: number; trueTop: number; drawnTop: number; velocity: number }[][];
+
+function captureSurfaces(): Carried {
+  const carried: Carried = Array.from({ length: width }, () => []);
+  for (const [id, span] of shownFrame.spans) {
+    const entry = surfaces.get(id);
+    if (!entry) continue;
+    for (let x = span.x0; x < span.x1; x++) {
+      const top = span.tops[x];
+      if (top < 0) continue;
+      const c = x - entry.x0;
+      if (c < 0 || c >= entry.surface.columns) continue;
+      carried[x].push({
+        id,
+        trueTop: top,
+        drawnTop: top + entry.surface.offset[c],
+        velocity: entry.surface.velocity[c],
+      });
+    }
+  }
+  return carried;
+}
+
+/**
+ * Rebuild each body's surface over its columns, carrying the drawn surface across whatever the sim just did.
+ * A column keeps its drawn height as an offset from its new true top, so when a dig joins a pool to empty
+ * space the high side and the empty side start as one big displacement, and the surface wave carries it as a
+ * surge that settles at the true level. (Moving shown pixels instead, top first, left a wall of water
+ * standing where the rock had been.) A column new to water rises from its floor.
+ */
+function syncSurfaces(carried: Carried | null): void {
+  const next = new Map<number, { surface: Surface; x0: number }>();
+  const live = new Set(sim.bodies.map((body) => body.id));
   for (const body of sim.bodies) {
-    live.add(body.id);
     const span = shownFrame.spans.get(body.id);
     if (!span) continue;
-    const { x0, x1 } = span;
-    const columns = Math.max(1, x1 - x0);
-    const current = surfaces.get(body.id);
-    if (current && current.x0 === x0 && current.surface.columns === columns) continue;
-    const next = createSurface(columns, KINDS[body.kind].surface);
-    if (current) {
-      for (let c = 0; c < columns; c++) {
-        const old = x0 + c - current.x0;
-        if (old < 0 || old >= current.surface.columns) continue;
-        next.offset[c] = current.surface.offset[old];
-        next.velocity[c] = current.surface.velocity[old];
+    const columns = span.x1 - span.x0;
+    // no cap: a surge is as big as the difference it's levelling
+    const surface = createSurface(columns, { ...KINDS[body.kind].surface, maxOffset: height });
+    for (let c = 0; c < columns; c++) {
+      const x = span.x0 + c;
+      const top = span.tops[x];
+      if (top < 0 || !carried) continue;
+      let best: Carried[number][number] | null = null;
+      for (const candidate of carried[x]) {
+        // its own surface, or one merged into it: never another body's that still exists (the pool above)
+        if (candidate.id !== body.id && live.has(candidate.id)) continue;
+        if (Math.abs(candidate.trueTop - top) > CARRY_REACH) continue;
+        if (!best || Math.abs(candidate.trueTop - top) < Math.abs(best.trueTop - top))
+          best = candidate;
+      }
+      if (best) {
+        surface.offset[c] = best.drawnTop - top;
+        surface.velocity[c] = best.velocity;
+      } else {
+        surface.offset[c] = span.bottoms[x] + 1 - top;
       }
     }
-    surfaces.set(body.id, { surface: next, x0 });
+    next.set(body.id, { surface, x0: span.x0 });
   }
-  for (const id of [...surfaces.keys()]) if (!live.has(id)) surfaces.delete(id);
+  surfaces.clear();
+  for (const [id, entry] of next) surfaces.set(id, entry);
 }
+/** How far a column's true top can move in one step and still carry its drawn surface, art px. */
+const CARRY_REACH = 320;
 
 let sceneIndex = 0;
 function loadScene(index: number): void {
@@ -336,9 +401,8 @@ function loadScene(index: number): void {
   sim = createWaterSim(width, height, open);
   surfaces.clear();
   for (const pour of pours) sim.add(pour.kind, pour.x, pour.y, pour.volume);
-  sim.snap();
   scanShown();
-  syncSurfaces();
+  syncSurfaces(null);
   pebbles.length = 0;
   droplets.length = 0;
 }
@@ -368,6 +432,11 @@ function disturbAt(body: Body, x: number, speed: number, radius: number): void {
 
 // ---- drawing --------------------------------------------------------------------------------------------------------
 
+/** How far back from a lip the surface bends down to it: at least this many art px… */
+const SPILLWAY_MIN_REACH = 6;
+/** …and this many per pixel the surface stands above the lip. */
+const SPILLWAY_REACH_PER_DROP = 1.5;
+
 function draw(time: number): void {
   const info = new Float32Array(MAX_BODIES * 8);
   const offsets = new Float32Array(width * 16);
@@ -383,6 +452,24 @@ function draw(time: number): void {
       const top = span.tops[span.x0 + c];
       const spring = entry ? (entry.surface.offset[span.x0 + c - entry.x0] ?? 0) : 0;
       offsets[start + c] = (top >= 0 ? top : height) + spring;
+    }
+    // over a lip it pours from, the surface bends down to the lip instead of ending in a cliff of water
+    for (const stream of sim.streams) {
+      if (stream.from !== body.id) continue;
+      const lipColumn = stream.x - span.x0;
+      const nearest = Math.max(0, Math.min(columns - 1, lipColumn));
+      const drop = stream.top - offsets[start + nearest];
+      if (drop <= 0) continue;
+      const reach = Math.max(SPILLWAY_MIN_REACH, drop * SPILLWAY_REACH_PER_DROP);
+      for (let c = 0; c < columns; c++) {
+        const t = 1 - Math.abs(c - lipColumn) / reach;
+        if (t <= 0) continue;
+        const bend = t * t * (3 - 2 * t); // smoothstep: flat far off, steepest at the lip
+        offsets[start + c] = Math.max(
+          offsets[start + c],
+          offsets[start + c] + (stream.top - offsets[start + c]) * bend,
+        );
+      }
     }
     offsetCount = start + columns;
     info.set([0, span.x0, columns, start, body.kind === LAVA ? 1 : 0], span.index * 8);
@@ -673,9 +760,10 @@ function frame(now: number): void {
     elapsed += dt;
     applyPointer(dt);
     pour(dt);
+    const carried = captureSurfaces();
     sim.step(dt);
     scanShown();
-    syncSurfaces();
+    syncSurfaces(carried);
     streamsRipple();
     stepMotes(dt);
     for (const { surface } of surfaces.values()) surface.step(dt);
@@ -710,7 +798,7 @@ Object.assign(window, {
         capacity: body.fill.length,
         spills: body.spill >= 0,
       })),
-      streams: sim.streams.length,
+      streams: sim.streams.map((stream) => ({ ...stream })),
       water: sim.total(WATER),
       lava: sim.total(LAVA),
       gpuError,

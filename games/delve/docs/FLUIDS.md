@@ -69,8 +69,10 @@ of those pixels. (Step 1 has fixed bodies. Step 2 moves volume between them.)
 - each column has a vertical offset from the level, in art pixels (down is positive), and a velocity;
 - **tension** pulls each column back toward the level, and **damping** bleeds its speed, so disturbances
   die out;
-- **spread**: each step, a few passes pass a fraction of each column's height difference to its
-  neighbours as velocity, so a disturbance travels outward as ripples;
+- **the wave**: neighbours pull on each other (a damped 1D wave equation, substepped for stability), so a
+  disturbance travels outward as ripples at `waveSpeed`;
+- **viscosity** diffuses velocity between neighbours. It damps the shortest ripples and leaves long waves:
+  without it, a breach's big step rang at the grid frequency as a sawtooth trailing the surge;
 - **disturb** adds velocity to the columns under an impact, scaled by the impact's speed, falling off
   with distance.
 
@@ -91,8 +93,16 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   floor, and treating each as a way down kept a pool trickling into itself.
 - **Deeper, it's a way down: the basin spills.**
   - Its capacity stops below the rim's own row, since water standing that high is already over it.
+  - The spill point is the top of the column that actually goes down. The search can meet the drop
+    through a notch beside it (the rock mask chips wall corners); a spill at the notch drew a zero-length
+    stream.
   - The excess leaves as a **stream** at `streamRate` (900 px of volume per second), falls straight
-    down, and joins the body whose basin it lands in, or starts a new body.
+    down, and joins the body whose water it lands in, or starts a new body.
+  - **Ledges don't pool.** A landing on a basin smaller than `LEDGE_CAPACITY` (24 px), such as a knob on a
+    wall face, runs off that ledge's own spill and keeps falling, as another stream segment. The lab showed
+    a stepped cascade of tiny pools down a waterfall. A dry landing inside a larger basin (below where
+    that pool could rise) is also still a ledge until the pool reaches it. A basin whose overflow runs
+    back into the source isn't a ledge: it fills.
 - **Bodies merge** when their liquid touches, and when a body spills into one that's connected to it:
   - the other is full too (both stand above a shared rim), or
   - the other's liquid has risen back up to the spill point (a pool draining down a shaft into water
@@ -101,12 +111,23 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
 
   A merged body keeps both sets of seeds, so it fills both basins at once.
 
-- **Nothing teleports.** A dig can change the true state at once (a pool joined to an empty basin
-  levels immediately), so what's _shown_ follows the true state at the stream rate: the highest pixels
-  clear first and the lowest fill first. A breached reservoir's level visibly falls while the other side
-  fills from the bottom.
-  - The surface is drawn per column from what's shown, so the two sides can stand at different heights
-    while water flows.
+- **A pool that drains still shows its water.** A body holding more than its basin (the floor was dug
+  out from under it) shows the excess in its **view**: rows stacked on its own water above the rim, each
+  spreading sideways only over rock or water below it. It never shows water past the lip, over the drop.
+  The first view flooded past the rim and drew a slab of water standing in the air.
+- **Nothing teleports — the surface carries it.** A dig can change the true state at once: a pool joined
+  to an empty basin levels immediately. The lab carries each column's _drawn_ surface height across the
+  change, as the spring surface's offset from the new true top.
+  - Where the rock was, the high side and the low side start as one big displacement. The wave carries
+    it as a surge that settles at the true level.
+  - A column new to water rises from its floor.
+  - A column carries only its own body's surface, or one merged into it, never the pool above it.
+  - Open air over a body's water is marked in the liquid mask, so a surface raised above the level draws
+    there.
+  - The first version moved _shown pixels_ toward the true state at the stream rate, top first. It left
+    walls of water standing where the rock had been (the author's report).
+- **Over a lip it pours from, the drawn surface bends down to the lip** (smoothstep, reach 1.5× the
+  drop). Without it, a draining pool ended in a vertical cliff of water at the edge. Lab only.
 - **Tests** (`bodies.test.ts`, each red-checked):
   - fills flat;
   - overflows a rim as a stream into the next basin, conserving every pixel;
@@ -114,9 +135,14 @@ decoration: they fall back, and vanish in water or on rock without adding to it.
   - merges pools joined below their surfaces;
   - one flat pool over a bumpy floor (fails without pits);
   - two full basins join over their rim (fails without the rim merge);
-  - a joined basin fills visibly rather than at once (fails if the display snaps);
+  - pours past little ledges on a wall face instead of pooling on each (fails without ledge running);
   - in motion, no two bodies' shown water ever stacks in a column (fails without merging on a risen
     spill);
+  - a draining pool stays drawn until drained;
+  - never draws water standing on air over a breached wall; its stream runs from the real lip, past a dry
+    knob, to the floor (fails with the old view, spill point or landing);
+  - never counts a pixel twice in a basin, over any rough floor (property; fails when pit pixels were
+    queued twice, which inflated capacity);
   - deterministic.
 
 **Lab: digging patches the rock.** A dig used to re-render the whole screen of rock and its mask on the
