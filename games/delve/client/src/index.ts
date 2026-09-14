@@ -49,34 +49,48 @@ const CAMERA_LERP = 0.16; // per-frame fraction the camera closes on its target 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
 
-// ---- the WebGPU renderer (#71), behind ?renderer=gpu --------------------------------------------
-// Canvas 2D stays the default until ores are ported (the GPU path draws them as rock). In GPU mode the
-// rock and the lighting are drawn by the GPU onto #cgpu, behind #c; #c keeps its layout and its pointer
-// input, turns invisible, and becomes the OVERLAY: everything render() still draws onto it (damage,
-// twinkle, particles, the player, floaties, the reticle) is uploaded each frame and composited under
-// the lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
+// ---- the renderer: WebGPU, required (#71, #77) ---------------------------------------------------
+// The rock and the lighting are drawn by the GPU onto #cgpu, behind #c; #c keeps its layout and its
+// pointer input, turns invisible, and becomes the OVERLAY: everything render() still draws onto it
+// (particles, the player, floaties, the reticle) is uploaded each frame and composited under the
+// lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
+//
+// WebGPU is REQUIRED — the author's decision. Without it, or if the GPU device is lost, the game shows
+// the WebGPU required screen rather than falling back. `?renderer=2d` is a developer switch that keeps
+// the Canvas 2D path reachable while both renderers exist (gpu-lab's parity diffs); it isn't a fallback.
 const gpuCanvas = document.getElementById('cgpu') as HTMLCanvasElement;
+const canvas2dRequested = /(\?|&)renderer=2d\b/.test(location.search);
+// In GPU mode the 2D drawing that sits between the rock and the overlay gets its own layers, in the
+// Canvas 2D frame's order: damage cracks (source-over), then twinkle glints (added). See RENDERING.md.
+const underCanvas = document.createElement('canvas');
+const underCtx = underCanvas.getContext('2d')!;
+const glintCanvas = document.createElement('canvas');
+const glintCtx = glintCanvas.getContext('2d')!;
+/** Slack around the lamp's box for a crack or a glint's arm reaching past its cell. */
+const LAYER_BOX_PAD_PX = 8;
 let gpu: GpuRenderer | null = null;
-let rendererNote = 'canvas 2d';
-// While WebGPU is starting, draw no rock at all rather than baking chunks nobody will look at again —
-// the first frames sit behind the title screen anyway.
-let gpuStarting = false;
-if (/(\?|&)renderer=gpu\b/.test(location.search)) {
-  rendererNote = 'starting WebGPU…';
-  gpuStarting = true;
+let rendererNote = canvas2dRequested ? 'canvas 2d (?renderer=2d)' : 'starting WebGPU…';
+
+/** WebGPU can't render the game: stop everything and say so. There is no fallback. */
+function requireWebGpu(reason: string): void {
+  gpu = null;
+  rendererNote = `none — ${reason}`;
+  console.warn(`DELVE: WebGPU required — ${reason}`);
+  document.getElementById('gpuRequiredReason')!.textContent = reason;
+  app.send('gpuUnavailable');
+}
+
+if (!canvas2dRequested) {
   createGpuRenderer(gpuCanvas)
     .then((renderer) => {
       gpu = renderer;
-      gpuStarting = false;
       rendererNote = `webgpu · ${renderer.adapter}`;
       gpuCanvas.hidden = false;
       canvas.style.opacity = '0';
+      void renderer.lost.then((reason) => requireWebGpu(`the GPU device was lost (${reason})`));
     })
     .catch((error: unknown) => {
-      const reason = error instanceof GpuUnavailable ? error.message : String(error);
-      rendererNote = `canvas 2d (WebGPU unavailable: ${reason})`;
-      gpuStarting = false;
-      console.warn(`DELVE: ${rendererNote}`);
+      requireWebGpu(error instanceof GpuUnavailable ? error.message : String(error));
     });
 }
 
@@ -207,7 +221,8 @@ function cellChanged(column: number, row: number): void {
 const chunkCache = createChunkCache({
   sources: () => ({ solid: solidTile, surfaceAt: surfaceOf, materialAt }),
   dugKeys: () => Object.keys(s.world.dug),
-  worker: chunkWorker(),
+  // The bake Worker only exists for the Canvas 2D developer path; the GPU never draws a chunk.
+  worker: canvas2dRequested ? chunkWorker() : null,
   seed: () => s.world.seed,
   strata: engine.STRATA,
   makeCanvas: (width, height) => {
@@ -266,6 +281,9 @@ const motes = Array.from({ length: 10 }, () => ({
 function render(t: number): void {
   beginPhases();
   ctx.clearRect(0, 0, LW, LH);
+  // No renderer yet (WebGPU still starting, behind the title screen) or none at all (the WebGPU
+  // required screen): draw nothing.
+  if (!gpu && !canvas2dRequested) return;
   const px = s.player.x + prediction.offsetX; // player centre (cells) + reconciliation smoothing
   const py = s.player.y + prediction.offsetY;
   // 2-axis camera keeps the miner centred on screen (issue #1 — open world in all directions)
@@ -287,8 +305,8 @@ function render(t: number): void {
   const rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
   // the cached rock chunks spanning the view (placeholders while a bake is in flight), plus prefetch
   // and eviction around it
-  // (unless the GPU is drawing the rock, or about to, in which case nothing bakes at all)
-  if (!gpu && !gpuStarting) {
+  // (Canvas 2D mode only: the GPU shades the rock every frame, so nothing bakes)
+  if (canvas2dRequested) {
     chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
   }
   endPhase('chunks');
@@ -299,6 +317,28 @@ function render(t: number): void {
     const dist = Math.hypot(c - px, r - py);
     return Math.max(0.14, 1 - Math.max(0, dist - LAMP_CORE_CELLS) / (st.lamp + LAMP_EASE_CELLS));
   };
+
+  // The lamp's box, in cells. `lightAt` falls to its floor by LAMP_CORE_CELLS + st.lamp +
+  // LAMP_EASE_CELLS, so every damage crack (drawn only where lit ≥ 0.16) and every twinkle (lit ≥ 0.2)
+  // lies inside it; one extra cell of slack for the floor/ceil at the edges. The twinkle scan walks it,
+  // and in GPU mode it's the only part of the under and glint layers that gets uploaded.
+  const lampReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
+  const lampLeft = Math.max(colL, Math.floor(px) - lampReach);
+  const lampRight = Math.min(colR, Math.floor(px) + lampReach);
+  const lampTop = Math.max(rowT, Math.floor(py) - lampReach);
+  const lampBottom = Math.min(rowB, Math.floor(py) + lampReach);
+  const screenX = Math.round(shx - camX); // world pixel → screen pixel, as ctx.translate has it
+  const screenY = Math.round(shy - camY);
+  // Where damage and twinkle draw: the frame itself in Canvas 2D; their own layers in GPU mode.
+  const underG = gpu ? underCtx : ctx;
+  const glintG = gpu ? glintCtx : ctx;
+  if (gpu) {
+    for (const layer of [underCtx, glintCtx]) {
+      layer.clearRect(0, 0, LW, LH);
+      layer.save();
+      layer.translate(screenX, screenY);
+    }
+  }
 
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
   // lit by the lamp like any other rock. The lighting system still supports coloured emitters via
@@ -326,7 +366,7 @@ function render(t: number): void {
       const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
       const dirY = dirX === 0 ? Math.sign(towardY) : 0;
       const damageCtx = {
-        g: ctx,
+        g: underG,
         x: dc * T,
         y: dr * T,
         scale: 1,
@@ -349,14 +389,10 @@ function render(t: number): void {
     // plus an oreAt on all four faces, and `lit` already rejects everything past the lamp anyway —
     // so the old full-screen band paid for ~19k cells to keep a couple of hundred. The 2x2 split
     // (#44) made that the second-biggest cost in the frame (9.3ms of a 25ms frame at 160x120).
-    // `lightAt` floors at LAMP_MIN_LIT, so beyond this radius no cell can clear `minLit`.
-    // lightAt falls to its floor by LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS, so nothing past that
-    // can clear minLit; one extra cell of slack for the floor/ceil at the edges.
-    const twinkleReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
-    const tL = Math.max(colL, Math.floor(px) - twinkleReach);
-    const tR = Math.min(colR, Math.floor(px) + twinkleReach);
-    const tT = Math.max(rowT, Math.floor(py) - twinkleReach);
-    const tB = Math.min(rowB, Math.floor(py) + twinkleReach);
+    const tL = lampLeft;
+    const tR = lampRight;
+    const tT = lampTop;
+    const tB = lampBottom;
     const twinkleEdges = collectTwinkleEdges({
       bandLeft: tL,
       bandTop: tT,
@@ -369,13 +405,13 @@ function render(t: number): void {
       minLit: 0.2,
     });
     if (twinkleEdges.length) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      glintG.save();
+      glintG.globalCompositeOperation = 'lighter';
       const offX = tL * T;
       const offY = tT * T;
       for (const edge of twinkleEdges) {
         edge.material.twinkle!({
-          g: ctx,
+          g: glintG,
           x0: edge.x0 + offX,
           y0: edge.y0 + offY,
           x1: edge.x1 + offX,
@@ -386,8 +422,12 @@ function render(t: number): void {
           litAt: edge.litAt,
         });
       }
-      ctx.restore();
+      glintG.restore();
     }
+  }
+  if (gpu) {
+    underCtx.restore();
+    glintCtx.restore();
   }
 
   endPhase('twinkle');
@@ -481,6 +521,16 @@ function render(t: number): void {
       lighting: debugFlags.lighting,
       scrim: debugFlags.fog,
       overlay: canvas,
+      layers: {
+        under: underCanvas,
+        glint: glintCanvas,
+        box: {
+          x: lampLeft * T + screenX - LAYER_BOX_PAD_PX,
+          y: lampTop * T + screenY - LAYER_BOX_PAD_PX,
+          width: (lampRight - lampLeft + 1) * T + 2 * LAYER_BOX_PAD_PX,
+          height: (lampBottom - lampTop + 1) * T + 2 * LAYER_BOX_PAD_PX,
+        },
+      },
     });
     endPhase('gpu');
     return;
@@ -552,14 +602,17 @@ const miner = engine.newMinerMachine({
 // and plays offline, connecting to the server in the background (see boot), so gating play on the
 // network would regress that. `pause` covers every reason the sim should stop — the pause menu and
 // the inventory/collection panels all route through it, so one flag governs the tick loop.
-type AppState = 'title' | 'playing' | 'paused';
-type AppEvent = 'start' | 'pause' | 'resume';
+// `unsupported` is terminal: WebGPU can't render the game (#77), so the WebGPU required screen is all
+// there is, from any state, and only a reload leaves it.
+type AppState = 'title' | 'playing' | 'paused' | 'unsupported';
+type AppEvent = 'start' | 'pause' | 'resume' | 'gpuUnavailable';
 const app = new engine.StateMachine<AppState, AppEvent>(
   'title',
   {
-    title: { start: 'playing' },
-    playing: { pause: 'paused' },
-    paused: { resume: 'playing' },
+    title: { start: 'playing', gpuUnavailable: 'unsupported' },
+    playing: { pause: 'paused', gpuUnavailable: 'unsupported' },
+    paused: { resume: 'playing', gpuUnavailable: 'unsupported' },
+    unsupported: {},
   },
   {
     onEnter(state) {
@@ -1001,6 +1054,7 @@ el('startBtn').onclick = () => {
 // NOT unlock audio: that needs a genuine user gesture, and a headless capture has none.
 if (/(\?|&)play\b/.test(location.search)) app.send('start');
 el('resumeBtn').onclick = resume;
+el('gpuRetryBtn').onclick = () => location.reload();
 for (const button of el('newMineSizes').querySelectorAll<HTMLButtonElement>('button[data-size]')) {
   const size = button.dataset.size;
   if (engine.isWorldSize(size)) button.onclick = () => newGame(size);
@@ -1048,6 +1102,10 @@ function fit(): void {
   LH = VIEW_ROWS * T;
   canvas.width = LW;
   canvas.height = LH;
+  for (const layer of [underCanvas, glintCanvas]) {
+    layer.width = LW;
+    layer.height = LH;
+  }
   ctx.imageSmoothingEnabled = false; // (resetting width clears ctx state)
   const cssW = VIEW_COLS * TILE_PX;
   const cssH = VIEW_ROWS * TILE_PX;

@@ -237,7 +237,7 @@ button,
   z-index: 0;
 }
 
-/* the WebGPU renderer's canvas (?renderer=gpu, #71): exactly under #c, which becomes its invisible
+/* the WebGPU renderer's canvas (#71; the default since #77): exactly under #c, which becomes its invisible
    overlay and keeps the pointer input */
 #cgpu {
   position: fixed;
@@ -589,8 +589,17 @@ button:disabled {
    the HUD and touch controls only exist once you've descended; the title screen shows only
    on the title state. The pause/inventory/collection panels use the manual .overlay.on toggle. */
 body[data-app='title'] .topbar,
-body[data-app='title'] #touch {
+body[data-app='title'] #touch,
+body[data-app='unsupported'] .topbar,
+body[data-app='unsupported'] #touch {
   display: none !important;
+}
+/* WebGPU required (#77): the only thing shown, and nothing leads away from it but a reload */
+#gpuRequiredOverlay {
+  display: none;
+}
+body[data-app='unsupported'] #gpuRequiredOverlay {
+  display: flex;
 }
 #titleOverlay {
   display: none;

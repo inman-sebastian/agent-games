@@ -86,7 +86,7 @@ way the chunk cache, the bake Worker, and the scrim's CPU cost stop existing.
   renderers read one field). It costs 0.8 ms in the game.
 
 **Tooling.** probe's headless Chrome exposes a Metal adapter. `pnpm probe --shot` captures WebGPU
-pages, which `shot.sh` (with `--disable-gpu`) can't. The lab's `window.gpuLab.runDiff()` reads the GPU
+pages, which `shot.sh` (with `--disable-gpu`) can't; `probe --no-gpu` shows the WebGPU required screen. The lab's `window.gpuLab.runDiff()` reads the GPU
 frame back and diffs it for probe.
 
 **What the spike surfaced for the epic:**
@@ -105,8 +105,16 @@ frame back and diffs it for probe.
 
 ### Renderer core in the game (#71)
 
-The game can render through the GPU, behind **`?renderer=gpu`**. Canvas 2D is still the default. If
-WebGPU is unavailable the flag falls back to Canvas 2D, and the debug overlay says why.
+**WebGPU is the renderer, and it's required** ([#77](https://github.com/inman-sebastian/agent-games/issues/77)
+— the author's decision, once the GPU path had no remaining known visual differences).
+
+- **No silent fallback.** A browser without WebGPU — or one whose GPU device is lost mid-game — gets a
+  **WebGPU required** screen: a terminal `unsupported` app state that says why and offers a reload.
+- **`?renderer=2d` is a developer switch, not a player fallback.** It keeps the Canvas 2D path
+  reachable for `gpu-lab`'s parity diffs while both renderers exist. The chunk bake Worker is only
+  created in that mode.
+- **Retiring Canvas 2D is the render-gates child of #68.** It waits on a verification basis that
+  doesn't depend on the CPU renderer.
 
 **The world lives on the GPU as a window, not per frame.** `gpu/world-window.ts` keeps a CPU mirror of
 cell solidity and surface heights for the view plus a margin, and uploads it whole. The upload is tens
@@ -154,6 +162,30 @@ Two things the integration turned up, both fixed:
 The debug overlay's `renderer` line names the path and adapter, the GPU finish time, and the world
 window's size and version.
 
+**The 2D drawing is three layers, not one** ([#75](https://github.com/inman-sebastian/agent-games/issues/75)).
+The Canvas 2D frame draws damage cracks, then twinkle glints with `lighter` (adding light), then dust,
+particles, the player, floaties and the reticle. So in GPU mode each group gets its own transparent
+canvas:
+
+- **under** holds damage, composited source-over;
+- **glint** holds twinkle, drawn `lighter` onto transparent pixels, which leaves exactly the light
+  each glint adds as premultiplied colour. It is **added** to the frame, so glints brighten as they do
+  in Canvas 2D and stay under the player;
+- **over** holds everything else, composited source-over as before.
+
+Damage and twinkle only appear inside the lamp's reach, so **under** and **glint** upload only the
+lamp's box, a few hundred pixels square, instead of the screen.
+
+**Checked in `gpu-lab`**, which draws twinkle on both paths at a fixed `?time=`.
+`gpuLab.glints()` reads the CPU and GPU colour at every glint pixel:
+
+- **Match:** a ruby glint's five pixels are identical with lighting off, and within one level with
+  lighting on.
+- **Negative control:** compositing glints source-over instead, as before #75, makes those pixels up to
+  41 levels dimmer than Canvas 2D.
+- **Whole frame, lit, with the glint:** 99.998% within 8 levels, and three outliers, all rock
+  threshold flips.
+
 **Ores are on the GPU too** ([#73](https://github.com/inman-sebastian/agent-games/issues/73)):
 
 - **Every material has a WGSL twin**, and the compositor ports the feathered material blend; see
@@ -167,8 +199,6 @@ window's size and version.
 
 **Known differences from Canvas 2D, each a later child of #68:**
 
-- **Twinkle adds light in Canvas 2D** (`lighter`) but reaches the GPU through the overlay, composited
-  source-over, until twinkle is its own pass.
 - **Sprites and particles are rasterised by Canvas 2D** and uploaded, not drawn by the GPU.
 - **The sky is one gradient across the screen**, not one per chunk, so #54's banding doesn't happen.
   That's a difference in the GPU path's favour.

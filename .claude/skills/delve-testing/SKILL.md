@@ -91,12 +91,14 @@ Policy lives in [docs/TESTING.md](../../../games/delve/docs/TESTING.md#policy); 
 ### 3 — `tools/shot.sh` (one small PNG, no MCP)
 
 ```sh
-SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&w=30&h=18&scale=2' /tmp/game.png index.html
+SHOT_BASE=http://localhost:5173 tools/shot.sh 'play=1&renderer=2d&w=30&h=18&scale=2' /tmp/game.png index.html
 ```
 
 `w`/`h` are CELLS (8 art px each), so the PNG is `w × 8 × scale` wide — keep it small. Pages:
 `labs/render.html` (default; world crops), `labs/material-lab.html`, `labs/light-lab.html`,
-`labs/style-lab.html`, `labs/char-lab.html`, `index.html` (pass `play=1` or you capture the title).
+`labs/style-lab.html`, `labs/char-lab.html`, `index.html` (pass `play=1` or you capture the title, and
+`renderer=2d`: shot.sh's Chrome has no GPU, so the game would show its WebGPU required screen — for the
+real GPU frame use `probe --shot`).
 
 ### 4 — `pnpm probe` (the live game, as text, no MCP)
 
@@ -111,6 +113,7 @@ pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(
 pnpm probe index.html --play --do "click:#muteBtn" --eval "document.getElementById('muteBtn').textContent"
 pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"      # a lab's PASS/FAIL
 pnpm probe 'labs/gpu-lab.html?light=0' --wait 3000 --shot /tmp/gpu.png  # a WebGPU page, as a PNG
+pnpm probe index.html --no-gpu --shot /tmp/nogpu.png                     # what a player without WebGPU sees
 ```
 
 Steps for `--do`: `key:<code>:<ms>` · `tap:<code>` · `click:<selector>` · `mouse:<x>,<y>:<ms>` ·
