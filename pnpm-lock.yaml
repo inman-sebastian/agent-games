@@ -54,6 +54,9 @@ importers:
       '@types/node':
         specifier: ^22.10.0
         version: 22.20.2
+      '@webgpu/types':
+        specifier: ^0.1.72
+        version: 0.1.72
       typescript:
         specifier: ^5.7.2
         version: 5.9.3
@@ -603,6 +606,9 @@ packages:
 
   '@vitest/spy@5.0.0':
     resolution: {integrity: sha512-uy+luWBAPw9XfthoHi5AkfHUnuPYEESjl0p/r+meoBnU8bxg5GDQ3Ey8MjcJ6sqahkL4PFyrvfMJJBw7LbU06g==}
+
+  '@webgpu/types@0.1.72':
+    resolution: {integrity: sha512-0cF7RFM2edNoiIS1ODJp0/Gzv4/xSXhwoR0YCza+OWpJWtn4wmo9DvK91aLlH9+uUnwIriP7ZiC3WitmyhuzBw==}
 
   ansi-regex@6.3.0:
     resolution: {integrity: sha512-WpDfL7NO6j7tH88IDBNVdUJxDh9nmCteAVW9dsep846XdwF4naCBK+/tGLX3KJgcpgMRXCFlTM2hKGoK9FsdrQ==}
@@ -1204,6 +1210,8 @@ snapshots:
       vite: 6.4.3(@types/node@22.20.2)(tsx@4.23.13)
 
   '@vitest/spy@5.0.0': {}
+
+  '@webgpu/types@0.1.72': {}
 
   ansi-regex@6.3.0: {}
 

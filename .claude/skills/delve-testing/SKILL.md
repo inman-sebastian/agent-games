@@ -42,6 +42,7 @@ want the FPS" (`probe --grep fps`), "I want to see if the bug reproduces" (write
 | Does the whole thing still hold together?                                            | **1**     | `pnpm test`, `pnpm typecheck`, `pnpm build` — always, before handing over       |
 | What does the world / sim contain at X?                                              | **2**     | `pnpm sim state \| probe \| map \| play`                                        |
 | How does it look?                                                                    | **3**     | `tools/shot.sh 'QUERY' out.png [page]`, then `Read` the PNG                     |
+| How does a **WebGPU** page look? (shot.sh launches Chrome with `--disable-gpu`)      | **4**     | `pnpm probe <page> --wait 3000 --shot out.png`, then `Read` the PNG             |
 | What number does the running game show? (fps, frame breakdown, net, position, depth) | **4**     | `pnpm probe index.html --play --grep "<lines>"`                                 |
 | What happens after an input? (walk, jump, mine, click a button)                      | **4**     | `pnpm probe index.html --play --do "<steps>" --overlay`                         |
 | Does a rendering invariant hold in a real browser canvas?                            | **4**     | `pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"`            |
@@ -109,6 +110,7 @@ pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
 pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"  # dig under the feet
 pnpm probe index.html --play --do "click:#muteBtn" --eval "document.getElementById('muteBtn').textContent"
 pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"      # a lab's PASS/FAIL
+pnpm probe 'labs/gpu-lab.html?light=0' --wait 3000 --shot /tmp/gpu.png  # a WebGPU page, as a PNG
 ```
 
 Steps for `--do`: `key:<code>:<ms>` · `tap:<code>` · `click:<selector>` · `mouse:<x>,<y>:<ms>` ·

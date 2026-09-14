@@ -608,16 +608,17 @@ content density possible.
 
 ### Epics
 
-| Epic                                                            | What it delivers                                                          |
-| --------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| [#25](https://github.com/inman-sebastian/agent-games/issues/25) | Migrate the design brainstorm into these docs _(this section's source)_   |
-| [#26](https://github.com/inman-sebastian/agent-games/issues/26) | Bound the world — hard edges, bedrock floor, surface, day/night           |
-| [#27](https://github.com/inman-sebastian/agent-games/issues/27) | Biomes & placement — replace depth-only spawning ([BIOMES.md](BIOMES.md)) |
-| [#6](https://github.com/inman-sebastian/agent-games/issues/6)   | New progression system — layered attributes, equipment & crafting         |
-| [#28](https://github.com/inman-sebastian/agent-games/issues/28) | UI foundation & surfaces ([UI.md](UI.md))                                 |
-| [#29](https://github.com/inman-sebastian/agent-games/issues/29) | Entities, replication & combat                                            |
-| [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava                                           |
-| [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes          |
+| Epic                                                            | What it delivers                                                                                           |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [#25](https://github.com/inman-sebastian/agent-games/issues/25) | Migrate the design brainstorm into these docs _(this section's source)_                                    |
+| [#26](https://github.com/inman-sebastian/agent-games/issues/26) | Bound the world — hard edges, bedrock floor, surface, day/night                                            |
+| [#27](https://github.com/inman-sebastian/agent-games/issues/27) | Biomes & placement — replace depth-only spawning ([BIOMES.md](BIOMES.md))                                  |
+| [#6](https://github.com/inman-sebastian/agent-games/issues/6)   | New progression system — layered attributes, equipment & crafting                                          |
+| [#28](https://github.com/inman-sebastian/agent-games/issues/28) | UI foundation & surfaces ([UI.md](UI.md))                                                                  |
+| [#29](https://github.com/inman-sebastian/agent-games/issues/29) | Entities, replication & combat                                                                             |
+| [#30](https://github.com/inman-sebastian/agent-games/issues/30) | Fluid simulation — water & lava                                                                            |
+| [#13](https://github.com/inman-sebastian/agent-games/issues/13) | Server/client architecture — world instances, persistence scopes                                           |
+| [#68](https://github.com/inman-sebastian/agent-games/issues/68) | WebGPU renderer — as much rendering as possible on the GPU ([RENDERING.md](RENDERING.md#direction-webgpu)) |
 
 ### Block granularity — the 2×2 split, DONE
 

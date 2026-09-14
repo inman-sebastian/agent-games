@@ -16,12 +16,12 @@
 //
 // Needs `pnpm dev` running (PROBE_BASE, default http://localhost:5173). Prints JSON on stdout.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
-const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js]
+const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js] [--shot out.png]
 
   <page>       path under the Vite root, e.g. index.html, labs/patch-lab.html
   --play       skip the title screen (adds ?play=1)
@@ -34,7 +34,9 @@ const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "s
                cell, e.g. aim:0,2:300 mines under the feet (needs the debug panel; implies --debug)
   --overlay    print the debug overlay's text lines
   --grep re    print only overlay lines matching the regex
-  --eval js    an expression evaluated in the page; its JSON value is printed`;
+  --eval js    an expression evaluated in the page; its JSON value is printed
+  --shot file  write a PNG of the viewport after everything else — the capture route for WebGPU
+               pages, which shot.sh can't take (it launches Chrome with --disable-gpu)`;
 
 interface Options {
   page: string;
@@ -47,6 +49,7 @@ interface Options {
   overlay: boolean;
   grep: RegExp | null;
   evals: string[];
+  shot: string | null;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -65,6 +68,7 @@ function parseArgs(argv: string[]): Options {
     overlay: false,
     grep: null,
     evals: [],
+    shot: null,
   };
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];
@@ -80,6 +84,7 @@ function parseArgs(argv: string[]): Options {
     else if (flag === '--wait') options.wait = Number(value());
     else if (flag === '--do') options.steps.push(...value().trim().split(/\s+/));
     else if (flag === '--eval') options.evals.push(value());
+    else if (flag === '--shot') options.shot = value();
     else if (flag === '--size') {
       const [w, h] = value().split('x').map(Number);
       options.width = w;
@@ -350,6 +355,13 @@ async function main(): Promise<void> {
         session,
         expression,
       );
+    }
+    if (options.shot) {
+      const { data } = (await session.send('Page.captureScreenshot', { format: 'png' })) as {
+        data: string;
+      };
+      writeFileSync(options.shot, Buffer.from(data, 'base64'));
+      output.shot = options.shot;
     }
     errors.push(...((await evaluate(session, 'window.__probeErrors ?? []')) as string[]));
     if (errors.length) output.pageErrors = errors;

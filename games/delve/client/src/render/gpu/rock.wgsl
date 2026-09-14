@@ -1,0 +1,287 @@
+// rock.wgsl — the rock compositor from client/src/render/cave-render.ts (`composeBand`), as compute
+// passes over one band of the world at art resolution:
+//
+//   mask_main   the per-pixel solidity mask with eroded edges and rounded corners   (buildMask)
+//   jfa_init    seed every open pixel for the edge distance field
+//   jfa_step    one jump-flooding pass — the GPU stand-in for the two-pass chamfer sweep (distField)
+//   shade_main  background, sky, top-lit stone, contact shadow and stalactites       (shadeRock + composeBand)
+//
+// Needs noise.wgsl and the generated constants prelude (gpu/constants.ts) in front of it. The stone
+// surface's noise frequencies are inline, as they are in palette.ts ("family of coefficients").
+
+struct Band {
+  size: vec2u,          // art pixels
+  origin: vec2i,        // world pixel of the band's top-left
+  cell: vec2i,          // world cell of the band's top-left
+  cells: vec2u,         // band size in cells
+  tex_seed: u32,
+  deepest_sky: f32,     // the lowest sky pixel, relative to the band's top
+  _pad: vec2f,
+  bg_fill: vec4f,       // colours are 0..255
+  bg_silhouette: vec4f,
+  sky_top: vec4f,
+  sky_horizon: vec4f,
+  bands: array<vec4f, 6>, // center, deep, body, body2, lit, rimA — palette.ts's stone bands, dark → light
+  rim_b: vec4f,
+  rim_rock: vec4f,
+}
+
+struct JfaStep {
+  step: i32,
+}
+
+@group(0) @binding(0) var<uniform> band: Band;
+@group(0) @binding(1) var<storage, read> cells: array<u32>;        // (cols + 2) × (rows + 2), bit 0 = solid
+@group(0) @binding(2) var<storage, read_write> mask: array<u32>;   // per pixel, 1 = solid
+@group(0) @binding(3) var<storage, read> seeds_in: array<vec2i>;
+@group(0) @binding(4) var<storage, read_write> seeds_out: array<vec2i>;
+@group(0) @binding(5) var<storage, read> column_seed: array<f32>;  // top-light depth entering each column
+@group(0) @binding(6) var<storage, read> column_sky: array<f32>;   // sky bottom per column, band-relative px
+@group(0) @binding(7) var scene: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(8) var<uniform> jfa: JfaStep;
+
+const NO_SEED = vec2i(-1, -1);
+const FAR: f32 = 1e6;
+
+// A band-relative cell's solidity, including the one-cell ring of context around the band.
+fn solid_cell(column: i32, row: i32) -> bool {
+  let width = i32(band.cells.x) + 2;
+  return (cells[(row + 1) * width + (column + 1)] & 1u) != 0u;
+}
+
+fn pixel_index(px: i32, py: i32) -> i32 {
+  return py * i32(band.size.x) + px;
+}
+
+fn in_band(px: i32, py: i32) -> bool {
+  return px >= 0 && py >= 0 && px < i32(band.size.x) && py < i32(band.size.y);
+}
+
+// The distance the chamfer transform measures: orthogonal steps cost 1, diagonal steps 1.414.
+fn chamfer(offset: vec2i) -> f32 {
+  let a = abs(offset);
+  let long_side = f32(max(a.x, a.y));
+  let short_side = f32(min(a.x, a.y));
+  return (long_side - short_side) + DIAGONAL * short_side;
+}
+
+// ---- mask -----------------------------------------------------------------------------------------
+
+@compute @workgroup_size(8, 8)
+fn mask_main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= band.size.x || id.y >= band.size.y) { return; }
+  let px = i32(id.x);
+  let py = i32(id.y);
+  let column = px / T;
+  let row = py / T;
+  let index = pixel_index(px, py);
+  if (!solid_cell(column, row)) {
+    mask[index] = 0u;
+    return;
+  }
+  let local_x = f32(px % T);
+  let local_y = f32(py % T);
+  let size = f32(T);
+  let open_up = !solid_cell(column, row - 1);
+  let open_down = !solid_cell(column, row + 1);
+  let open_left = !solid_cell(column - 1, row);
+  let open_right = !solid_cell(column + 1, row);
+
+  var edge_dist = 99.0;
+  if (open_up) { edge_dist = min(edge_dist, local_y + 0.5); }
+  if (open_down) { edge_dist = min(edge_dist, size - 1.0 - local_y + 0.5); }
+  if (open_left) { edge_dist = min(edge_dist, local_x + 0.5); }
+  if (open_right) { edge_dist = min(edge_dist, size - 1.0 - local_x + 0.5); }
+  if (!solid_cell(column - 1, row - 1)) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
+  if (!solid_cell(column + 1, row - 1)) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
+  if (!solid_cell(column - 1, row + 1)) { edge_dist = min(edge_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
+  if (!solid_cell(column + 1, row + 1)) { edge_dist = min(edge_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
+
+  let noise = vnoise(
+    f32(band.origin.x + px) * EDGE_NOISE_FREQ,
+    f32(band.origin.y + py) * EDGE_NOISE_FREQ,
+    band.tex_seed + 2u,
+  );
+  let threshold = EDGE_EROSION_BASE + EDGE_EROSION_RANGE * noise;
+
+  var corner_dist = 99.0;
+  if (open_up && open_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, local_y + 0.5))); }
+  if (open_up && open_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, local_y + 0.5))); }
+  if (open_down && open_left) { corner_dist = min(corner_dist, length(vec2f(local_x + 0.5, size - local_y - 0.5))); }
+  if (open_down && open_right) { corner_dist = min(corner_dist, length(vec2f(size - local_x - 0.5, size - local_y - 0.5))); }
+  let round_radius = CORNER_ROUND_BASE + CORNER_ROUND_NOISE * noise;
+
+  mask[index] = select(0u, 1u, edge_dist > threshold && corner_dist >= round_radius);
+}
+
+// ---- jump flooding ------------------------------------------------------------------------------
+
+@compute @workgroup_size(8, 8)
+fn jfa_init(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= band.size.x || id.y >= band.size.y) { return; }
+  let px = i32(id.x);
+  let py = i32(id.y);
+  let index = pixel_index(px, py);
+  seeds_out[index] = select(NO_SEED, vec2i(px, py), mask[index] == 0u);
+}
+
+@compute @workgroup_size(8, 8)
+fn jfa_step(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= band.size.x || id.y >= band.size.y) { return; }
+  let here = vec2i(i32(id.x), i32(id.y));
+  var best = seeds_in[pixel_index(here.x, here.y)];
+  var best_dist = select(FAR, chamfer(here - best), best.x >= 0);
+  for (var dy = -1; dy <= 1; dy++) {
+    for (var dx = -1; dx <= 1; dx++) {
+      let probe = here + vec2i(dx, dy) * jfa.step;
+      if (!in_band(probe.x, probe.y)) { continue; }
+      let seed = seeds_in[pixel_index(probe.x, probe.y)];
+      if (seed.x < 0) { continue; }
+      let dist = chamfer(here - seed);
+      if (dist < best_dist) {
+        best = seed;
+        best_dist = dist;
+      }
+    }
+  }
+  seeds_out[pixel_index(here.x, here.y)] = best;
+}
+
+// ---- shade ----------------------------------------------------------------------------------------
+
+fn is_rock(px: i32, py: i32) -> bool {
+  // Outside the band counts as rock for the contact shadow, exactly as distField's `outOfBounds = 0`.
+  if (!in_band(px, py)) { return true; }
+  return mask[pixel_index(px, py)] == 1u;
+}
+
+// Distance from an open pixel to the nearest rock. Only < 2.7 ever matters (the contact shadow), so a
+// ±2 window is exact — (2, 2) is already 2.83.
+fn rock_dist(px: i32, py: i32) -> f32 {
+  var best = FAR;
+  for (var dy = -2; dy <= 2; dy++) {
+    for (var dx = -2; dx <= 2; dx++) {
+      if (is_rock(px + dx, py + dy)) { best = min(best, chamfer(vec2i(dx, dy))); }
+    }
+  }
+  return best;
+}
+
+// Distance down from the nearest open pixel above, seeded above the band like shadeRock's `topDist`.
+// Past TOP_SCAN_PX the answer can't change the pixel: brightness has already clamped to 0 by then.
+const TOP_SCAN_PX: i32 = 36;
+fn top_dist(px: i32, py: i32) -> f32 {
+  for (var k = 0; k <= TOP_SCAN_PX; k++) {
+    let y = py - k;
+    if (y < 0) { return column_seed[px / T] + f32(py); }
+    if (mask[pixel_index(px, y)] == 0u) { return f32(k); }
+  }
+  return FAR;
+}
+
+fn band_colour(index: i32) -> vec3f {
+  return band.bands[index].rgb;
+}
+
+// palette.ts `stoneSurface`.
+fn stone_surface(world_x: f32, world_y: f32, px: i32, py: i32, brightness: f32) -> vec3f {
+  let seed = band.tex_seed;
+  var b = brightness
+    + (vnoise(world_x * 0.16, world_y * 0.16, seed) - 0.5) * 0.55
+    + (vnoise(world_x * 0.45 + 7.0, world_y * 0.45, seed) - 0.5) * 0.3
+    + (vnoise(world_x * 1.05, world_y * 1.05 + 3.0, seed) - 0.5) * 0.14;
+  b = clamp(b, 0.0, 1.0);
+  var colour = band_colour(quantize_band(b, 6, px, py));
+  if (b > 0.6 && vnoise(world_x * 0.5 + 2.0, world_y * 0.5, seed + 8u) < 0.4) { colour = band.rim_rock.rgb; }
+  if (b > 0.25 && b < 0.72 && vnoise(world_x * 0.75, world_y * 0.75, seed + 5u) > 0.86) { colour = band_colour(0); }
+  if (b > 0.88 && vnoise(world_x * 0.7, world_y * 0.5, seed) > 0.6) { colour = band.rim_b.rgb; }
+  return colour;
+}
+
+// JavaScript's Math.round (half rounds up). WGSL's round() rounds half to even.
+fn js_round(v: f32) -> f32 {
+  return floor(v + 0.5);
+}
+
+// The stalactite and stalagmite pixels composeBand draws with `pen`, as a per-pixel test. A tip can
+// overhang into the next cell, so the cells either side are asked too — in the order composeBand draws
+// them, so a later one still wins.
+fn stalactite(px: i32, py: i32, colour_in: vec3f) -> vec3f {
+  var colour = colour_in;
+  let row = py / T;
+  let center = band_colour(0);
+  let deep = band_colour(1);
+  let rim_a = band_colour(5);
+  for (var dc = -1; dc <= 1; dc++) {
+    let column = px / T + dc;
+    if (column < 0 || column >= i32(band.cells.x) || solid_cell(column, row)) { continue; }
+    let world_column = band.cell.x + column;
+    let world_row = band.cell.y + row;
+    let x = column * T;
+    let y = row * T;
+    if (solid_cell(column, row - 1) && hash_xy(world_column, world_row, 21u) % 3u == 0u) {
+      let tip = x + (T >> 1u) + i32(hash_xy(world_column, world_row, 22u) % 5u) - 2;
+      let span = 3 + i32(hash_xy(world_column, world_row, 23u) % 4u);
+      let i = py - y;
+      if (i >= 0 && i < span) {
+        let half_width = max(0, i32(js_round(f32(span - i) / 2.2)));
+        if (abs(px - tip) <= half_width) { colour = select(deep, center, i < 2); }
+      }
+      if (px == tip && py == y) { colour = rim_a; }
+    }
+    if (solid_cell(column, row + 1) && hash_xy(world_column, world_row, 24u) % 4u == 0u) {
+      let tip = x + (T >> 1u) + i32(hash_xy(world_column, world_row, 25u) % 5u) - 2;
+      let span = 2 + i32(hash_xy(world_column, world_row, 26u) % 3u);
+      let i = y + T - 1 - py;
+      if (i >= 0 && i < span) {
+        let half_width = max(0, i32(js_round(f32(span - i) / 2.2)));
+        if (abs(px - tip) <= half_width) { colour = select(deep, center, i < 1); }
+      }
+    }
+  }
+  return colour;
+}
+
+// Canvas source-over of an 8-bit black with alpha `alpha` onto an opaque pixel.
+fn darken(colour: vec3f, alpha: f32) -> vec3f {
+  return floor(colour * (255.0 - alpha) / 255.0 + 0.5);
+}
+
+@compute @workgroup_size(8, 8)
+fn shade_main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= band.size.x || id.y >= band.size.y) { return; }
+  let px = i32(id.x);
+  let py = i32(id.y);
+  let world_x = f32(band.origin.x + px);
+  let world_y = f32(band.origin.y + py);
+  let index = pixel_index(px, py);
+
+  // background wall, with the world-anchored 2×2 silhouettes
+  var colour = band.bg_fill.rgb;
+  let block_x = px & ~1;
+  let block_y = py & ~1;
+  if (vnoise(f32(band.origin.x + block_x) * BG_SILHOUETTE_FREQ_X, f32(band.origin.y + block_y) * BG_SILHOUETTE_FREQ_Y, band.tex_seed + 50u) < BG_SILHOUETTE_THRESHOLD) {
+    colour = band.bg_silhouette.rgb;
+  }
+
+  // sky, per column, above the ground
+  if (f32(py) < column_sky[px / T]) {
+    let t = clamp(f32(py) / band.deepest_sky, 0.0, 1.0);
+    colour = floor(mix(band.sky_top.rgb, band.sky_horizon.rgb, t) + 0.5);
+  }
+
+  if (mask[index] == 1u) {
+    let edge_seed = seeds_in[index];
+    let edge_dist = select(FAR, chamfer(vec2i(px, py) - edge_seed), edge_seed.x >= 0);
+    let range = select(SHADE_RANGE_SIDE_PX, SHADE_RANGE_TOP_PX, top_dist(px, py) <= edge_dist + 0.8);
+    colour = stone_surface(world_x, world_y, px, py, 1.0 - edge_dist / range);
+  } else {
+    let near = rock_dist(px, py);
+    if (near < 1.4) { colour = darken(colour, CONTACT_SHADOW_NEAR); }
+    else if (near < 2.7) { colour = darken(colour, CONTACT_SHADOW_FAR); }
+  }
+  // After the rock, over everything: a tip can overhang onto the neighbouring cell's rock.
+  colour = stalactite(px, py, colour);
+
+  textureStore(scene, vec2i(px, py), vec4f(colour / 255.0, 1.0));
+}

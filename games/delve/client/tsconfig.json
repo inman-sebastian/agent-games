@@ -2,7 +2,7 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["node"],
+    "types": ["node", "@webgpu/types"],
     "noEmit": true,
     "paths": {
       "@delve/shared": ["../shared/src/index.ts"]

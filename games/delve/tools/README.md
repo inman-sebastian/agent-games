@@ -161,6 +161,19 @@ Headless Chrome starts on a fresh profile, so this is always a new world at the 
 checking lighting, terrain and the HUD, useless for checking saved state. `play=1` does not unlock
 audio; that needs a real user gesture.
 
+## `client/labs/gpu-lab.html` — the WebGPU spike, CPU and GPU side by side
+
+One carved screen of the real world through the Canvas 2D renderer and through the WebGPU pipeline
+(`client/src/render/gpu/`). `?mode=gpu|cpu|diff`, `?light=0` for the rock alone, `?pan=1` to keep the
+camera moving, `?c=&r=` for the world cell at the centre. The HUD shows each path's frame cost; `diff`
+reads the GPU frame back and heat-maps where it differs from the CPU frame. Ask it through probe:
+
+```sh
+pnpm probe 'labs/gpu-lab.html?light=0' --wait 3000 --eval "gpuLab.runDiff().then(s => JSON.stringify(s))"
+pnpm probe 'labs/gpu-lab.html?mode=gpu&pan=1' --size 3400x1900 --wait 8000 --eval "JSON.stringify(gpuLab.cost())"
+pnpm probe 'labs/gpu-lab.html' --wait 3000 --shot /tmp/gpu.png      # shot.sh can't capture WebGPU
+```
+
 ## `client/labs/patch-lab.html` — the chunk-context check, through a real canvas
 
 The gate already runs this (`client/src/render/chunks.test.ts`, through a software canvas). The lab

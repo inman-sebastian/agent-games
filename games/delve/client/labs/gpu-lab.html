@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DELVE — GPU lab</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #05060a;
+        overflow: hidden;
+        font:
+          12px ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        color: #cdd6e2;
+      }
+      canvas {
+        position: fixed;
+        left: 0;
+        top: 0;
+        image-rendering: pixelated;
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        left: 12px;
+        top: 10px;
+        z-index: 2;
+        white-space: pre;
+        line-height: 1.5;
+        text-shadow: 0 1px 2px #000;
+        pointer-events: none;
+        background: rgba(5, 6, 10, 0.72);
+        padding: 6px 10px;
+      }
+      #hud b {
+        color: #f2c14e;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="cpu"></canvas>
+    <canvas id="gpu"></canvas>
+    <div id="hud"></div>
+    <!-- The WebGPU spike (#69): one carved screen of the real world, rendered by the Canvas 2D path
+     (composeBand + lighting.ts) and by the WebGPU compute pipeline (client/src/render/gpu/), with frame
+     costs and a pixel diff between them. Keys and query parameters are listed in the HUD. -->
+    <script type="module" src="./gpu-lab.ts"></script>
+  </body>
+</html>

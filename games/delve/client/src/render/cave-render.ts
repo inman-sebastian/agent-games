@@ -51,14 +51,14 @@ export function rampAt(row: number): string[] {
   return near.ramp.map((hex, stop) => mix(hex, far.ramp[stop], t));
 }
 
-interface BgColors {
+export interface BgColors {
   top: string;
   bot: string;
   sil: string;
 }
 
 /** The atmospheric background wall for a ramp — lighter, cooler, desaturated than the rock. */
-function bgFor(ramp: string[]): BgColors {
+export function bgFor(ramp: string[]): BgColors {
   const base = desat(mix(ramp[1], '#4a4864', 0.64), 0.52);
   return {
     top: mix(base, '#585672', 0.18),
@@ -67,7 +67,7 @@ function bgFor(ramp: string[]): BgColors {
   };
 }
 
-const DIAGONAL = 1.414; // √2 — cost of a diagonal step in the chamfer distance transform
+export const DIAGONAL = 1.414; // √2 — cost of a diagonal step in the chamfer distance transform
 const DIST_INF = 1e6;
 
 /** Two-pass chamfer distance transform: distance (in px) from each cell to the nearest `src` cell. */
@@ -118,13 +118,13 @@ type SolidTile = (column: number, row: number) => boolean;
 // Halved with the cell (#44). These are ABSOLUTE pixel distances, not fractions of a cell — so on an
 // 8px cell the old values ate twice the proportion they were tuned for, and corner rounding alone
 // took a third of every cell. Rock read as gravel until these came down with it.
-const EDGE_EROSION_BASE = 0.2;
-const EDGE_EROSION_RANGE = 0.7;
-const EDGE_NOISE_FREQ = 0.28;
+export const EDGE_EROSION_BASE = 0.2;
+export const EDGE_EROSION_RANGE = 0.7;
+export const EDGE_NOISE_FREQ = 0.28;
 // Corner rounding: bite a quarter-disc out of every CONVEX corner (two adjacent open sides) so blocks
 // never read as perfectly square. Radius in px = base + noise * edge noise (organic, world-anchored).
-const CORNER_ROUND_BASE = 1.3;
-const CORNER_ROUND_NOISE = 0.65;
+export const CORNER_ROUND_BASE = 1.3;
+export const CORNER_ROUND_NOISE = 0.65;
 
 /** Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. */
 function buildMask(
@@ -190,8 +190,8 @@ function buildMask(
 }
 
 // Contact shadow: how dark open pixels near a rock edge get (alpha, 0-255), by distance.
-const CONTACT_SHADOW_NEAR = 105;
-const CONTACT_SHADOW_FAR = 48;
+export const CONTACT_SHADOW_NEAR = 105;
+export const CONTACT_SHADOW_FAR = 48;
 
 let shadeCanvas: OffscreenCanvas | HTMLCanvasElement | null = null;
 let shadeCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null;
@@ -220,8 +220,8 @@ const lerpRgb = (a: Rgb, b: Rgb, t: number): Rgb => [
 // downward, so opening a cell re-shades everything beneath it for this many cells. Anything that
 // re-renders part of the rock has to account for that — the influence of a dig is not a disc.
 export const TOP_LIGHT_ROWS = 12;
-const SHADE_RANGE_TOP_PX = 22.0; // where the top light reaches: a broad, softly fading band
-const SHADE_RANGE_SIDE_PX = 15.0; // a side/underside face, which the top light doesn't favour
+export const SHADE_RANGE_TOP_PX = 22.0; // where the top light reaches: a broad, softly fading band
+export const SHADE_RANGE_SIDE_PX = 15.0; // a side/underside face, which the top light doesn't favour
 
 /**
  * The radius, in CELLS, over which opening one cell changes the baked shading of its neighbours.
@@ -436,11 +436,11 @@ function shadeRock(
   return shadeCanvas;
 }
 
-const SKY_TOP = '#0e1830';
-const SKY_HORIZON = '#6a86b4';
-const BG_SILHOUETTE_FREQ_X = 0.045;
-const BG_SILHOUETTE_FREQ_Y = 0.06;
-const BG_SILHOUETTE_THRESHOLD = 0.42;
+export const SKY_TOP = '#0e1830';
+export const SKY_HORIZON = '#6a86b4';
+export const BG_SILHOUETTE_FREQ_X = 0.045;
+export const BG_SILHOUETTE_FREQ_Y = 0.06;
+export const BG_SILHOUETTE_THRESHOLD = 0.42;
 
 /**
  * "No sky in this crop" — every row is underground.
