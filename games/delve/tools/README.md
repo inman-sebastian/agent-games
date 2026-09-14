@@ -88,6 +88,14 @@ they immediately discarded, which no amount of reading the code had suggested. N
 Chrome caps rAF at ~30fps regardless of load, so read `frame`, not `fps`, unless you're on real
 hardware.
 
+In GPU mode (`?renderer=gpu`) the `phase` line gains `gpu`: building and submitting the GPU frame,
+including the overlay upload. A `renderer` line names the path and adapter, the GPU's finish time, and
+the world window's size and version (the version moves on every dig and every window shift):
+
+```sh
+pnpm probe 'index.html?renderer=gpu' --size 3400x1900 --play --do "key:ArrowRight:4000" --grep "^(fps|phase|renderer|bakes)"
+```
+
 ## `probe.ts` — the running game, as text (no MCP)
 
 `pnpm probe <page> [flags]` runs a page in headless Chrome, drives it with **trusted** input over the

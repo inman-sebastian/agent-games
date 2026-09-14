@@ -6,11 +6,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './obsidian.wgsl?raw';
 
-const COLORS = colorsFor(['#08080c', '#111019', '#1c1a2a', '#2b2840', '#403c5e', '#726d9e']);
-const GLINT: Rgb = hexRgb('#d6cfff');
+const PALETTE = ['#08080c', '#111019', '#1c1a2a', '#2b2840', '#403c5e', '#726d9e'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#d6cfff' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(11, {
+  name: 'obsidian',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.4,
   shade(ctx: ShadeCtx): Rgb {
     // glassy specular: sharp cool glints on only the brightest faces; else near-black glass

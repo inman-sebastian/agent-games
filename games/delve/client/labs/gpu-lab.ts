@@ -7,12 +7,14 @@
 // It answers the spike's questions with numbers: what a full frame costs each way at this window size,
 // and how close the GPU port is, pixel for pixel. `window.gpuLab` exposes both for `pnpm probe --eval`.
 // Pure dev tool.
-import { STRATA, solidAt, surfaceAt, SUB } from '@delve/shared';
+import { STRATA, solidAt, surfaceAt, oreAt, SUB } from '@delve/shared';
 import { setStrata, composeBand, T } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
+import { oreMaterial } from '../src/render/materials';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import type { LightField } from '../src/render/lighting';
-import { createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
+import { createGpuRenderer, GpuUnavailable, bandFor } from '../src/render/gpu/renderer';
+import { createWorldWindow } from '../src/render/gpu/world-window';
 import type { GpuRenderer } from '../src/render/gpu/renderer';
 
 setStrata(STRATA);
@@ -57,6 +59,16 @@ for (let column = centre.column - 60; column <= centre.column + 60; column++) {
 const isSolid = (column: number, row: number): boolean =>
   solidAt(SEED, column, row) && !dug.has(`${column},${row}`);
 const surfaceOf = (column: number): number => surfaceAt(SEED, column);
+// Ores on both paths unless `?ores=0`: the materials are what #73 ported, and what the diff checks.
+const oresOn = query.get('ores') !== '0';
+const materialAt = (column: number, row: number) =>
+  oresOn ? oreMaterial(oreAt(SEED, column, row)) : null;
+// The GPU renderer's persistent mirror of the world around the view (the lab never digs after load).
+const worldWindow = createWorldWindow({
+  solid: isSolid,
+  material: (column, row) => (materialAt(column, row) ? oreAt(SEED, column, row) : 0),
+  surface: surfaceOf,
+});
 
 // ---- canvases -------------------------------------------------------------------------------------
 
@@ -100,7 +112,7 @@ function addLamp(): void {
 function renderCpu(): number {
   const started = performance.now();
   const { bandLeft, bandTop } = band();
-  composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf);
+  composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf, materialAt);
   if (lightingOn) {
     addLamp();
     lighting.render({ g: cpu, ...lightingView(), surfaceAt: surfaceOf, solidTile: isSolid });
@@ -120,13 +132,15 @@ function renderGpu(): number {
     surfaceAt: surfaceOf,
     solidTile: isSolid,
   });
+  // The lab's camera sits on cell boundaries, so the GPU band is exactly the CPU band being diffed.
+  const gpuBand = bandFor(bandLeft * T, bandTop * T, cols * T, rows * T);
+  worldWindow.follow(gpuBand.left, gpuBand.top, gpuBand.cols, gpuBand.rows);
   const frameCost = gpu.render({
-    bandLeft,
-    bandTop,
-    cols,
-    rows,
-    isSolid,
-    surfaceAt: surfaceOf,
+    camX: bandLeft * T,
+    camY: bandTop * T,
+    width: cols * T,
+    height: rows * T,
+    world: worldWindow,
     light: field,
     lighting: lightingOn,
   });
@@ -154,7 +168,7 @@ async function runDiff(): Promise<DiffStats | null> {
   if (!gpu) return null;
   renderCpu();
   renderGpu();
-  const gpuPixels = await gpu.readback();
+  const { pixels: gpuPixels } = await gpu.readback();
   const cpuImage = cpu.getImageData(0, 0, cols * T, rows * T);
   const cpuPixels = cpuImage.data;
   let identical = 0;
@@ -242,7 +256,9 @@ function drawHud(): void {
   hud.innerHTML =
     `<b>DELVE · GPU lab</b> — ${cols}×${rows} cells, ${cols * T}×${rows * T} art px\n` +
     `[1] gpu  [2] cpu  [3] diff   now <b>${mode}</b>   [L] lighting ${lightingOn ? 'on' : 'off'}   [P] pan ${panning ? 'on' : 'off'}   arrows move\n` +
-    (gpu ? `adapter  ${gpu.adapter}\n` : `<b>no WebGPU:</b> ${gpuError}\n`) +
+    (gpu
+      ? `adapter  ${gpu.adapter}${gpu.lastError ? `   <b>GPU error:</b> ${gpu.lastError}` : ''}\n`
+      : `<b>no WebGPU:</b> ${gpuError}\n`) +
     `\nframe    ${cost.frameMs.toFixed(1)} ms between frames\n` +
     `cpu      ${cost.cpuMs.toFixed(1)} ms  composeBand${lightingOn ? ' + lighting' : ''}\n` +
     `gpu      ${cost.gpuCpuMs.toFixed(1)} ms on the CPU (field ${cost.fieldMs.toFixed(1)} + world upload ${cost.uploadMs.toFixed(1)} + encode ${cost.encodeMs.toFixed(1)})  ${gpu ? gpu.gpuMs.toFixed(1) : '—'} ms to GPU done\n` +

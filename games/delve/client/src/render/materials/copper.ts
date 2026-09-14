@@ -5,11 +5,19 @@ import { TEX, hexRgb, colorsFor, metalSurface } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx } from './types';
+import wgsl from './copper.wgsl?raw';
 
-const COLORS = colorsFor(['#2a1712', '#4d2a1c', '#8a4326', '#c06a34', '#e59452', '#f6c288']);
-const SHEEN: Rgb = hexRgb('#ffe6c0');
+const PALETTE = ['#2a1712', '#4d2a1c', '#8a4326', '#c06a34', '#e59452', '#f6c288'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { sheen: '#ffe6c0' } as const;
+const SHEEN: Rgb = hexRgb(ACCENTS.sheen);
 
 registerOreMaterial(2, {
+  name: 'copper',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 3.0,
   shade(ctx: ShadeCtx): Rgb {
     // a broad, low-frequency warm sheen on the best-lit faces — duller + more common than gold's

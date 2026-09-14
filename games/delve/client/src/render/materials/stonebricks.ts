@@ -8,14 +8,22 @@ import { hexRgb, colorsFor, stoneSurface, clamp01 } from '../palette';
 import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx } from './types';
+import wgsl from './stonebricks.wgsl?raw';
 
-const COLORS = colorsFor(['#2a2530', '#3e3546', '#554b5e', '#6f708a', '#9babb2', '#c7dcd0']);
-const MORTAR: Rgb = hexRgb('#191620');
+const PALETTE = ['#2a2530', '#3e3546', '#554b5e', '#6f708a', '#9babb2', '#c7dcd0'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { mortar: '#191620' } as const;
+const MORTAR: Rgb = hexRgb(ACCENTS.mortar);
 const BRICK_W = 16; // one tile wide
 const BRICK_H = 8; // half a tile tall → two courses per tile
 const MORTAR_PX = 1; // mortar line thickness
 
 registerOreMaterial(13, {
+  name: 'stonebricks',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.4,
   shade(ctx: ShadeCtx): Rgb {
     const wx = Math.floor(ctx.worldX);

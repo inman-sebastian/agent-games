@@ -5,11 +5,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './emerald.wgsl?raw';
 
-const COLORS = colorsFor(['#0b241a', '#124430', '#1b6543', '#2c9660', '#57c584', '#a9eec6']);
-const GLINT: Rgb = hexRgb('#eafff4');
+const PALETTE = ['#0b241a', '#124430', '#1b6543', '#2c9660', '#57c584', '#a9eec6'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#eafff4' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(6, {
+  name: 'emerald',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     return (

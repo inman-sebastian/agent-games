@@ -5,11 +5,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './ruby.wgsl?raw';
 
-const COLORS = colorsFor(['#2a0f1e', '#5a1636', '#8f1c46', '#d23459', '#f0577a', '#ffb0bf']);
-const GLINT: Rgb = hexRgb('#fff0f3');
+const PALETTE = ['#2a0f1e', '#5a1636', '#8f1c46', '#d23459', '#f0577a', '#ffb0bf'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#fff0f3' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(7, {
+  name: 'ruby',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.2,
   shade(ctx: ShadeCtx): Rgb {
     return (

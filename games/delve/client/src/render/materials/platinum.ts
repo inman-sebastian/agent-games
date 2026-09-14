@@ -6,14 +6,22 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { drawGlint, twinkleFlash } from './fx';
+import wgsl from './platinum.wgsl?raw';
 
 // pale WARM champagne/greige — a premium warm-white that reads clearly apart from silver's cool blue
 // (and far from gold's saturated yellow: this is a desaturated warm grey, not a colour).
-const COLORS = colorsFor(['#2a2620', '#45403a', '#6b645a', '#98907e', '#c6bda8', '#f2ecdc']);
-const SHEEN: Rgb = hexRgb('#fff4e0');
-const GLINT: Rgb = hexRgb('#ffe9c8');
+const PALETTE = ['#2a2620', '#45403a', '#6b645a', '#98907e', '#c6bda8', '#f2ecdc'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { sheen: '#fff4e0', glint: '#ffe9c8' } as const;
+const SHEEN: Rgb = hexRgb(ACCENTS.sheen);
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(10, {
+  name: 'platinum',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 2.8,
   shade(ctx: ShadeCtx): Rgb {
     // a bright, tight sheen on the best-lit faces — brighter + rarer than iron/silver

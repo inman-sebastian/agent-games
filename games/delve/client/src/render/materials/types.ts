@@ -83,6 +83,14 @@ export interface DamageCtx {
  *  policy — plug in here when a material first needs them; every current material uses the defaults.)
  */
 export interface Material {
+  /** Names the WGSL twin (`shade_<name>`) and its generated constants (`<NAME>_BANDS`, …). */
+  name: string;
+  /** The six-stop ramp, shadow → rim. The one home of the material's colours; `colorsFor` derives the rest. */
+  palette: readonly string[];
+  /** Named accent colours the shaders use (sheen, glint, mortar, …), generated into WGSL as `<NAME>_<KEY>`. */
+  accents?: Readonly<Record<string, string>>;
+  /** The WGSL twin's source, defining `fn shade_<name>(ctx: ShadeCtx) -> vec3f` (docs/MATERIALS.md). */
+  wgsl: string;
   /** Per-pixel colour of the BAKED surface (required). */
   shade(ctx: ShadeCtx): Rgb;
   /** How far this material bleeds into neighbours at a boundary (px); defaults to the shared value. */
@@ -104,4 +112,11 @@ export function registerOreMaterial(oreId: number, material: Material): void {
 /** The material for an ore id, or null if none is registered (→ the tile renders as plain rock). */
 export function oreMaterial(oreId: number): Material | null {
   return oreMaterials[oreId] ?? null;
+}
+
+/** Every registered material with its ore id, in id order — for generating the WGSL dispatch. */
+export function allOreMaterials(): [number, Material][] {
+  return Object.entries(oreMaterials)
+    .map(([id, material]): [number, Material] => [Number(id), material])
+    .sort((a, b) => a[0] - b[0]);
 }

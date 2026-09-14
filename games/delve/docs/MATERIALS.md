@@ -19,6 +19,36 @@ This doc is the reference it (and you) build against.
   at all (see [Hard boundaries](#hard-boundaries-blend-suppression)).
 - **Material shader** (`client/src/render/materials/<name>.ts`) owns colour only: a function
   `shade(ctx: ShadeCtx) => Rgb`, with full freedom (it imports `vnoise`/`mix`/etc. itself).
+- **Its WGSL twin** (`client/src/render/materials/<name>.wgsl`, #73) is the same shader for the
+  WebGPU renderer: `fn shade_<name>(ctx: ShadeCtx) -> vec3f`, with the same freedom, built on the WGSL
+  surfaces in `render/gpu/surfaces.wgsl` (ports of `stoneSurface`/`metalSurface`/`facetSurface`/
+  `glassSurface` and `fx.ts`'s `sparkle`). The GPU compositor (`render/gpu/rock.wgsl`) ports the
+  geometry and the feathered blend, and a generated dispatch selects the shader by material id.
+
+## GPU twins (#73)
+
+While both renderers exist (Canvas 2D is still the default, see [RENDERING.md](RENDERING.md#direction-webgpu)),
+every material has both shaders. Two rules keep them from drifting:
+
+- **Colours have one home: the TypeScript registration.** A material registers its six-stop `palette`
+  ramp and its named `accents` (sheen, glint, mortar, …). The JavaScript shader reads them through
+  `colorsFor`/`hexRgb` as always. The WGSL shader reads generated constants, `<NAME>_BANDS` (the six
+  quantiser bands, dark → light), `<NAME>_RIM_B`, `<NAME>_RIM_ROCK` and `<NAME>_<ACCENT>`, emitted by
+  `render/gpu/materials.ts`. Retuning a colour never touches the `.wgsl` file.
+- **Parity is measured, not assumed.** `gpu-lab` renders ores on both paths, and its pixel diff is the
+  check after any change to a material. The shader parameters (a sheen threshold, a blotch amount) do
+  still live in both files during the transition. The diff is what catches them disagreeing, and the
+  JavaScript twin goes away when Canvas 2D is retired.
+
+Exactness notes for writing a twin:
+
+- A colour the JavaScript returns as fractions reaches the screen through `Uint8ClampedArray`, which
+  rounds half to even. The GPU compositor does the same rounding once, on the final colour, so a twin
+  returns its colour unrounded, just as the JavaScript does.
+- Integer division and `%` truncate toward zero in both languages, but `Math.floor(a / b)` on a
+  negative `a` doesn't. Use `floor_div`.
+
+## The boundary (where things live)
 
 ## The boundary (where things live)
 
@@ -33,6 +63,10 @@ This doc is the reference it (and you) build against.
 
 ```ts
 interface Material {
+  name: string; // REQUIRED — names the WGSL twin (shade_<name>) and its generated constants
+  palette: readonly string[]; // REQUIRED — the six-stop ramp, shadow → rim; colorsFor(palette)
+  accents?: Record<string, string>; // named colours the shaders use (sheen, glint, …)
+  wgsl: string; // REQUIRED — the WGSL twin's source (import './<name>.wgsl?raw')
   shade(ctx: ShadeCtx): Rgb; // REQUIRED — per-pixel colour of the baked surface
   feather?: number; // px this material bleeds into neighbours (default 3.2)
   twinkle?: (ctx: TwinkleCtx) => void; // animated glint on exposed, lit cluster edges

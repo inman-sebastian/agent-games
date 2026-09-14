@@ -13,7 +13,7 @@ import './obsidian';
 import './quartz';
 import './stonebricks';
 
-export { oreMaterial, registerOreMaterial } from './types';
+export { oreMaterial, registerOreMaterial, allOreMaterials } from './types';
 export type { Material, ShadeCtx } from './types';
 export { collectTwinkleEdges, drawDamage } from './fx';
 export type { TwinkleEdge } from './fx';

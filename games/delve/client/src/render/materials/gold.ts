@@ -5,11 +5,19 @@ import type { Rgb } from '../palette';
 import { registerOreMaterial } from './types';
 import type { ShadeCtx, TwinkleCtx } from './types';
 import { sparkle, drawGlint, twinkleFlash } from './fx';
+import wgsl from './gold.wgsl?raw';
 
-const COLORS = colorsFor(['#3a2b12', '#6b4c18', '#a5771f', '#dda52a', '#f4cb52', '#fdeda8']);
-const GLINT: Rgb = hexRgb('#fff8e4');
+const PALETTE = ['#3a2b12', '#6b4c18', '#a5771f', '#dda52a', '#f4cb52', '#fdeda8'];
+const COLORS = colorsFor(PALETTE);
+// Every colour this material uses, registered once: the WGSL twin gets them generated (#73).
+const ACCENTS = { glint: '#fff8e4' } as const;
+const GLINT: Rgb = hexRgb(ACCENTS.glint);
 
 registerOreMaterial(5, {
+  name: 'gold',
+  palette: PALETTE,
+  accents: ACCENTS,
+  wgsl,
   feather: 3.2,
   shade(ctx: ShadeCtx): Rgb {
     return (

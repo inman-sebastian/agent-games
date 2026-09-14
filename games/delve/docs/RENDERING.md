@@ -103,6 +103,76 @@ frame back and diffs it for probe.
 - **Unsupported browsers.** The renderer throws `GpuUnavailable` with a sentence for the page. The
   unsupported-browser screen is renderer-core work.
 
+### Renderer core in the game (#71)
+
+The game can render through the GPU, behind **`?renderer=gpu`**. Canvas 2D is still the default. If
+WebGPU is unavailable the flag falls back to Canvas 2D, and the debug overlay says why.
+
+**The world lives on the GPU as a window, not per frame.** `gpu/world-window.ts` keeps a CPU mirror of
+cell solidity and surface heights for the view plus a margin, and uploads it whole. The upload is tens
+of kilobytes and costs nothing. The spike's 3.7 ms was the _world queries_, and the window removes
+them:
+
+- **Scrolling shifts the mirror** and queries only the strips entering it.
+- **Digs, including the server's, update single cells** through the same hooks the chunk cache uses.
+- **A new world resets it.**
+
+The margin covers the top light's 12 rows of context above the view. The shader derives top-light
+seeds and sky heights from the window itself.
+
+**The frame graph:**
+
+1. **Rock:** compute passes over the band of cells under the view (mask, jump flood, shade), as in the
+   spike.
+2. **Present:** one screen-space fragment pass composites, in the order the Canvas 2D frame draws them:
+   - the rock scene, offset by the camera;
+   - the **2D overlay** — damage cracks, twinkle, dust, particles, the player, floaties and the reticle,
+     still drawn by the existing code onto the game canvas, now kept transparent and uploaded as a
+     texture each frame;
+   - the additive glow, the dithered scrim and the vignette, from the same light field.
+
+   The scrim still darkens the player and the particles, as it does today.
+
+3. **Chunk bakes don't run.** The rock is shaded fresh every frame, so the chunk cache and its Worker
+   sit idle in GPU mode.
+
+**Measured** with `pnpm probe` at a 3400×1900 window, walking right for 4 seconds:
+
+| Renderer   | Main thread per frame                                            | Rock bakes while walking                             |
+| ---------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
+| Canvas 2D  | 3.9 ms — lighting 3.1 (scrim 2.5), chunks 0.5                    | 536 bakes, 84 still queued: the Worker can't keep up |
+| **WebGPU** | **2.9 ms** — light field 1.3, GPU frame incl. overlay upload 1.2 | **none**; GPU work finishes in ~2.8 ms               |
+
+Two things the integration turned up, both fixed:
+
+- **Digs were still re-baking chunks.** The chunk cache re-bakes a dug cell's chunk synchronously
+  (about 8 ms on the main thread), and it was still told about every dig in GPU mode, where no chunk is
+  ever drawn. Dig notifications now go only to the renderer that's drawing the rock.
+- **Startup baked ~70 chunks for nothing.** While WebGPU is starting, no rock is drawn at all. Those
+  frames sit behind the title screen.
+
+The debug overlay's `renderer` line names the path and adapter, the GPU finish time, and the world
+window's size and version.
+
+**Ores are on the GPU too** ([#73](https://github.com/inman-sebastian/agent-games/issues/73)):
+
+- **Every material has a WGSL twin**, and the compositor ports the feathered material blend; see
+  MATERIALS.md's _GPU twins_.
+- **Parity, measured with `gpu-lab` (lighting off) at seven depths covering every ore band:**
+  99.94–99.99% of pixels identical and ~99.99% within 8 levels, with 12–16 threshold-flip outliers per
+  130,560 pixels, the same float32 cause as the rock alone.
+- **GPU validation errors surface.** A shader that fails to compile doesn't throw, it just draws
+  nothing. The renderer keeps the first error, and both the debug overlay's `renderer` line and the lab
+  HUD show it, so `probe` can read it.
+
+**Known differences from Canvas 2D, each a later child of #68:**
+
+- **Twinkle adds light in Canvas 2D** (`lighter`) but reaches the GPU through the overlay, composited
+  source-over, until twinkle is its own pass.
+- **Sprites and particles are rasterised by Canvas 2D** and uploaded, not drawn by the GPU.
+- **The sky is one gradient across the screen**, not one per chunk, so #54's banding doesn't happen.
+  That's a difference in the GPU path's favour.
+
 ## Grounding
 
 Derived from studying real references the user vetted: **Dome Keeper**, **SteamWorld

@@ -6,8 +6,12 @@
 //   jfa_step    one jump-flooding pass — the GPU stand-in for the two-pass chamfer sweep (distField)
 //   shade_main  background, sky, top-lit stone, contact shadow and stalactites       (shadeRock + composeBand)
 //
-// Needs noise.wgsl and the generated constants prelude (gpu/constants.ts) in front of it. The stone
-// surface's noise frequencies are inline, as they are in palette.ts ("family of coefficients").
+// The world comes from the persistent world window (gpu/world-window.ts): cell solidity and surface
+// heights around the view, uploaded only when they change. The top-light seed above the band and the sky
+// both come from that window here, rather than from per-column CPU queries.
+//
+// Needs, in front of it: the generated constants prelude (gpu/constants.ts), noise.wgsl, surfaces.wgsl,
+// and the generated materials (gpu/materials.ts) — every material's shader and the dispatch to them.
 
 struct Band {
   size: vec2u,          // art pixels
@@ -16,7 +20,8 @@ struct Band {
   cells: vec2u,         // band size in cells
   tex_seed: u32,
   deepest_sky: f32,     // the lowest sky pixel, relative to the band's top
-  _pad: vec2f,
+  window_cell: vec2i,   // world cell of the world window's top-left
+  window_cells: vec2u,  // world window size in cells
   bg_fill: vec4f,       // colours are 0..255
   bg_silhouette: vec4f,
   sky_top: vec4f,
@@ -31,22 +36,43 @@ struct JfaStep {
 }
 
 @group(0) @binding(0) var<uniform> band: Band;
-@group(0) @binding(1) var<storage, read> cells: array<u32>;        // (cols + 2) × (rows + 2), bit 0 = solid
+@group(0) @binding(1) var<storage, read> cells: array<u32>;        // the world window, row-major, 1 = solid
 @group(0) @binding(2) var<storage, read_write> mask: array<u32>;   // per pixel, 1 = solid
 @group(0) @binding(3) var<storage, read> seeds_in: array<vec2i>;
 @group(0) @binding(4) var<storage, read_write> seeds_out: array<vec2i>;
-@group(0) @binding(5) var<storage, read> column_seed: array<f32>;  // top-light depth entering each column
-@group(0) @binding(6) var<storage, read> column_sky: array<f32>;   // sky bottom per column, band-relative px
+@group(0) @binding(5) var<storage, read> surface: array<f32>;      // the world window's surface row per column
 @group(0) @binding(7) var scene: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(8) var<uniform> jfa: JfaStep;
 
 const NO_SEED = vec2i(-1, -1);
 const FAR: f32 = 1e6;
 
-// A band-relative cell's solidity, including the one-cell ring of context around the band.
+// A band-relative cell's solidity, read from the world window. The window always covers the band plus
+// the context the shaders read (world-window.ts guarantees it); anything past it reads as rock.
 fn solid_cell(column: i32, row: i32) -> bool {
-  let width = i32(band.cells.x) + 2;
-  return (cells[(row + 1) * width + (column + 1)] & 1u) != 0u;
+  let local = band.cell + vec2i(column, row) - band.window_cell;
+  if (local.x < 0 || local.y < 0 || local.x >= i32(band.window_cells.x) || local.y >= i32(band.window_cells.y)) {
+    return true;
+  }
+  return (cells[u32(local.y) * band.window_cells.x + u32(local.x)] & 1u) != 0u;
+}
+
+// The sky's bottom edge in a band column, as a band-relative pixel row.
+fn sky_bottom(column: i32) -> f32 {
+  let local = band.cell.x + column - band.window_cell.x;
+  let row = surface[u32(clamp(local, 0, i32(band.window_cells.x) - 1))];
+  return (row + 1.0) * f32(T) - f32(band.origin.y);
+}
+
+// shadeRock's top-light seed for a column: how deep the solid rock above the band runs, up to
+// TOP_LIGHT_ROWS; all the way means no top light reaches in at all.
+fn column_seed(column: i32) -> f32 {
+  var solid_above = 0;
+  for (var k = 1; k <= TOP_LIGHT_ROWS; k++) {
+    if (!solid_cell(column, -k)) { break; }
+    solid_above++;
+  }
+  return select(f32(solid_above * T), FAR, solid_above >= TOP_LIGHT_ROWS);
 }
 
 fn pixel_index(px: i32, py: i32) -> i32 {
@@ -173,7 +199,7 @@ const TOP_SCAN_PX: i32 = 36;
 fn top_dist(px: i32, py: i32) -> f32 {
   for (var k = 0; k <= TOP_SCAN_PX; k++) {
     let y = py - k;
-    if (y < 0) { return column_seed[px / T] + f32(py); }
+    if (y < 0) { return column_seed(px / T) + f32(py); }
     if (mask[pixel_index(px, y)] == 0u) { return f32(k); }
   }
   return FAR;
@@ -183,19 +209,62 @@ fn band_colour(index: i32) -> vec3f {
   return band.bands[index].rgb;
 }
 
-// palette.ts `stoneSurface`.
-fn stone_surface(world_x: f32, world_y: f32, px: i32, py: i32, brightness: f32) -> vec3f {
-  let seed = band.tex_seed;
-  var b = brightness
-    + (vnoise(world_x * 0.16, world_y * 0.16, seed) - 0.5) * 0.55
-    + (vnoise(world_x * 0.45 + 7.0, world_y * 0.45, seed) - 0.5) * 0.3
-    + (vnoise(world_x * 1.05, world_y * 1.05 + 3.0, seed) - 0.5) * 0.14;
-  b = clamp(b, 0.0, 1.0);
-  var colour = band_colour(quantize_band(b, 6, px, py));
-  if (b > 0.6 && vnoise(world_x * 0.5 + 2.0, world_y * 0.5, seed + 8u) < 0.4) { colour = band.rim_rock.rgb; }
-  if (b > 0.25 && b < 0.72 && vnoise(world_x * 0.75, world_y * 0.75, seed + 5u) > 0.86) { colour = band_colour(0); }
-  if (b > 0.88 && vnoise(world_x * 0.7, world_y * 0.5, seed) > 0.6) { colour = band.rim_b.rgb; }
-  return colour;
+// A band-relative cell's material id, from the world window (0 = the strata stone).
+fn material_cell(column: i32, row: i32) -> u32 {
+  let local = band.cell + vec2i(column, row) - band.window_cell;
+  if (local.x < 0 || local.y < 0 || local.x >= i32(band.window_cells.x) || local.y >= i32(band.window_cells.y)) {
+    return 0u;
+  }
+  return (cells[u32(local.y) * band.window_cells.x + u32(local.x)] >> 8u) & 255u;
+}
+
+// The strata's own stone, in the band's ramp: what every cell without a material is made of.
+fn strata_stone(ctx: ShadeCtx) -> vec3f {
+  let bands = array<vec3f, 6>(band_colour(0), band_colour(1), band_colour(2), band_colour(3), band_colour(4), band_colour(5));
+  return stone_surface(ctx, ctx.brightness, bands, band.rim_b.rgb, band.rim_rock.rgb);
+}
+
+fn shade_cell(id: u32, ctx: ShadeCtx) -> vec3f {
+  if (has_material(id)) { return material_shade(id, ctx); }
+  return strata_stone(ctx);
+}
+
+// shadeRock's `materialBlendAt` and what follows it: the pixel's own material, feathered across the
+// nearest cardinal boundary with a DIFFERENT material — only between two solid cells, so a mined-out
+// vein leaves no stain — by a world-noise-jittered cross-fade whose width comes from both feathers.
+fn composite_material(ctx: ShadeCtx, px: i32, py: i32) -> vec3f {
+  let column = px / T;
+  let row = py / T;
+  let here = material_cell(column, row);
+  let local_x = f32(px % T);
+  let local_y = f32(py % T);
+  let size = f32(T);
+  var best = FAR;
+  var other = 0u;
+  var found = false;
+  if (solid_cell(column, row - 1)) {
+    let up = material_cell(column, row - 1);
+    if (up != here && local_y + 0.5 < best) { best = local_y + 0.5; other = up; found = true; }
+  }
+  if (solid_cell(column, row + 1)) {
+    let down = material_cell(column, row + 1);
+    if (down != here && size - 1.0 - local_y + 0.5 < best) { best = size - 1.0 - local_y + 0.5; other = down; found = true; }
+  }
+  if (solid_cell(column - 1, row)) {
+    let left = material_cell(column - 1, row);
+    if (left != here && local_x + 0.5 < best) { best = local_x + 0.5; other = left; found = true; }
+  }
+  if (solid_cell(column + 1, row)) {
+    let right = material_cell(column + 1, row);
+    if (right != here && size - 1.0 - local_x + 0.5 < best) { best = size - 1.0 - local_x + 0.5; other = right; found = true; }
+  }
+  let colour_a = shade_cell(here, ctx);
+  if (!found) { return colour_a; }
+  let width = max(2.0, (material_feather(here) + material_feather(other)) * 0.5 * BLEND_WIDTH);
+  let jitter = (vnoise(ctx.world.x * FEATHER_FREQ, ctx.world.y * FEATHER_FREQ, band.tex_seed + 21u) - 0.5) * width * 0.6;
+  let t = 0.5 * clamp(1.0 - (best + jitter) / width, 0.0, 1.0);
+  if (t <= 0.001) { return colour_a; }
+  return mix(colour_a, shade_cell(other, ctx), t);
 }
 
 // JavaScript's Math.round (half rounds up). WGSL's round() rounds half to even.
@@ -265,7 +334,7 @@ fn shade_main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   // sky, per column, above the ground
-  if (f32(py) < column_sky[px / T]) {
+  if (f32(py) < sky_bottom(px / T)) {
     let t = clamp(f32(py) / band.deepest_sky, 0.0, 1.0);
     colour = floor(mix(band.sky_top.rgb, band.sky_horizon.rgb, t) + 0.5);
   }
@@ -273,8 +342,19 @@ fn shade_main(@builtin(global_invocation_id) id: vec3u) {
   if (mask[index] == 1u) {
     let edge_seed = seeds_in[index];
     let edge_dist = select(FAR, chamfer(vec2i(px, py) - edge_seed), edge_seed.x >= 0);
-    let range = select(SHADE_RANGE_SIDE_PX, SHADE_RANGE_TOP_PX, top_dist(px, py) <= edge_dist + 0.8);
-    colour = stone_surface(world_x, world_y, px, py, 1.0 - edge_dist / range);
+    let top = top_dist(px, py);
+    let range = select(SHADE_RANGE_SIDE_PX, SHADE_RANGE_TOP_PX, top <= edge_dist + 0.8);
+    let ctx = ShadeCtx(
+      vec2f(world_x, world_y),
+      px,
+      py,
+      vec2i(px % T, py % T),
+      band.cell + vec2i(px / T, py / T),
+      1.0 - edge_dist / range,
+      edge_dist,
+      top,
+    );
+    colour = clamped_byte(composite_material(ctx, px, py));
   } else {
     let near = rock_dist(px, py);
     if (near < 1.4) { colour = darken(colour, CONTACT_SHADOW_NEAR); }

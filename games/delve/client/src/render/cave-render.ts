@@ -200,9 +200,9 @@ let shadeCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | nul
 // vein blends organically into the rock instead of a hard tile seam (the same idea as the solid↔open
 // edge erosion, applied to material boundaries). The distance is the material's own `feather` knob;
 // this is the default when it doesn't set one.
-const FEATHER_FREQ = 0.32;
-const DEFAULT_FEATHER = 3.2;
-const BLEND_WIDTH = 1.9; // widens the material cross-fade so boundaries soften instead of a hard seam
+export const FEATHER_FREQ = 0.32;
+export const DEFAULT_FEATHER = 3.2;
+export const BLEND_WIDTH = 1.9; // widens the material cross-fade so boundaries soften instead of a hard seam
 
 /** Linear blend between two RGB colours (mix() is hex-only; the material blend works in RGB). */
 const lerpRgb = (a: Rgb, b: Rgb, t: number): Rgb => [

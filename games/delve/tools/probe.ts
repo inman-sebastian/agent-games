@@ -291,7 +291,13 @@ async function main(): Promise<void> {
   );
   const cleanup = (): void => {
     chrome.kill('SIGKILL');
-    rmSync(profile, { recursive: true, force: true });
+    // Chrome can still be writing into its profile for a moment after the kill; retry rather than fail a
+    // run whose output was already printed.
+    try {
+      rmSync(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    } catch {
+      /* a leftover temp directory is harmless */
+    }
   };
 
   try {
