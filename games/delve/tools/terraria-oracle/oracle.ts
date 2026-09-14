@@ -51,8 +51,8 @@ export function loadOracle(): {
 }
 
 /**
- * Replay a scene through the port as the oracle ran it. `frame` is called twice before every update (the game
- * draws two frames per liquid update), then `visit` wherever the oracle took a snapshot.
+ * Replay a scene through the port as the oracle ran it. `frame` is called before every second update (the game
+ * renders its water once every second liquid update), then `visit` wherever the oracle took a snapshot.
  */
 export function replay(
   scene: OracleScene,
@@ -79,8 +79,7 @@ export function replay(
     }
   }
   for (let update = 0; update <= scene.updates; update++) {
-    frame(liquid);
-    frame(liquid);
+    if (update % 2 === 0) frame(liquid);
     if (update % scene.snapshotEvery === 0) visit(update, liquid);
     if (update === scene.updates) break;
     for (const event of scene.events ?? []) {

@@ -31,6 +31,8 @@ export interface TerrariaLiquid extends Liquid {
   readonly updatesPerSecond: number;
   /** Entries in the active list (Liquid.numLiquid): 0 once everything has settled. */
   activeCount(): number;
+  /** Liquid updates run so far. */
+  updateCount(): number;
   /** Liquid.AddWater: put a tile's liquid on the active list. */
   addWater(index: number): void;
   /** Pour liquid into a tile as a bucket does: add to its level, then frame the 3×3 around it. */
@@ -59,6 +61,7 @@ export function createTerrariaLiquid(
   const listKill = new Int32Array(MAX_LIQUID);
   const listDelay = new Int32Array(MAX_LIQUID);
   let numLiquid = 0;
+  let updates = 0;
   const bufferX = new Int32Array(MAX_LIQUID_BUFFER);
   const bufferY = new Int32Array(MAX_LIQUID_BUFFER);
   let bufferLength = 0;
@@ -310,6 +313,7 @@ export function createTerrariaLiquid(
 
   /** Liquid.UpdateLiquid: one slice of the list, and at the end of a cycle, the sweep of sleeping entries. */
   function updateLiquid(): void {
+    updates++;
     wetCounter++;
     const slice = Math.floor(MAX_LIQUID / CYCLES);
     const from = slice * (wetCounter - 1);
@@ -379,6 +383,7 @@ export function createTerrariaLiquid(
     downVelocity,
     updatesPerSecond: TERRARIA_LIQUID_UPDATES_PER_SECOND,
     activeCount: () => numLiquid,
+    updateCount: () => updates,
     addWater: (index) => {
       const x = index % width;
       addWater(x, (index - x) / width);

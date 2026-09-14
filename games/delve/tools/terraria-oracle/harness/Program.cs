@@ -64,9 +64,8 @@ foreach (var scene in input.EnumerateArray())
   bool firstSnapshot = true;
   for (int u = 0; u <= updates; ++u)
   {
-    // two frames drawn per liquid update: 60 frames a second, liquid every second world update
-    PrepareFrame(width, height);
-    PrepareFrame(width, height);
+    // Main.RenderWater, one frame in four at 60 a second: once every second liquid update
+    if (u % 2 == 0) PrepareFrame(width, height);
     if (u % every == 0)
     {
       if (!firstSnapshot) output.Append(',');

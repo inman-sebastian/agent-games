@@ -2834,7 +2834,7 @@
    "########################"
   ],
   "updates": 200,
-  "snapshotEvery": 5,
+  "snapshotEvery": 10,
   "events": [
    {
     "at": 5,
@@ -3285,7 +3285,7 @@
    "########################"
   ],
   "updates": 320,
-  "snapshotEvery": 5,
+  "snapshotEvery": 10,
   "events": [
    {
     "at": 150,

@@ -453,20 +453,64 @@ export function prepareLiquidDraw(liquid: TerrariaLiquid, firstWorldRow = 0): Li
   return draw;
 }
 
+/**
+ * Main.waterTarget: Terraria renders its liquid into a render target on one frame in four (Main.renderCount,
+ * advanced each frame by the lighting pass) and draws that target every frame. At 60 frames a second with
+ * liquid every second frame, the picture refreshes every second liquid update, always at the same point of the
+ * cycle — which hides a stream's update-to-update alternation where it pours over a lip and lands.
+ */
+interface WaterTarget {
+  shown: Uint8Array;
+  opacity: Float32Array;
+  /** Half the liquid update count it was rendered at. */
+  renderedHalf: number;
+}
+
+/** Each liquid picture refreshes once per this many liquid updates. */
+const UPDATES_PER_RENDER = 2;
+
+const waterTargets = new WeakMap<TerrariaLiquid, WaterTarget>();
+
 /** Draw the liquid into `pixels` (RGBA, rock already drawn), as Terraria's LiquidRenderer draws it. */
 export function drawTerrariaLiquid(
   frame: TerrariaLiquidFrame,
   pixels: Uint8ClampedArray,
   style: LiquidStyle = WATER_STYLE,
 ): void {
-  const { liquid, cell, open, width, height, originY } = frame;
+  const { liquid, open, width, height } = frame;
+  const half = Math.floor(liquid.updateCount() / UPDATES_PER_RENDER);
+  let target = waterTargets.get(liquid);
+  if (!target || target.shown.length !== width * height || target.renderedHalf !== half) {
+    target = renderWater(frame, target);
+    target.renderedHalf = half;
+    waterTargets.set(liquid, target);
+  }
+  // paint: the whole sprite at one opacity, as a tinted, faded sprite batch draws it; rock stays in front
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    const kind = target.shown[pixel];
+    if (kind === Texel.Clear || !open[pixel]) continue;
+    const colour =
+      kind === Texel.Surface ? style.surface : kind === Texel.Light ? style.light : style.mid;
+    blend(pixels, pixel * 4, colour, target.opacity[pixel]);
+  }
+}
+
+/** Main.RenderWater: prepare the draw and lay every tile's source rectangle into the target. */
+function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined): WaterTarget {
+  const { liquid, cell, width, height, originY } = frame;
   const draw = prepareLiquidDraw(liquid, Math.floor(originY / cell));
   const scale = TILE / cell; // Terraria units per art px
   const baseOpacity = DEFAULT_OPACITY[liquid.kind];
   const frameNumber = Math.floor(frame.time * ANIMATION_FRAMES_PER_SECOND) % ANIMATION_FRAMES;
-  // what each art pixel shows: its texel, and the opacity it's drawn at
-  const shown = new Uint8Array(width * height);
-  const pixelOpacity = new Float32Array(width * height);
+  const target: WaterTarget =
+    reuse && reuse.shown.length === width * height
+      ? reuse
+      : {
+          shown: new Uint8Array(width * height),
+          opacity: new Float32Array(width * height),
+          renderedHalf: -1,
+        };
+  target.shown.fill(Texel.Clear);
   for (let row = 0; row < liquid.height; row++) {
     for (let column = 0; column < liquid.width; column++) {
       const index = row * liquid.width + column;
@@ -491,19 +535,12 @@ export function drawTerrariaLiquid(
           if (kind === Texel.Clear) continue;
           const x = column * cell + px;
           const y = row * cell + py;
-          if (x >= width || y >= height || !open[y * width + x]) continue;
-          shown[y * width + x] = kind;
-          pixelOpacity[y * width + x] = opacity;
+          if (x >= width || y >= height) continue;
+          target.shown[y * width + x] = kind;
+          target.opacity[y * width + x] = opacity;
         }
       }
     }
   }
-  // paint: the whole sprite at one opacity, as a tinted, faded sprite batch draws it
-  for (let pixel = 0; pixel < width * height; pixel++) {
-    const kind = shown[pixel];
-    if (kind === Texel.Clear) continue;
-    const colour =
-      kind === Texel.Surface ? style.surface : kind === Texel.Light ? style.light : style.mid;
-    blend(pixels, pixel * 4, colour, pixelOpacity[pixel]);
-  }
+  return target;
 }

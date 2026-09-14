@@ -59,6 +59,15 @@ pixels a frame (8 a tile), which is exactly DELVE's art pixel. DELVE's (`texel`)
 
 Every pixel of a tile is drawn at one opacity: 60% of the tile's trail opacity for water, 95% for lava.
 
+**The picture refreshes every second liquid update.** Terraria renders liquid into a render target
+(`Main.waterTarget`) on one frame in four (`Main.renderCount`, advanced each frame by the lighting pass) and
+draws that target every frame. At 60 frames a second with liquid every second frame, that's once every second
+liquid update, always at the same point of the cycle. It matters: a stream pouring over a lip alternates
+between two states from one update to the next, and drawn every update it flickers where it leaves one pool
+and where it lands in the next. The renderer keeps a water target per liquid, re-rendered when the update
+count reaches a new even number, and paints it every frame (`client/src/fluid/terraria-liquid-render.test.ts`
+fails if the picture changes on an odd update).
+
 **Palette (Resurrect 64).** The texture uses the Surface, Light and Mid roles.
 
 **Palette (Resurrect 64).**
@@ -83,7 +92,7 @@ Nothing here is checked against a reading of Terraria's code: it's checked again
   `LiquidBuffer.cs` and `LiquidRenderer.cs`, unmodified, against minimal stubs (`Stubs.cs`: tiles, the
   3×3 framing, a seeded `genRand`). `Program.cs` runs each scene in a world with a 10-tile rock margin and
   writes every tile's level, the active list's size, and every tile's draw entry (source rectangle, offset,
-  trail opacity, surface frame), with two frames prepared per update.
+  trail opacity, surface frame), with the water rendered once every second update, as the game renders it.
 - **The scenes** (`tools/terraria-oracle/scenes.json`): a dropped block, full and partial breaches, three
   gaps, a pool drained into a cave, pouring, a U-bend, terraces, digging inside a moving pool, digging inside
   a settled pool, a breach big enough to fill more than a slice of the list, a lava breach, and an overflow
