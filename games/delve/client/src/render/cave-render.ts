@@ -126,8 +126,11 @@ export const EDGE_NOISE_FREQ = 0.28;
 export const CORNER_ROUND_BASE = 1.3;
 export const CORNER_ROUND_NOISE = 0.65;
 
-/** Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. */
-function buildMask(
+/**
+ * Per-pixel solidity mask with gently eroded (organic) edges; noise is in WORLD space. Exported as the
+ * liquid's collision (#88), so it meets the stone's visible edge.
+ */
+export function buildMask(
   isSolid: SolidTile,
   width: number,
   height: number,
