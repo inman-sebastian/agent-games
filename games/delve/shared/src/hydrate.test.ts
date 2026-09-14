@@ -102,8 +102,10 @@ describe('hydrate', () => {
     // all, so its surroundings are solid. Better a fresh spawn than a save that cannot be played —
     // but on this world's ground. This test used to compare against `newPlayer()` with no seed, i.e.
     // seed 1's spawn, so it passed while the fallback put the player on a different world's surface.
+    // Deep in unbroken rock, so there is genuinely no room within the search range. (This sat at row 6
+    // until unstick's range was restored to six blocks, at which point the sky was within reach.)
     const seed = 5;
-    const s = hydrate({ seed, c: 40, r: 6 });
+    const s = hydrate({ seed, c: 40, r: 200 });
     const spawn = engine.newPlayer(seed);
     expect(s.player.x).toBe(spawn.x);
     expect(s.player.y).toBe(spawn.y);

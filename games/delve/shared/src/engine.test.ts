@@ -16,6 +16,7 @@ import {
   key,
   unstick,
   bodyFits,
+  withinReach,
   PHYS,
   TICK_DT,
   WIDTH,
@@ -175,6 +176,29 @@ describe('mining mechanics', () => {
     expect(exercised, 'the test must actually break ore in most seeds').toBeGreaterThanOrEqual(20);
   });
 
+  it('mining an already-dug cell yields nothing — no second helping of ore', () => {
+    // mineTile's only caller (physicsStep) checks solidity first, so this was never reachable through
+    // play. But it's an exported sim function that minted ore for whatever it was pointed at, which
+    // makes correctness depend on every future caller remembering a guard. The guard belongs here.
+    let exercised = 0;
+    for (let seed = 1; seed <= 20 && exercised < 5; seed++) {
+      const session = newSession(seed);
+      let cell: { c: number; r: number } | null = null;
+      for (let r = 1; r <= 300 && !cell; r++)
+        for (let c = 0; c < WIDTH && !cell; c++) if (oreAt(seed, c, r)) cell = { c, r };
+      if (!cell) continue;
+      expect(mineTile(session, cell.c, cell.r, 50, [])).toBe(true);
+      const heldAfterFirst = invCount(session.player);
+
+      const again: SimEvent[] = [];
+      expect(mineTile(session, cell.c, cell.r, 50, again)).toBe(false);
+      expect(again).toEqual([]);
+      expect(invCount(session.player)).toBe(heldAfterFirst);
+      exercised++;
+    }
+    expect(exercised).toBeGreaterThan(0);
+  });
+
   it('mineTile deals damage over hits and eventually breaks the cell', () => {
     const session = newSession(555);
     const col = Math.floor(session.player.x);
@@ -251,6 +275,55 @@ describe('#8 regression — horizontal movement is unbounded', () => {
   });
 });
 
+const PHYS_MINE_DT = TICK_DT;
+
+describe('reach has one definition', () => {
+  // The client's reticle used to compute reach from the CENTRE cell while the sim measured from the
+  // body's span; they disagreed by up to two cells vertically. withinReach is now the single rule both
+  // call. physicsStep calls it too, so this first property can't catch a change to reach itself — it
+  // catches the sim growing an EXTRA mining condition the reticle doesn't know about, which is how the
+  // two would drift apart again. The test after it pins the rule itself.
+  it('matches, cell for cell, what physicsStep will actually mine', () => {
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.integer({ min: -5, max: 5 }),
+        fc.integer({ min: -7, max: 7 }),
+        (seed, dc, dr) => {
+          const session = newSession(seed);
+          // stand in a carved pocket so there is solid rock in every direction to aim at
+          const column = Math.floor(session.player.x) + dc;
+          const row = Math.floor(session.player.y) + dr;
+          if (!solidCell(session.world, column, row)) return; // only solid targets are minable at all
+          const predicted = withinReach(session.player, column, row);
+          const before = session.world.dmg[key(column, row)] ?? 0;
+          const { events } = physicsStep(
+            session,
+            { left: false, right: false, jump: false, mine: { column, row } },
+            PHYS_MINE_DT,
+          );
+          const acted =
+            events.some(
+              (e) => (e.type === 'chip' || e.type === 'break') && e.c === column && e.r === row,
+            ) ||
+            (session.world.dmg[key(column, row)] ?? 0) !== before ||
+            session.player.digKey === key(column, row);
+          expect(acted, `target ${dc},${dr} from the body`).toBe(predicted);
+        },
+      ),
+    );
+  });
+
+  it('reaches the cell under the feet and the cell above the head', () => {
+    const { player } = newSession(1);
+    const feetRow = Math.floor(player.y + PHYS.HH + 0.01);
+    const headRow = Math.floor(player.y - PHYS.HH + 0.01) - 1;
+    expect(withinReach(player, Math.floor(player.x), feetRow)).toBe(true);
+    expect(withinReach(player, Math.floor(player.x), headRow)).toBe(true);
+    expect(withinReach(player, Math.floor(player.x), feetRow + PHYS.REACH + 1)).toBe(false);
+  });
+});
+
 describe('facing is the movement rule, and only the movement rule', () => {
   // The miner used to turn toward the MOUSE while mining, which fought the direction they were
   // walking and flickered: `facing` is part of PlayerState, so the server owns it and replaces it on
@@ -324,6 +397,31 @@ describe('derived stats at base levels', () => {
       expect(blockAt(1, column, surfaceAt(1, column)).solid, `column ${column}`).toBe(false);
       expect(blockAt(1, column, surfaceAt(1, column) + 1).solid, `column ${column}`).toBe(true);
     }
+  });
+});
+
+describe('unstick searches a WORLD distance', () => {
+  it('rescues a wedged player whose nearest room is five blocks up', () => {
+    // The search range is a length. It was `maxTiles = 6` counted in cells, so the 2x2 split (#44)
+    // quietly halved it from six blocks to three, and a rescue that used to succeed fell through to
+    // a fresh spawn — losing the player's place in the world.
+    const session = newSession(3);
+    const { world, player } = session;
+    player.x = 40.5;
+    player.y = 100.5; // deep in solid rock
+    const blocksUp = 5;
+    const lift = blocksUp * SUB;
+    // carve a pocket exactly the body's size, `lift` cells straight up
+    const left = Math.floor(player.x - PHYS.HW + 1e-4);
+    const right = Math.floor(player.x + PHYS.HW - 1e-4);
+    const top = Math.floor(player.y - lift - PHYS.HH + 1e-4);
+    const bottom = Math.floor(player.y - lift + PHYS.HH - 1e-4);
+    for (let c = left; c <= right; c++)
+      for (let r = top; r <= bottom; r++) world.dug[key(c, r)] = true;
+
+    expect(bodyFits(world, player.x, player.y, player)).toBe(false);
+    expect(unstick(world, player)).toBe(true);
+    expect(player.y).toBe(100.5 - lift);
   });
 });
 

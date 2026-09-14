@@ -701,13 +701,13 @@ function render(t: number): void {
   }
   ctx.globalAlpha = 1;
 
-  // mining reticle — the tile being aimed at (bright if solid & within reach, dim otherwise)
+  // mining reticle — the cell being aimed at, bright exactly when the sim would mine it. Reach is the
+  // sim's own rule (engine.withinReach, from the body's span) read against the sim's player — not the
+  // smoothed display position, and not a centre-cell approximation, which is what this used to be and
+  // why it dimmed cells the miner could reach.
   if (curTarget) {
     const { column, row } = curTarget;
-    const withinReach =
-      Math.abs(column - Math.floor(px)) <= engine.PHYS.REACH &&
-      Math.abs(row - Math.floor(py)) <= engine.PHYS.REACH;
-    const ok = engine.solidCell(s.world, column, row) && withinReach;
+    const ok = engine.solidCell(s.world, column, row) && engine.withinReach(s.player, column, row);
     ctx.globalAlpha = ok ? 0.85 : 0.22;
     ctx.strokeStyle = ok ? '#fdf3d4' : '#8892a0';
     ctx.strokeRect(column * T + 0.5, row * T + 0.5, T - 1, T - 1);
@@ -1124,7 +1124,7 @@ function updateDebug(): void {
     `DELVE · debug  (F3 to toggle)\n` +
     `fps   ${fpsEMA.toFixed(1).padStart(5)}   frame ${frameMsEMA.toFixed(2)}ms\n` +
     `pos   ${s.player.x.toFixed(2)},${s.player.y.toFixed(2)}  vel ${s.player.vx.toFixed(1)},${s.player.vy.toFixed(1)}  ${s.player.grounded ? 'ground' : 'air'}  facing ${s.player.facing}\n` +
-    `depth ${s.player.depth}m\n` +
+    `depth ${metres(s.player.depth)}m (cell row ${s.player.depth})\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
     `phase ${Object.entries(phaseMs)
@@ -1143,6 +1143,11 @@ function updateDebug(): void {
 }
 
 // ---- HUD / inventory --------------------------------------------------------------------
+// Depth is shown in METRES, and a metre is a BLOCK: the miner is 1.82 blocks tall, a person-sized
+// 1.82m. The sim records depth as a cell row, so every readout converts — without this the 2x2
+// split (#44) doubled every depth the player saw (the HUD, the codex's "deepest", the debug panel)
+// with no change in how deep anything actually was.
+const metres = (row: number): number => engine.blockOf(row);
 const el = (id: string): HTMLElement => document.getElementById(id)!;
 const overlay = el('overlay');
 const codexOverlay = el('codexOverlay');
@@ -1167,7 +1172,7 @@ function resume(): void {
 }
 
 function updateHUD(): void {
-  el('depth').textContent = String(s.player.depth);
+  el('depth').textContent = String(metres(s.player.depth));
   el('held').textContent = engine.invCount(s.player).toLocaleString();
 }
 
@@ -1209,7 +1214,7 @@ function renderCodex(): void {
     info.className = 'info';
     info.innerHTML = found
       ? `<div class="nm">${ore.name}</div><div class="ds">${ore.desc}</div>` +
-        `<div class="ds" style="color:var(--c-gold)">mined ${entry.mined.toLocaleString()} · deepest ${entry.deepest}m</div>`
+        `<div class="ds" style="color:var(--c-gold)">mined ${entry.mined.toLocaleString()} · deepest ${metres(entry.deepest)}m</div>`
       : `<div class="nm" style="color:var(--c-dim)">? ? ?</div><div class="ds">Undiscovered — dig deeper to find it.</div>`;
     row.appendChild(slot);
     row.appendChild(info);

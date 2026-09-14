@@ -186,10 +186,18 @@ export function bodyFits(
   return true;
 }
 
-export function unstick(world: WorldState, player: PlayerState, maxTiles = 6): boolean {
+// How far to search for room, in CELLS — six blocks. A length, so it scales with the split (#44); it
+// was a bare 6 that silently became three blocks when the cell halved.
+const UNSTICK_SEARCH_CELLS = 6 * SUB;
+
+export function unstick(
+  world: WorldState,
+  player: PlayerState,
+  maxCells = UNSTICK_SEARCH_CELLS,
+): boolean {
   const fits = (y: number): boolean => bodyFits(world, player.x, y, player);
   if (fits(player.y)) return true;
-  for (let step = 1; step <= maxTiles; step++) {
+  for (let step = 1; step <= maxCells; step++) {
     for (const y of [player.y - step, player.y + step]) {
       if (!fits(y)) continue;
       player.y = y;
@@ -249,8 +257,10 @@ export function mineTile(
   events: SimEvent[],
 ): boolean {
   const { world, player } = session;
-  // Above the ground in THIS column — the surface is a heightmap, so this is not one row any more.
-  if (row <= surfaceAt(world.seed, column)) return false;
+  // Only rock that is actually there: not open sky (the surface is a heightmap, so that is not one
+  // row), and not a cell already dug — which this used to break again, minting its ore a second time.
+  // The one caller checked first, but a guard every caller must remember isn't a guard.
+  if (!solidCell(world, column, row)) return false;
   const block = blockAt(world.seed, column, row);
   const cellKey = key(column, row);
   if (player.digKey !== cellKey) {
@@ -438,13 +448,7 @@ export function physicsStep(
   // exactly.
   if (input.mine) {
     const { column, row } = input.mine;
-    const left = Math.floor(player.x - HW + EPSILON);
-    const right = Math.floor(player.x + HW - EPSILON);
-    const top = Math.floor(player.y - HH + EPSILON);
-    const bottom = Math.floor(player.y + HH - EPSILON);
-    const dx = Math.max(left - column, 0, column - right);
-    const dy = Math.max(top - row, 0, row - bottom);
-    if (Math.max(dx, dy) <= REACH && solidCell(world, column, row)) mine(column, row);
+    if (withinReach(player, column, row) && solidCell(world, column, row)) mine(column, row);
   }
 
   // --- jump (after ground state is known this frame) ---
@@ -468,6 +472,26 @@ export function physicsStep(
   const reachedRow = Math.floor(player.y);
   if (reachedRow > player.depth) player.depth = reachedRow;
   return { events, grounded: player.grounded, jumped };
+}
+
+/**
+ * Whether `(column, row)` is close enough for `player` to mine: a Chebyshev ring of REACH cells
+ * around the cells the BODY spans, not around its centre.
+ *
+ * Exported because the client's reticle has to give the same answer. It used to measure from the
+ * centre cell instead, and with a body 3.64 cells tall those disagree by up to two cells vertically —
+ * the reticle went dim on cells the sim would happily mine, and aimed the player at ones it wouldn't.
+ */
+export function withinReach(player: PlayerState, column: number, row: number): boolean {
+  const hw = player.hw ?? HALF_WIDTH;
+  const hh = player.hh ?? HALF_HEIGHT;
+  const left = Math.floor(player.x - hw + EPSILON);
+  const right = Math.floor(player.x + hw - EPSILON);
+  const top = Math.floor(player.y - hh + EPSILON);
+  const bottom = Math.floor(player.y + hh - EPSILON);
+  const dx = Math.max(left - column, 0, column - right);
+  const dy = Math.max(top - row, 0, row - bottom);
+  return Math.max(dx, dy) <= REACH;
 }
 
 function anySolidInColumn(
