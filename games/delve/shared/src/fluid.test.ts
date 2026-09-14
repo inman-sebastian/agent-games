@@ -1,7 +1,7 @@
-// fluid.test.ts — the cellular-automaton fluid (#30) under fuzzing. Random terrain and random pours,
-// asserting what must hold in every case: mass is conserved exactly, fluid never sits in rock, the
-// step is deterministic, a closed basin settles flat, and fluid outside the active region freezes.
-// See docs/FLUIDS.md.
+// fluid.test.ts — the whole-cell fluid automaton (#30) under fuzzing. Random terrain and random pours,
+// asserting what must hold in every case: cells are conserved exactly, fluid never sits in rock, the
+// step is deterministic, resting fluid is always supported, a closed basin settles flat, and fluid
+// outside the active region freezes. See docs/FLUIDS.md.
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
 import {
@@ -10,29 +10,32 @@ import {
   stepFluid,
   wakeAround,
   fluidAt,
-  fluidMass,
+  fluidCount,
   fluidKey,
-  MAX_LEVEL,
+  columnOfKey,
+  rowOfKey,
   type FluidField,
   type FluidKind,
+  type SolidQuery,
 } from './fluid';
 
 const W = 16;
 const H = 12;
+const SETTLE_TICK_CAP = 5000;
 
 /** A closed box: walls on every side, plus whatever interior rock the test adds. */
-function boxSolid(rock: ReadonlySet<number>): (column: number, row: number) => boolean {
+function boxSolid(rock: ReadonlySet<number>): SolidQuery {
   return (column, row) =>
     column < 0 || column >= W || row < 0 || row >= H || rock.has(fluidKey(column, row));
 }
 
+const cellArb = fc.record({
+  c: fc.integer({ min: 0, max: W - 1 }),
+  r: fc.integer({ min: 0, max: H - 1 }),
+});
+
 const rockArb = fc
-  .array(
-    fc.record({ c: fc.integer({ min: 0, max: W - 1 }), r: fc.integer({ min: 0, max: H - 1 }) }),
-    {
-      maxLength: 40,
-    },
-  )
+  .array(cellArb, { maxLength: 40 })
   .map((cells) => new Set(cells.map(({ c, r }) => fluidKey(c, r))));
 
 const pourArb = fc.array(
@@ -40,16 +43,17 @@ const pourArb = fc.array(
     c: fc.integer({ min: 0, max: W - 1 }),
     r: fc.integer({ min: 0, max: H - 1 }),
     kind: fc.constantFrom<FluidKind>('water', 'lava'),
-    amount: fc.integer({ min: 1, max: MAX_LEVEL * 3 }),
     atTick: fc.integer({ min: 0, max: 60 }),
   }),
-  { minLength: 1, maxLength: 12 },
+  { minLength: 1, maxLength: 40 },
 );
 
-/** Run a scenario, handing each tick to `check`. Returns the field and how much of each kind went in. */
+type Pour = { c: number; r: number; kind: FluidKind; atTick: number };
+
+/** Run a scenario, handing each tick to `check`. Returns the field and how many cells of each kind went in. */
 function run(
   rock: ReadonlySet<number>,
-  pours: { c: number; r: number; kind: FluidKind; amount: number; atTick: number }[],
+  pours: Pour[],
   ticks: number,
   check: (field: FluidField, poured: Record<FluidKind, number>) => void = () => {},
 ): { field: FluidField; poured: Record<FluidKind, number> } {
@@ -59,7 +63,7 @@ function run(
   for (let tick = 0; tick < ticks; tick++) {
     for (const pour of pours) {
       if (pour.atTick !== tick) continue;
-      poured[pour.kind] += pourFluid(field, pour.c, pour.r, pour.kind, pour.amount, solid);
+      if (pourFluid(field, pour.c, pour.r, pour.kind, solid)) poured[pour.kind]++;
     }
     stepFluid(field, solid);
     check(field, poured);
@@ -67,33 +71,86 @@ function run(
   return { field, poured };
 }
 
+function settle(field: FluidField, solid: SolidQuery): number {
+  let ticks = 0;
+  while (field.active.size > 0 && ticks < SETTLE_TICK_CAP) {
+    stepFluid(field, solid);
+    ticks++;
+  }
+  return ticks;
+}
+
 describe('fluid invariants', () => {
-  it('conserves mass exactly, every tick, for both kinds', () => {
+  it('conserves cells exactly, every tick, for both kinds', () => {
     fc.assert(
       fc.property(rockArb, pourArb, (rock, pours) => {
         run(rock, pours, 150, (field, poured) => {
-          expect(fluidMass(field, 'water')).toBe(poured.water);
-          expect(fluidMass(field, 'lava')).toBe(poured.lava);
+          expect(fluidCount(field, 'water')).toBe(poured.water);
+          expect(fluidCount(field, 'lava')).toBe(poured.lava);
         });
       }),
     );
   });
 
-  it('never puts fluid in a solid cell, and never over-fills one', () => {
+  it('never puts fluid in a solid cell', () => {
     fc.assert(
       fc.property(rockArb, pourArb, (rock, pours) => {
         const solid = boxSolid(rock);
         run(rock, pours, 150, (field) => {
-          for (let column = -1; column <= W; column++) {
-            for (let row = -1; row <= H; row++) {
-              const cell = fluidAt(field, column, row);
-              if (!cell) continue;
-              expect(solid(column, row), `fluid in rock at ${column},${row}`).toBe(false);
-              expect(cell.level).toBeGreaterThan(0);
-              expect(cell.level).toBeLessThanOrEqual(MAX_LEVEL);
-            }
+          for (const key of field.cells.keys()) {
+            const column = columnOfKey(key);
+            const row = rowOfKey(key);
+            expect(solid(column, row), `fluid in rock at ${column},${row}`).toBe(false);
           }
         });
+      }),
+    );
+  });
+
+  it('every move goes strictly down: total height never rises between pours', () => {
+    // The termination argument (FLUIDS.md). A sideways move that isn't also a fall could let two
+    // cells trade places forever; this is the property that rules it out.
+    const heightOf = (field: FluidField): number => {
+      let total = 0;
+      for (const key of field.cells.keys()) total += rowOfKey(key);
+      return total;
+    };
+    fc.assert(
+      fc.property(rockArb, pourArb, (rock, pours) => {
+        const solid = boxSolid(rock);
+        const field = newFluidField();
+        for (let tick = 0; tick < 150; tick++) {
+          for (const pour of pours) {
+            if (pour.atTick === tick) pourFluid(field, pour.c, pour.r, pour.kind, solid);
+          }
+          const before = heightOf(field);
+          const { moves } = stepFluid(field, solid);
+          // Rows grow downward, so the sum of rows grows by exactly one per row fallen.
+          expect(heightOf(field)).toBeGreaterThanOrEqual(before);
+          for (const [from, to] of moves) expect(rowOfKey(to)).toBeGreaterThan(rowOfKey(from));
+        }
+      }),
+    );
+  });
+
+  it('a cell moves at most once per tick: nothing teleports by chaining moves', () => {
+    fc.assert(
+      fc.property(rockArb, pourArb, (rock, pours) => {
+        const solid = boxSolid(rock);
+        const field = newFluidField();
+        for (let tick = 0; tick < 150; tick++) {
+          for (const pour of pours) {
+            if (pour.atTick === tick) pourFluid(field, pour.c, pour.r, pour.kind, solid);
+          }
+          const { moves } = stepFluid(field, solid);
+          // In order: a move may start where an earlier move this tick LEFT (another cell arriving
+          // there is fine), but never from a cell an earlier move this tick delivered.
+          const arrived = new Set<number>();
+          for (const [from, to] of moves) {
+            expect(arrived.has(from), 'moved twice in one tick').toBe(false);
+            arrived.add(to);
+          }
+        }
       }),
     );
   });
@@ -111,45 +168,54 @@ describe('fluid invariants', () => {
 });
 
 describe('settling', () => {
-  it('a closed basin of water comes to rest: the active set empties and the surface is flat', () => {
+  it('fluid always comes to rest, and nothing rests in mid-air', () => {
+    fc.assert(
+      fc.property(rockArb, pourArb, (rock, pours) => {
+        const solid = boxSolid(rock);
+        const { field } = run(rock, pours, 61);
+        const ticks = settle(field, solid);
+        expect(field.active.size, `still moving after ${ticks} ticks`).toBe(0);
+        for (let column = 0; column < W; column++) {
+          for (let row = 0; row < H; row++) {
+            if (!fluidAt(field, column, row)) continue;
+            const supported = solid(column, row + 1) || fluidAt(field, column, row + 1) !== null;
+            expect(supported, `fluid hanging at ${column},${row}`).toBe(true);
+          }
+        }
+      }),
+    );
+  });
+
+  it('a closed basin of water settles flat: every row under the top one is full', () => {
     fc.assert(
       fc.property(
         fc.integer({ min: 0, max: W - 1 }),
-        fc.integer({ min: 1, max: MAX_LEVEL * W * 3 }),
-        (column, amount) => {
+        fc.integer({ min: 1, max: W * (H - 2) }),
+        (column, cells) => {
           const solid = boxSolid(new Set());
           const field = newFluidField();
-          // Poured in a column of cells from the top, the way a breached pocket arrives.
-          let left = amount;
-          for (let row = 0; row < H && left > 0; row++) {
-            left -= pourFluid(field, column, row, 'water', left, solid);
-          }
-          let ticks = 0;
-          while (field.active.size > 0 && ticks < 20_000) {
+          // Poured as a stream into one column, the way a breached pocket arrives.
+          let poured = 0;
+          for (let tick = 0; poured < cells && tick < SETTLE_TICK_CAP; tick++) {
+            if (pourFluid(field, column, 0, 'water', solid)) poured++;
             stepFluid(field, solid);
-            ticks++;
           }
+          expect(poured).toBe(cells);
+          const ticks = settle(field, solid);
           expect(field.active.size, `still moving after ${ticks} ticks`).toBe(0);
 
-          // Every row below the top partial one is full, and the partial row is flat to within one
-          // unit between neighbours — the integer average's residue, invisible at 255 units a cell.
-          const levelAt = (c: number, r: number): number => fluidAt(field, c, r)?.level ?? 0;
-          for (let row = 0; row < H; row++) {
-            const levels = Array.from({ length: W }, (_, c) => levelAt(c, row));
-            const below =
-              row + 1 < H ? Array.from({ length: W }, (_, c) => levelAt(c, row + 1)) : null;
-            if (levels.some((level) => level > 0) && below) {
-              expect(
-                below.every((level) => level === MAX_LEVEL),
-                `row ${row + 1} under water is full`,
-              ).toBe(true);
+          const fullRows = Math.floor(cells / W);
+          for (let row = H - 1; row >= H - fullRows; row--) {
+            for (let c = 0; c < W; c++) {
+              expect(fluidAt(field, c, row), `hole in full row ${row} at ${c}`).toBe('water');
             }
-            for (let c = 1; c < W; c++) {
-              expect(
-                Math.abs(levels[c] - levels[c - 1]),
-                `step at ${c},${row}`,
-              ).toBeLessThanOrEqual(1);
-            }
+          }
+          const topRow = H - fullRows - 1;
+          let inTopRow = 0;
+          for (let c = 0; c < W; c++) if (fluidAt(field, c, topRow)) inTopRow++;
+          expect(inTopRow).toBe(cells % W);
+          for (let row = 0; row < topRow; row++) {
+            for (let c = 0; c < W; c++) expect(fluidAt(field, c, row)).toBeNull();
           }
         },
       ),
@@ -158,42 +224,41 @@ describe('settling', () => {
 
   it('lava is slower than water', () => {
     const solid = boxSolid(new Set());
-    const reach = (kind: FluidKind): number => {
+    const furthest = (kind: FluidKind): number => {
       const field = newFluidField();
-      pourFluid(field, 0, H - 1, kind, MAX_LEVEL, solid);
-      for (let tick = 0; tick < 40; tick++) stepFluid(field, solid);
-      let furthest = 0;
-      for (let c = 0; c < W; c++) if (fluidAt(field, c, H - 1)) furthest = c;
-      return furthest;
+      for (let row = H - 4; row < H; row++) pourFluid(field, 0, row, kind, solid);
+      for (let tick = 0; tick < 12; tick++) stepFluid(field, solid);
+      let reached = 0;
+      for (let c = 0; c < W; c++) if (fluidAt(field, c, H - 1)) reached = c;
+      return reached;
     };
-    expect(reach('lava')).toBeLessThan(reach('water'));
+    expect(furthest('lava')).toBeLessThan(furthest('water'));
   });
 
-  it("kinds don't mix: water treats lava as a wall", () => {
+  it("kinds don't mix: water rests on lava instead of displacing it", () => {
     const solid = boxSolid(new Set());
     const field = newFluidField();
-    pourFluid(field, 5, H - 1, 'lava', MAX_LEVEL, solid);
-    pourFluid(field, 5, H - 2, 'water', MAX_LEVEL, solid);
-    for (let tick = 0; tick < 200; tick++) stepFluid(field, solid);
-    // The water came to rest on the lava rather than displacing it: the lava's cell is still lava.
-    expect(fluidAt(field, 5, H - 1)?.kind).toBe('lava');
-    expect(fluidMass(field, 'water')).toBe(MAX_LEVEL);
-    expect(fluidMass(field, 'lava')).toBe(MAX_LEVEL);
+    pourFluid(field, 5, H - 1, 'lava', solid);
+    pourFluid(field, 5, H - 2, 'water', solid);
+    settle(field, solid);
+    expect(fluidAt(field, 5, H - 1)).toBe('lava');
+    expect(fluidCount(field, 'water')).toBe(1);
+    expect(fluidCount(field, 'lava')).toBe(1);
   });
 });
 
 describe('sleeping and waking', () => {
   it('a settled lake sleeps through a breach until the terrain change is reported', () => {
-    // A lake on the left of a one-cell dam; the right side is dry.
+    // A lake on the left of a one-cell-thick dam; the right side is dry.
     const rock = new Set<number>();
     const DAM = 6;
     for (let row = 0; row < H; row++) rock.add(fluidKey(DAM, row));
     const solidWithDam = boxSolid(rock);
     const field = newFluidField();
     for (let row = H - 1; row >= H - 4; row--) {
-      for (let c = 0; c < DAM; c++) pourFluid(field, c, row, 'water', MAX_LEVEL, solidWithDam);
+      for (let c = 0; c < DAM; c++) pourFluid(field, c, row, 'water', solidWithDam);
     }
-    for (let tick = 0; tick < 500 && field.active.size > 0; tick++) stepFluid(field, solidWithDam);
+    settle(field, solidWithDam);
     expect(field.active.size).toBe(0);
 
     rock.delete(fluidKey(DAM, H - 1)); // dig the dam's bottom cell
@@ -203,13 +268,42 @@ describe('sleeping and waking', () => {
 
     wakeAround(field, DAM, H - 1);
     for (let tick = 0; tick < 20; tick++) stepFluid(field, breached);
-    expect(fluidAt(field, DAM + 1, H - 1)?.kind).toBe('water');
+    expect(fluidAt(field, DAM + 1, H - 1)).toBe('water');
+  });
+
+  it('fluid resting on fluid follows it down when the cell below leaves', () => {
+    // A settled two-cell stack in a one-wide slot (so it can't level out sideways). Digging the slot's
+    // floor wakes the bottom cell, which falls; the cell above it was asleep and must be woken by that
+    // move, or it hangs in the air.
+    const rock = new Set([
+      fluidKey(4, 8),
+      fluidKey(3, 7),
+      fluidKey(5, 7),
+      fluidKey(3, 6),
+      fluidKey(5, 6),
+    ]);
+    const solid = boxSolid(rock);
+    const field = newFluidField();
+    pourFluid(field, 4, 7, 'water', solid);
+    pourFluid(field, 4, 6, 'water', solid);
+    settle(field, solid);
+    expect(fluidAt(field, 4, 6)).toBe('water');
+
+    rock.delete(fluidKey(4, 8));
+    wakeAround(field, 4, 8);
+    settle(field, solid);
+    for (const key of field.cells.keys()) {
+      const column = columnOfKey(key);
+      const row = rowOfKey(key);
+      const supported = solid(column, row + 1) || fluidAt(field, column, row + 1) !== null;
+      expect(supported, `left hanging at ${column},${row}`).toBe(true);
+    }
   });
 
   it('fluid outside the active region freezes, stays awake, and loses nothing', () => {
     const solid = boxSolid(new Set());
     const field = newFluidField();
-    pourFluid(field, 2, 0, 'water', MAX_LEVEL, solid);
+    pourFluid(field, 2, 0, 'water', solid);
     const before = [...field.cells];
     const onlyRightHalf = (column: number): boolean => column >= W / 2;
     for (let tick = 0; tick < 50; tick++) stepFluid(field, solid, onlyRightHalf);
@@ -218,15 +312,16 @@ describe('sleeping and waking', () => {
 
     for (let tick = 0; tick < 50; tick++) stepFluid(field, solid);
     expect(fluidAt(field, 2, 0)).toBeNull(); // released, it fell
-    expect(fluidMass(field, 'water')).toBe(MAX_LEVEL);
+    expect(fluidCount(field, 'water')).toBe(1);
   });
 
-  it('pouring into rock or into the other kind is refused, and reports what was accepted', () => {
+  it('pouring fills only an empty cell', () => {
     const rock = new Set([fluidKey(3, 3)]);
     const solid = boxSolid(rock);
     const field = newFluidField();
-    expect(pourFluid(field, 3, 3, 'water', 10, solid)).toBe(0);
-    expect(pourFluid(field, 4, 4, 'water', MAX_LEVEL + 50, solid)).toBe(MAX_LEVEL);
-    expect(pourFluid(field, 4, 4, 'lava', 10, solid)).toBe(0);
+    expect(pourFluid(field, 3, 3, 'water', solid)).toBe(false);
+    expect(pourFluid(field, 4, 4, 'water', solid)).toBe(true);
+    expect(pourFluid(field, 4, 4, 'water', solid)).toBe(false);
+    expect(pourFluid(field, 4, 4, 'lava', solid)).toBe(false);
   });
 });

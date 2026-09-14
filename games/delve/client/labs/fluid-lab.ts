@@ -11,13 +11,13 @@ import {
   stepFluid,
   wakeAround,
   fluidAt,
-  fluidMass,
+  fluidCount,
   fluidKey,
   columnOfKey,
   rowOfKey,
-  MAX_LEVEL,
   type FluidField,
   type FluidKind,
+  type FluidStepResult,
 } from '@delve/shared';
 import { T, setStrata, composeBand, NO_SKY } from '../src/render/cave-render';
 
@@ -27,12 +27,11 @@ setStrata(STRATA);
 
 const SCALE = 2; // screen px per art px, the game's own zoom
 const WALL = 1; // rock border around the field, in cells
-const POUR_PER_TICK = MAX_LEVEL; // a held pour adds one full cell per tick
 const BRUSH_RADIUS = 1; // cells either side of the cursor that a dig or a build touches
 const REGION_RADIUS = 18; // cells — the active region, when it follows the cursor
 const TICK_RATES = [5, 10, 20, 30, 60, 120]; // fluid ticks per second, cycled with [ and ]
 const BROADCAST_HZ = 20; // the server's state broadcast rate (ARCHITECTURE.md)
-const BYTES_PER_CHANGE = 5; // a packed cell key plus a level — see FLUIDS.md
+const BYTES_PER_CHANGE = 5; // a packed cell key plus a kind — see FLUIDS.md
 const COST_SMOOTHING = 0.1; // exponential average weight for the per-tick numbers
 
 const WATER = { deep: '#323353', body: '#4d65b4', surface: '#8fd3ff', alpha: 0.7 };
@@ -81,7 +80,7 @@ const pourRect = (
 ): void => {
   for (let column = left; column < left + width; column++) {
     for (let row = top; row < top + height; row++) {
-      pourFluid(field, column, row, kind, MAX_LEVEL, isSolid);
+      pourFluid(field, column, row, kind, isSolid);
     }
   }
 };
@@ -115,7 +114,7 @@ const SCENES: readonly Scene[] = [
           if (isSolid(column, row)) continue;
           const kind: FluidKind = row < rows * 0.45 ? 'water' : 'lava';
           if (vnoise(column * 0.2, row * 0.2, seed + 2) > 0.7)
-            pourFluid(field, column, row, kind, MAX_LEVEL, isSolid);
+            pourFluid(field, column, row, kind, isSolid);
         }
       }
     },
@@ -150,7 +149,9 @@ const SCENES: readonly Scene[] = [
 ];
 
 // `?scene=N` opens a scene directly, so `tools/shot.sh` can capture any of them without a key press.
-let sceneIndex = Number(new URLSearchParams(location.search).get('scene') ?? 0) || 0;
+const query = new URLSearchParams(location.search);
+let sceneIndex = Number(query.get('scene') ?? 0) || 0;
+const PRESETTLE_TICKS = Number(query.get('ticks') ?? 0) || 0;
 let rockDirty = true;
 
 function loadScene(index: number): void {
@@ -159,7 +160,11 @@ function loadScene(index: number): void {
   field = newFluidField();
   poured = { water: 0, lava: 0 };
   SCENES[sceneIndex].build();
-  poured = { water: fluidMass(field, 'water'), lava: fluidMass(field, 'lava') };
+  poured = { water: fluidCount(field, 'water'), lava: fluidCount(field, 'lava') };
+  lastMoves = [];
+  // `?ticks=N` runs the scene N ticks before the first frame — Terraria's "Settling liquids" — so
+  // `tools/shot.sh`, which only captures a page's first moments, can show a scene settled.
+  for (let tick = 0; tick < PRESETTLE_TICKS; tick++) stepFluid(field, isSolid);
   rockDirty = true;
 }
 
@@ -232,7 +237,7 @@ function applyBrush(): void {
   const { column, row } = pointer;
   const digging = (pointer.buttons & 2) !== 0;
   if (!digging && !pointer.shift) {
-    poured[kind] += pourFluid(field, column, row, kind, POUR_PER_TICK, isSolid);
+    if (pourFluid(field, column, row, kind, isSolid)) poured[kind]++;
     return;
   }
   for (let dc = -BRUSH_RADIUS; dc <= BRUSH_RADIUS; dc++) {
@@ -260,6 +265,7 @@ const cost = { msPerSecond: 0, stepped: 0, changed: 0, active: 0 };
 let windowStart = performance.now();
 let windowStepMs = 0;
 let lastChanged: ReadonlySet<number> = new Set();
+let lastMoves: FluidStepResult['moves'] = [];
 let accumulator = 0;
 let lastNow = performance.now();
 
@@ -286,6 +292,7 @@ function tick(): void {
   cost.changed = smooth(cost.changed, result.changed.size);
   cost.active = field.active.size;
   lastChanged = result.changed;
+  lastMoves = result.moves;
 }
 
 function frame(now: number): void {
@@ -314,33 +321,60 @@ function draw(): void {
     rockDirty = false;
   }
   g.drawImage(rockLayer, 0, 0);
-  drawFluid();
+  const tickSeconds = 1 / TICK_RATES[rateIndex];
+  drawFluid(paused ? 1 : Math.min(1, accumulator / tickSeconds));
   drawOverlays();
   drawHud();
 }
 
-function drawFluid(): void {
-  for (let row = 0; row < rows; row++) {
-    for (let column = 0; column < cols; column++) {
-      const cell = fluidAt(field, column, row);
-      if (!cell) continue;
-      const colours = cell.kind === 'water' ? WATER : LAVA;
-      const above = fluidAt(field, column, row - 1);
-      const submerged = above !== null && above.kind === cell.kind;
-      const deep = submerged && above.level === MAX_LEVEL;
-      // Whole art pixels, never zero — a sliver of water must still be visible.
-      const height = submerged ? T : Math.max(1, Math.round((cell.level / MAX_LEVEL) * T));
-      const top = row * T + (T - height);
-      g.globalAlpha = colours.alpha;
-      g.fillStyle = deep ? colours.deep : colours.body;
-      g.fillRect(column * T, top, T, height);
-      if (!submerged) {
-        g.fillStyle = colours.surface;
-        g.fillRect(column * T, top, T, 1);
-      }
+/**
+ * Every fluid cell as a whole cell (PALETTE.md#fluids). A cell that moved last tick is drawn sliding
+ * along its path instead of in place: the sim has already decided where it ends, and this only
+ * animates toward it, so nothing appears to jump even when a move crosses several cells.
+ */
+function drawFluid(progress: number): void {
+  const inTransit = new Map<number, number>(); // destination key → source key
+  for (const [from, to] of lastMoves) inTransit.set(to, from);
+
+  for (const [key, cellKind] of field.cells) {
+    const column = columnOfKey(key);
+    const row = rowOfKey(key);
+    const colours = cellKind === 'water' ? WATER : LAVA;
+    const covered = fluidAt(field, column, row - 1) === cellKind;
+    const from = inTransit.get(key);
+    const [x, y] = from === undefined ? [column * T, row * T] : pathPoint(from, key, progress);
+    g.globalAlpha = colours.alpha;
+    g.fillStyle = covered ? colours.deep : colours.body;
+    g.fillRect(x, y, T, T);
+    if (!covered) {
+      g.fillStyle = colours.surface;
+      g.fillRect(x, y, T, 1);
     }
   }
   g.globalAlpha = 1;
+}
+
+/**
+ * Where a moving cell is, in whole art pixels, `progress` of the way along its move.
+ *
+ * An L, never a diagonal, so a moving block never cuts through a rock corner: a drop slides across
+ * its row and then falls one cell, and a levelling move falls down its column and then slides across.
+ */
+function pathPoint(from: number, to: number, progress: number): [number, number] {
+  const fromX = columnOfKey(from) * T;
+  const fromY = rowOfKey(from) * T;
+  const toX = columnOfKey(to) * T;
+  const toY = rowOfKey(to) * T;
+  const horizontal = Math.abs(toX - fromX);
+  const vertical = toY - fromY;
+  const travelled = Math.round((horizontal + vertical) * progress);
+  const acrossFirst = vertical === T && horizontal > 0; // a drop: across, then one cell down
+  const firstLeg = acrossFirst ? horizontal : vertical;
+  const alongFirst = Math.min(travelled, firstLeg);
+  const alongSecond = travelled - alongFirst;
+  const directionX = Math.sign(toX - fromX);
+  if (acrossFirst) return [fromX + directionX * alongFirst, fromY + alongSecond];
+  return [fromX + directionX * alongSecond, fromY + alongFirst];
 }
 
 function drawOverlays(): void {
@@ -377,9 +411,9 @@ function drawHud(): void {
   const changesPerSecond = cost.changed * rate;
   const bytesPerSecond = changesPerSecond * BYTES_PER_CHANGE;
   const cellsPerBroadcast = changesPerSecond / BROADCAST_HZ;
-  const waterMass = fluidMass(field, 'water');
-  const lavaMass = fluidMass(field, 'lava');
-  const drift = waterMass !== poured.water || lavaMass !== poured.lava;
+  const waterCells = fluidCount(field, 'water');
+  const lavaCells = fluidCount(field, 'lava');
+  const drift = waterCells !== poured.water || lavaCells !== poured.lava;
   hud.innerHTML =
     `<b>DELVE · fluid lab</b> — ${SCENES[sceneIndex].name}   [N] next scene · [R] reset\n` +
     `pour <b>${kind}</b> [1 water · 2 lava] · left-drag pour · right-drag dig · shift-drag build\n` +
@@ -388,7 +422,7 @@ function drawHud(): void {
     `sim      ${cost.msPerSecond.toFixed(1)} ms of stepping per second\n` +
     `active   ${cost.active} cells   stepped ${cost.stepped.toFixed(0)}/tick\n` +
     `changed  ${cost.changed.toFixed(0)}/tick  ≤ ${cellsPerBroadcast.toFixed(0)} cells per ${BROADCAST_HZ} Hz broadcast  ≤ ${(bytesPerSecond / 1024).toFixed(1)} KB/s\n` +
-    `mass     water ${(waterMass / MAX_LEVEL).toFixed(1)} · lava ${(lavaMass / MAX_LEVEL).toFixed(1)} cells` +
+    `cells    water ${waterCells} · lava ${lavaCells}` +
     (drift ? '   <b>DRIFT — conservation broken</b>' : '');
 }
 

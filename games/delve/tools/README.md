@@ -166,7 +166,8 @@ audio; that needs a real user gesture.
 Runs the real `stepFluid` over a hand-built rock field. Pour, dig and build with the pointer; the HUD
 reports active, stepped and changed cells, a replication upper bound, and exact mass (it flags
 **DRIFT** if conservation ever breaks). `?scene=N` opens a scene directly: 0 dam break, 1 caves,
-2 U-bend, 3 lava over water. `window.fluidLab` exposes the field, so ask with probe rather than a
+2 U-bend, 3 lava over water. `?ticks=N` runs the scene N ticks before the first frame, so `shot.sh`
+can capture it settled (`scene=3&ticks=3000`). `window.fluidLab` exposes the field, so ask with probe rather than a
 screenshot. `shot.sh` captures only the first moments of a scene, before much has flowed:
 
 ```sh

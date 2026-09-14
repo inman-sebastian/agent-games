@@ -118,9 +118,10 @@ Ramps to author: **The Mine Head** · **Woodland** · **Crags** · **Ocean**.
 > **Lab-provisional** — used by `client/labs/fluid-lab.html` while the simulation is prototyped
 > ([FLUIDS.md](FLUIDS.md)). Confirm in play before the game adopts them.
 
-A fluid cell draws a **body** whose height is its level, quantised to whole art pixels. A cell
-open to the air above also gets a **surface** line, one pixel of the lightest stop. The depth
-stop is used from the second cell down, so deep water reads as darker than a puddle.
+A fluid cell is always drawn **full**: a whole cell of body colour, never a partial height
+([FLUIDS.md](FLUIDS.md#fluid-is-made-of-cells-like-everything-else)). A cell with no fluid of its kind
+above gets a **surface** line, one pixel of the lightest stop along its top edge. A cell with fluid
+above uses the **deep** stop, so depth reads as darker than the surface row.
 
 | Fluid | Deep      | Body      | Surface   | Notes                                                                     |
 | ----- | --------- | --------- | --------- | ------------------------------------------------------------------------- |
