@@ -12,7 +12,8 @@ import { setStrata, composeBand, T } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import type { LightField } from '../src/render/lighting';
-import { createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
+import { createGpuRenderer, GpuUnavailable, bandFor } from '../src/render/gpu/renderer';
+import { createWorldWindow } from '../src/render/gpu/world-window';
 import type { GpuRenderer } from '../src/render/gpu/renderer';
 
 setStrata(STRATA);
@@ -57,6 +58,8 @@ for (let column = centre.column - 60; column <= centre.column + 60; column++) {
 const isSolid = (column: number, row: number): boolean =>
   solidAt(SEED, column, row) && !dug.has(`${column},${row}`);
 const surfaceOf = (column: number): number => surfaceAt(SEED, column);
+// The GPU renderer's persistent mirror of the world around the view (the lab never digs after load).
+const worldWindow = createWorldWindow({ solid: isSolid, surface: surfaceOf });
 
 // ---- canvases -------------------------------------------------------------------------------------
 
@@ -120,13 +123,15 @@ function renderGpu(): number {
     surfaceAt: surfaceOf,
     solidTile: isSolid,
   });
+  // The lab's camera sits on cell boundaries, so the GPU band is exactly the CPU band being diffed.
+  const gpuBand = bandFor(bandLeft * T, bandTop * T, cols * T, rows * T);
+  worldWindow.follow(gpuBand.left, gpuBand.top, gpuBand.cols, gpuBand.rows);
   const frameCost = gpu.render({
-    bandLeft,
-    bandTop,
-    cols,
-    rows,
-    isSolid,
-    surfaceAt: surfaceOf,
+    camX: bandLeft * T,
+    camY: bandTop * T,
+    width: cols * T,
+    height: rows * T,
+    world: worldWindow,
     light: field,
     lighting: lightingOn,
   });
@@ -154,7 +159,7 @@ async function runDiff(): Promise<DiffStats | null> {
   if (!gpu) return null;
   renderCpu();
   renderGpu();
-  const gpuPixels = await gpu.readback();
+  const { pixels: gpuPixels } = await gpu.readback();
   const cpuImage = cpu.getImageData(0, 0, cols * T, rows * T);
   const cpuPixels = cpuImage.data;
   let identical = 0;

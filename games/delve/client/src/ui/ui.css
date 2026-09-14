@@ -237,6 +237,21 @@ button,
   z-index: 0;
 }
 
+/* the WebGPU renderer's canvas (?renderer=gpu, #71): exactly under #c, which becomes its invisible
+   overlay and keeps the pointer input */
+#cgpu {
+  position: fixed;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: var(--c-void);
+  display: block;
+  z-index: 0;
+  pointer-events: none;
+}
+#cgpu[hidden] {
+  display: none;
+}
+
 /* UI is an overlay floating on top of the game; only the controls take pointer input */
 .topbar {
   position: fixed;

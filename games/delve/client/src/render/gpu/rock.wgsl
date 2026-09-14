@@ -6,6 +6,10 @@
 //   jfa_step    one jump-flooding pass — the GPU stand-in for the two-pass chamfer sweep (distField)
 //   shade_main  background, sky, top-lit stone, contact shadow and stalactites       (shadeRock + composeBand)
 //
+// The world comes from the persistent world window (gpu/world-window.ts): cell solidity and surface
+// heights around the view, uploaded only when they change. The top-light seed above the band and the sky
+// both come from that window here, rather than from per-column CPU queries.
+//
 // Needs noise.wgsl and the generated constants prelude (gpu/constants.ts) in front of it. The stone
 // surface's noise frequencies are inline, as they are in palette.ts ("family of coefficients").
 
@@ -16,7 +20,8 @@ struct Band {
   cells: vec2u,         // band size in cells
   tex_seed: u32,
   deepest_sky: f32,     // the lowest sky pixel, relative to the band's top
-  _pad: vec2f,
+  window_cell: vec2i,   // world cell of the world window's top-left
+  window_cells: vec2u,  // world window size in cells
   bg_fill: vec4f,       // colours are 0..255
   bg_silhouette: vec4f,
   sky_top: vec4f,
@@ -31,22 +36,43 @@ struct JfaStep {
 }
 
 @group(0) @binding(0) var<uniform> band: Band;
-@group(0) @binding(1) var<storage, read> cells: array<u32>;        // (cols + 2) × (rows + 2), bit 0 = solid
+@group(0) @binding(1) var<storage, read> cells: array<u32>;        // the world window, row-major, 1 = solid
 @group(0) @binding(2) var<storage, read_write> mask: array<u32>;   // per pixel, 1 = solid
 @group(0) @binding(3) var<storage, read> seeds_in: array<vec2i>;
 @group(0) @binding(4) var<storage, read_write> seeds_out: array<vec2i>;
-@group(0) @binding(5) var<storage, read> column_seed: array<f32>;  // top-light depth entering each column
-@group(0) @binding(6) var<storage, read> column_sky: array<f32>;   // sky bottom per column, band-relative px
+@group(0) @binding(5) var<storage, read> surface: array<f32>;      // the world window's surface row per column
 @group(0) @binding(7) var scene: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(8) var<uniform> jfa: JfaStep;
 
 const NO_SEED = vec2i(-1, -1);
 const FAR: f32 = 1e6;
 
-// A band-relative cell's solidity, including the one-cell ring of context around the band.
+// A band-relative cell's solidity, read from the world window. The window always covers the band plus
+// the context the shaders read (world-window.ts guarantees it); anything past it reads as rock.
 fn solid_cell(column: i32, row: i32) -> bool {
-  let width = i32(band.cells.x) + 2;
-  return (cells[(row + 1) * width + (column + 1)] & 1u) != 0u;
+  let local = band.cell + vec2i(column, row) - band.window_cell;
+  if (local.x < 0 || local.y < 0 || local.x >= i32(band.window_cells.x) || local.y >= i32(band.window_cells.y)) {
+    return true;
+  }
+  return (cells[u32(local.y) * band.window_cells.x + u32(local.x)] & 1u) != 0u;
+}
+
+// The sky's bottom edge in a band column, as a band-relative pixel row.
+fn sky_bottom(column: i32) -> f32 {
+  let local = band.cell.x + column - band.window_cell.x;
+  let row = surface[u32(clamp(local, 0, i32(band.window_cells.x) - 1))];
+  return (row + 1.0) * f32(T) - f32(band.origin.y);
+}
+
+// shadeRock's top-light seed for a column: how deep the solid rock above the band runs, up to
+// TOP_LIGHT_ROWS; all the way means no top light reaches in at all.
+fn column_seed(column: i32) -> f32 {
+  var solid_above = 0;
+  for (var k = 1; k <= TOP_LIGHT_ROWS; k++) {
+    if (!solid_cell(column, -k)) { break; }
+    solid_above++;
+  }
+  return select(f32(solid_above * T), FAR, solid_above >= TOP_LIGHT_ROWS);
 }
 
 fn pixel_index(px: i32, py: i32) -> i32 {
@@ -173,7 +199,7 @@ const TOP_SCAN_PX: i32 = 36;
 fn top_dist(px: i32, py: i32) -> f32 {
   for (var k = 0; k <= TOP_SCAN_PX; k++) {
     let y = py - k;
-    if (y < 0) { return column_seed[px / T] + f32(py); }
+    if (y < 0) { return column_seed(px / T) + f32(py); }
     if (mask[pixel_index(px, y)] == 0u) { return f32(k); }
   }
   return FAR;
@@ -265,7 +291,7 @@ fn shade_main(@builtin(global_invocation_id) id: vec3u) {
   }
 
   // sky, per column, above the ground
-  if (f32(py) < column_sky[px / T]) {
+  if (f32(py) < sky_bottom(px / T)) {
     let t = clamp(f32(py) / band.deepest_sky, 0.0, 1.0);
     colour = floor(mix(band.sky_top.rgb, band.sky_horizon.rgb, t) + 0.5);
   }

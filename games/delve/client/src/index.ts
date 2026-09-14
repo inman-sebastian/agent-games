@@ -18,6 +18,13 @@ import { UPSCALE } from './render/palette';
 import { oreMaterial, collectTwinkleEdges, drawDamage } from './render/materials';
 import { drawPlayer, poseFor, stepLift, STEP_LIFT_TIME } from './render/entity/player';
 import { create as createLighting, LAMP_COLOR } from './render/lighting';
+import {
+  createGpuRenderer,
+  GpuUnavailable,
+  bandFor,
+  type GpuRenderer,
+} from './render/gpu/renderer';
+import { createWorldWindow } from './render/gpu/world-window';
 import * as net from './net';
 import { load, save, fresh } from './save';
 import { createPrediction } from './prediction';
@@ -41,6 +48,37 @@ const CAMERA_LERP = 0.16; // per-frame fraction the camera closes on its target 
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const ctx = canvas.getContext('2d')!;
+
+// ---- the WebGPU renderer (#71), behind ?renderer=gpu --------------------------------------------
+// Canvas 2D stays the default until ores are ported (the GPU path draws them as rock). In GPU mode the
+// rock and the lighting are drawn by the GPU onto #cgpu, behind #c; #c keeps its layout and its pointer
+// input, turns invisible, and becomes the OVERLAY: everything render() still draws onto it (damage,
+// twinkle, particles, the player, floaties, the reticle) is uploaded each frame and composited under
+// the lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
+const gpuCanvas = document.getElementById('cgpu') as HTMLCanvasElement;
+let gpu: GpuRenderer | null = null;
+let rendererNote = 'canvas 2d';
+// While WebGPU is starting, draw no rock at all rather than baking chunks nobody will look at again —
+// the first frames sit behind the title screen anyway.
+let gpuStarting = false;
+if (/(\?|&)renderer=gpu\b/.test(location.search)) {
+  rendererNote = 'starting WebGPU…';
+  gpuStarting = true;
+  createGpuRenderer(gpuCanvas)
+    .then((renderer) => {
+      gpu = renderer;
+      gpuStarting = false;
+      rendererNote = `webgpu · ${renderer.adapter}`;
+      gpuCanvas.hidden = false;
+      canvas.style.opacity = '0';
+    })
+    .catch((error: unknown) => {
+      const reason = error instanceof GpuUnavailable ? error.message : String(error);
+      rendererNote = `canvas 2d (WebGPU unavailable: ${reason})`;
+      gpuStarting = false;
+      console.warn(`DELVE: ${rendererNote}`);
+    });
+}
 
 // ---- state / persistence ----------------------------------------------------------------
 // load/save (the localStorage cache) live in ./save; turning a save back into a Session is
@@ -143,6 +181,21 @@ function chunkWorker(): ChunkWorker | null {
   }
 }
 
+// The GPU renderer's mirror of the world around the view: it asks the world only about cells scrolling
+// into view and cells a dig changes (render/gpu/world-window.ts). Fed by the same hooks as the chunks.
+const worldWindow = createWorldWindow({ solid: solidTile, surface: (column) => surfaceOf(column) });
+
+/**
+ * A cell changed in the world: tell whichever renderer is drawing the rock.
+ *
+ * Only one of them. The chunk cache re-bakes a dug cell's chunk synchronously on the main thread — about
+ * 8 ms — so in GPU mode, where no chunk is ever drawn again, telling it anyway was a hitch on every dig.
+ */
+function cellChanged(column: number, row: number): void {
+  if (gpu) worldWindow.dig(column, row);
+  else chunkCache.dig(column, row); // re-bake the chunks that read it
+}
+
 const chunkCache = createChunkCache({
   sources: () => ({ solid: solidTile, surfaceAt: surfaceOf, materialAt }),
   dugKeys: () => Object.keys(s.world.dug),
@@ -226,7 +279,10 @@ function render(t: number): void {
   const rowB = Math.floor(camY / T) + VIEW_ROWS + 2;
   // the cached rock chunks spanning the view (placeholders while a bake is in flight), plus prefetch
   // and eviction around it
-  chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
+  // (unless the GPU is drawing the rock, or about to, in which case nothing bakes at all)
+  if (!gpu && !gpuStarting) {
+    chunkCache.draw(ctx, chunkX(colL), chunkX(colR), chunkY(rowT), chunkY(rowB));
+  }
   endPhase('chunks');
 
   // Distances in CELLS: full brightness within one block of the lamp, easing out over its reach. Both
@@ -391,6 +447,36 @@ function render(t: number): void {
   // Lantern reaches further), then composite the shared geometry-aware system over the frame.
   // Debug: `lighting` off skips the whole pass (flat, fully-visible world); `fog` off keeps the
   // lamp glow but drops the darkness scrim. (Guard the emitter too, so it isn't left unconsumed.)
+  if (gpu) {
+    // The GPU composites the overlay just drawn onto `canvas` under the same light field the Canvas 2D
+    // path uses. The field is built even with lighting off, because the frame's shape needs one.
+    if (debugFlags.lighting) {
+      lighting.addLight(
+        px * T,
+        (py - 0.1) * T,
+        0,
+        LAMP_COLOR,
+        LAMP_BASE_INTENSITY + LAMP_REACH_GAIN * (st.lamp / engine.SUB),
+      );
+    }
+    const field = lighting.field({ LW, LH, T, camX, camY, surfaceAt: surfaceOf, solidTile });
+    endPhase('lighting');
+    const band = bandFor(camX, camY, LW, LH);
+    worldWindow.follow(band.left, band.top, band.cols, band.rows);
+    gpu.render({
+      camX,
+      camY,
+      width: LW,
+      height: LH,
+      world: worldWindow,
+      light: field,
+      lighting: debugFlags.lighting,
+      scrim: debugFlags.fog,
+      overlay: canvas,
+    });
+    endPhase('gpu');
+    return;
+  }
   if (debugFlags.lighting) {
     lighting.addLight(
       px * T,
@@ -599,7 +685,7 @@ function onEvent(ev: SimEvent): void {
     return;
   }
   if (ev.type !== 'break') return;
-  chunkCache.dig(ev.c, ev.r); // the cell opened → re-bake the chunks that read it
+  cellChanged(ev.c, ev.r); // the cell opened
   // Every reward cue scales by NORMALISED rarity rather than by the tier number, so adding an ore
   // never re-tunes the feedback for the ores already there — which is the mistake this whole thing
   // came from (#46). The coefficients are chosen so the top tier lands exactly where mythril landed
@@ -669,7 +755,7 @@ function tick(): void {
 function reconcile(msg: StateMessage): void {
   for (const cellKey of prediction.reconcile(s, msg)) {
     const comma = cellKey.indexOf(',');
-    chunkCache.dig(+cellKey.slice(0, comma), +cellKey.slice(comma + 1)); // a dig the server saw first
+    cellChanged(+cellKey.slice(0, comma), +cellKey.slice(comma + 1)); // a dig the server saw first
   }
   if (!simRunning()) updateHUD(); // no tick loop while paused/title → refresh HUD for command results
 }
@@ -770,6 +856,7 @@ function updateDebug(): void {
     `depth ${metres(s.player.depth)}m (cell row ${s.player.depth})\n` +
     `cam   ${camX.toFixed(1)},${camY.toFixed(1)}  view ${VIEW_COLS}×${VIEW_ROWS}\n` +
     `canvas ${canvas.width}×${canvas.height} @${up}×  tile ${TILE_PX}px  world ∞×∞\n` +
+    `renderer ${rendererNote}${gpu ? `  gpu done ${gpu.gpuMs.toFixed(1)}ms  window ${worldWindow.cols}×${worldWindow.rows} v${worldWindow.version}` : ''}\n` +
     `phase ${Object.entries(phaseMs)
       .map(([name, ms]) => `${name} ${ms.toFixed(1)}`)
       .join('  ')}\n` +
@@ -888,6 +975,7 @@ function newGame(size: WorldSize): void {
   prediction.reset();
   snapCam();
   chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
+  worldWindow.reset();
   save(s);
   refreshInventory();
   resume(); // close any open menu and hand control back to the mine
@@ -959,6 +1047,11 @@ function fit(): void {
   canvas.style.height = cssH + 'px';
   canvas.style.left = Math.round((innerWidth - cssW) / 2) + 'px'; // centre the viewport canvas
   canvas.style.top = Math.round((innerHeight - cssH) / 2) + 'px';
+  // the GPU canvas sits exactly under the game canvas (its pixel size is the renderer's to set)
+  gpuCanvas.style.width = canvas.style.width;
+  gpuCanvas.style.height = canvas.style.height;
+  gpuCanvas.style.left = canvas.style.left;
+  gpuCanvas.style.top = canvas.style.top;
   // chunk cache is world-space, so it survives resize — no invalidation needed.
 }
 addEventListener('resize', fit);
@@ -1004,6 +1097,7 @@ net.connect({
     s = engine.hydrate(snapshot);
     prediction.reset();
     chunkCache.reset(); // drops every chunk AND every bake still in flight for the old world
+    worldWindow.reset();
     snapCam();
     refreshInventory();
     updateHUD();

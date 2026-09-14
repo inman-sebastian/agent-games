@@ -590,6 +590,7 @@ export function create(): LightingInstance {
 
   function field(cfg: LightFieldConfig): LightField {
     const { tileLeft, tileTop } = buildField(cfg);
+    scrimMs = 0; // the per-pixel scrim is the caller's now; don't leave a stale figure in the debug panel
     lightCount = emitters.length;
     emitters.length = 0;
     return { tileLeft, tileTop, gridW, gridH, glow: glowImg.data, bright };
