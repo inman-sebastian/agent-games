@@ -231,6 +231,26 @@ wrapping it. **Foam** flickers on a pool's outline where a fall comes into it.
   dithered rock (the author's review); the rock and the pools are soft and dithered, and now the falls
   are too.
 
+**The grid renderer, under comparison** (`client/src/fluid/liquid-render-tiles.ts`, **G** in the lab,
+`?render=tiles`). The author wondered whether the smooth look is too realistic: part of Terraria's charm is
+that its liquids are drawn on the same grid as its blocks. So the same sim can also be drawn Terraria's
+way (after its decompiled `LiquidRenderer`):
+
+- every cell a partial block of its own 8 px, sitting on its floor when held up (by rock, or water that
+  isn't falling) and hanging from its ceiling under water pouring over air;
+- Terraria's edge smoothing, `(2·self + left + right)/4`, on a pool's top cells, so a surface steps by less
+  than a pixel from cell to cell;
+- gap fill between resting cells and down a stream, and a trail of three fading cells under water pouring
+  over air;
+- falling water fills its cell top to bottom, its width showing how much falls, hugging the wall it pours
+  down (drawn as blocks hanging from each ceiling, a stream was a dashed ladder);
+- a surface line only where water meets air above it, no outlined sides; the same palette, depth dither,
+  glints, foam and streaks as the smooth renderer. About 1 ms a frame in the lab.
+
+Both renderers pass the same invariants. If the grid reads better, the sim may be simplified to match
+(Terraria-style falls and row averaging with integer volumes and a light pressure rule); that's a separate
+decision, after the author compares these by eye.
+
 **Lava** is the same renderer with the lava palette: 95% opaque, its fall fully opaque, streaks at a third
 of water's speed, idle motion at 0.3×. In the sim it keeps 2% of its face velocity per second (water 20%),
 with a film threshold of 8%: it creeps and settles slowly, but reaches just as far.
@@ -260,7 +280,7 @@ frame strips.
 - All three gaps poured at once; a floor hole kept a connected stream.
 - 0.03–0.05 ms per substep over 1,000 cells.
 
-**Renderer tests** (`client/src/fluid/liquid-render.test.ts`), each red-checked: it never paints rock
+**Renderer tests** (`client/src/fluid/liquid-render.test.ts`), run against both renderers, each red-checked: it never paints rock
 however the water moves; a still pool's surface is exactly one line; a stream from a hole is drawn with
 no dry row between the hole and where it lands.
 

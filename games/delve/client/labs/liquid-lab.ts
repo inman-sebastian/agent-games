@@ -4,7 +4,8 @@
 // The plan is in docs/FLUIDS.md.
 //
 // Mouse: right-drag digs · shift-drag builds · hold W to pour water at the cursor.
-// Keys: N next scene · R reset · space pause · T teal water · 1–9 jump to a scene.
+// Keys: N next scene · R reset · space pause · T teal water · G grid (Terraria-style) or smooth drawing ·
+//       1–9 jump to a scene. `?render=tiles` starts on the grid.
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
   STRATA,
@@ -26,6 +27,7 @@ import {
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
+import { drawLiquidTiles } from '../src/fluid/liquid-render-tiles';
 
 /** Lava's idle surface moves at this fraction of water's speed. */
 const LAVA_IDLE = 0.3;
@@ -332,12 +334,15 @@ canvas.addEventListener('pointerup', () => (pointer.down = false));
 const held = new Set<string>();
 let paused = false;
 let teal = false;
+/** Draw on the dig grid (Terraria-style blocks) or as the smooth density field. */
+let tiles = new URLSearchParams(location.search).get('render') === 'tiles';
 addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.code === 'KeyW') held.add(event.code);
   else if (event.code === 'KeyN') loadScene(sceneIndex + 1);
   else if (event.code === 'KeyR') loadScene(sceneIndex);
   else if (event.code === 'Space') paused = !paused;
   else if (event.code === 'KeyT') teal = !teal;
+  else if (event.code === 'KeyG') tiles = !tiles;
   else if (/^Digit[1-9]$/.test(event.code)) loadScene(Number(event.code.slice(5)) - 1);
   else return;
   event.preventDefault();
@@ -383,7 +388,7 @@ function frame(now: number): void {
   }
   const drawStart = performance.now();
   image.data.set(rockPixels);
-  drawLiquid(
+  (tiles ? drawLiquidTiles : drawLiquid)(
     {
       liquid,
       cell: T,
@@ -403,7 +408,7 @@ function frame(now: number): void {
   hud.innerHTML =
     `<b>DELVE · liquid lab</b> — ${sceneIndex + 1}. ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
     `water ${(liquid.total() / UNIT).toFixed(2)} cells   sim ${simMs.toFixed(1)} ms   draw ${drawMs.toFixed(1)} ms\n` +
-    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'}`;
+    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · G ${tiles ? '<b>grid</b>' : 'smooth'}`;
   requestAnimationFrame(frame);
 }
 
@@ -416,6 +421,7 @@ Object.assign(window, {
       liquid.add(row * cols + column, Math.round(cells * UNIT)),
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
+    tiles: (value: boolean) => (tiles = value),
     /** Cells in a rectangle, for probes: [column, row, fill, down velocity, right velocity, solid]. */
     cells: (c0: number, r0: number, c1: number, r1: number) => {
       const out: (number | boolean)[][] = [];

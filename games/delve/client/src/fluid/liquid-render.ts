@@ -103,7 +103,7 @@ const DROPLET_LENGTH = 2;
 /** Water moving faster than this, cells/s, and not resting in a pool, is shaded as falling. */
 const FALLING_SPEED = 6;
 /** 4×4 Bayer thresholds, world-anchored, for darkening with depth. */
-const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+export const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 /** Glints live in the top of the body, between these depths, art px. */
 const GLINT_TOP = 2;
 const GLINT_BOTTOM = 7;
@@ -140,20 +140,25 @@ export interface LiquidFrame {
   readonly idle?: number;
 }
 
-function hash(x: number, y: number): number {
+export function hash(x: number, y: number): number {
   let h = Math.imul(x, 73856093) ^ Math.imul(y, 19349663);
   h ^= h >>> 13;
   h = Math.imul(h, 0x5bd1e995);
   return (h ^ (h >>> 15)) >>> 0;
 }
 
-function blend(pixels: Uint8ClampedArray, offset: number, colour: Rgb, amount: number): void {
+export function blend(
+  pixels: Uint8ClampedArray,
+  offset: number,
+  colour: Rgb,
+  amount: number,
+): void {
   pixels[offset] += (colour[0] - pixels[offset]) * amount;
   pixels[offset + 1] += (colour[1] - pixels[offset + 1]) * amount;
   pixels[offset + 2] += (colour[2] - pixels[offset + 2]) * amount;
 }
 
-function paint(pixels: Uint8ClampedArray, offset: number, colour: Rgb): void {
+export function paint(pixels: Uint8ClampedArray, offset: number, colour: Rgb): void {
   pixels[offset] = colour[0];
   pixels[offset + 1] = colour[1];
   pixels[offset + 2] = colour[2];
@@ -467,7 +472,7 @@ function drawFalling(
 }
 
 /** Short horizontal dashes under the surface that grow and shrink in place and drift slowly. */
-function drawGlint(
+export function drawGlint(
   pixels: Uint8ClampedArray,
   offset: number,
   worldX: number,

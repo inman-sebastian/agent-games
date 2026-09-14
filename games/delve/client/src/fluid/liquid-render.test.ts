@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { createLiquid, UNIT, WATER_PARAMS, type Liquid } from '@delve/shared';
 import { drawLiquid, WATER_STYLE, type LiquidFrame } from './liquid-render';
+import { drawLiquidTiles } from './liquid-render-tiles';
 
 const CELL = 8;
 
@@ -69,7 +70,12 @@ function run(liquid: Liquid, seconds: number): void {
   for (let k = 0; k < Math.round(seconds * WATER_PARAMS.substepsPerSecond); k++) liquid.step();
 }
 
-describe('the liquid renderer', () => {
+const RENDERERS = [
+  ['smooth', drawLiquid],
+  ['grid', drawLiquidTiles],
+] as const;
+
+describe.each(RENDERERS)('the %s liquid renderer', (_, drawLiquid) => {
   it('never paints rock, however the water moves', () => {
     const { liquid, frame } = scene(
       box(24, 16, (column, row) => (column === 10 ? '#' : column < 10 && row >= 3 ? '~' : '.')),
