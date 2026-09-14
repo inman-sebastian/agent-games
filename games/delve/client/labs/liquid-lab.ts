@@ -4,9 +4,8 @@
 // The plan is in docs/FLUIDS.md.
 //
 // Mouse: right-drag digs · shift-drag builds · hold W to pour water at the cursor.
-// Keys: N next scene · R reset · space pause · T teal water · G grid (Terraria-style) or smooth drawing ·
-//       S Terraria-style sim or cell pipes · 1–9 jump to a scene. Both start Terraria-style;
-//       `?render=smooth` and `?sim=pipes` start on the earlier ones, for comparison.
+// Keys: N next scene · R reset · space pause · T teal water
+//       S Terraria's liquid or the cell pipes · 1–9 jump to a scene. `?sim=pipes` starts on the pipes.
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
   STRATA,
@@ -17,9 +16,11 @@ import {
   UNIT,
   WATER_PARAMS,
   LAVA_PARAMS,
-  createGridLiquid,
-  GRID_WATER_PARAMS,
-  GRID_LAVA_PARAMS,
+  createTerrariaLiquid,
+  LIQUID_WATER,
+  LIQUID_LAVA,
+  TERRARIA_LIQUID_UPDATES_PER_SECOND,
+  type TerrariaLiquid,
   type Liquid,
 } from '@delve/shared';
 import {
@@ -31,7 +32,7 @@ import {
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
-import { drawLiquidTiles } from '../src/fluid/liquid-render-tiles';
+import { drawTerrariaLiquid } from '../src/fluid/terraria-liquid-render';
 
 /** Lava's idle surface moves at this fraction of water's speed. */
 const LAVA_IDLE = 0.3;
@@ -261,8 +262,8 @@ function refreshRockAround(column: number, row: number): void {
 // ---- the liquid -------------------------------------------------------------------------------------------------
 
 let liquid: Liquid = createLiquid(cols, rows, new Uint8Array(cols * rows));
-/** Move the water Terraria's way (grid-liquid.ts) or with the cell pipes (liquid.ts). */
-let gridSim = new URLSearchParams(location.search).get('sim') !== 'pipes';
+/** Terraria's liquid, ported (terraria-liquid.ts), or the cell pipes (liquid.ts) for comparison. */
+let terraria = new URLSearchParams(location.search).get('sim') !== 'pipes';
 /** Steps per second of whichever sim is running. */
 let stepsPerSecond = WATER_PARAMS.substepsPerSecond;
 let sceneIndex = 0;
@@ -287,10 +288,9 @@ function loadScene(index: number): void {
   const setup = SCENES[sceneIndex].setup();
   refreshRock();
   lava = setup.lava === true;
-  if (gridSim) {
-    const params = lava ? GRID_LAVA_PARAMS : GRID_WATER_PARAMS;
-    liquid = createGridLiquid(cols, rows, cellSolidity(), params);
-    stepsPerSecond = params.ticksPerSecond;
+  if (terraria) {
+    liquid = createTerrariaLiquid(cols, rows, cellSolidity(), lava ? LIQUID_LAVA : LIQUID_WATER);
+    stepsPerSecond = TERRARIA_LIQUID_UPDATES_PER_SECOND;
   } else {
     const params = lava ? LAVA_PARAMS : WATER_PARAMS;
     liquid = createLiquid(cols, rows, cellSolidity(), params);
@@ -350,17 +350,14 @@ canvas.addEventListener('pointerup', () => (pointer.down = false));
 const held = new Set<string>();
 let paused = false;
 let teal = false;
-/** Draw on the dig grid (Terraria-style blocks) or as the smooth density field. */
-let tiles = new URLSearchParams(location.search).get('render') !== 'smooth';
 addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.code === 'KeyW') held.add(event.code);
   else if (event.code === 'KeyN') loadScene(sceneIndex + 1);
   else if (event.code === 'KeyR') loadScene(sceneIndex);
   else if (event.code === 'Space') paused = !paused;
   else if (event.code === 'KeyT') teal = !teal;
-  else if (event.code === 'KeyG') tiles = !tiles;
   else if (event.code === 'KeyS') {
-    gridSim = !gridSim;
+    terraria = !terraria;
     loadScene(sceneIndex);
   } else if (/^Digit[1-9]$/.test(event.code)) loadScene(Number(event.code.slice(5)) - 1);
   else return;
@@ -407,27 +404,40 @@ function frame(now: number): void {
   }
   const drawStart = performance.now();
   image.data.set(rockPixels);
-  (tiles ? drawLiquidTiles : drawLiquid)(
-    {
-      liquid,
-      cell: T,
-      open,
-      width,
-      height,
-      originX: bandLeft * T,
-      originY: bandTop * T,
-      time: elapsed,
-      idle: lava ? LAVA_IDLE : 1,
-    },
-    image.data,
-    lava ? LAVA_STYLE : teal ? TEAL_WATER_STYLE : WATER_STYLE,
-  );
+  const style = lava ? LAVA_STYLE : teal ? TEAL_WATER_STYLE : WATER_STYLE;
+  const view = {
+    cell: T,
+    open,
+    width,
+    height,
+    originX: bandLeft * T,
+    originY: bandTop * T,
+    time: elapsed,
+  };
+  if (terraria)
+    drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, image.data, style);
+  else
+    drawLiquid(
+      {
+        liquid,
+        cell: T,
+        open,
+        width,
+        height,
+        originX: bandLeft * T,
+        originY: bandTop * T,
+        time: elapsed,
+        idle: lava ? LAVA_IDLE : 1,
+      },
+      image.data,
+      style,
+    );
   context.putImageData(image, 0, 0);
   drawMs = performance.now() - drawStart;
   hud.innerHTML =
     `<b>DELVE · liquid lab</b> — ${sceneIndex + 1}. ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
     `water ${(liquid.total() / UNIT).toFixed(2)} cells   sim ${simMs.toFixed(1)} ms   draw ${drawMs.toFixed(1)} ms\n` +
-    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · G ${tiles ? '<b>grid</b>' : 'smooth'} · S ${gridSim ? '<b>grid sim</b>' : 'pipes'}`;
+    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · S ${terraria ? '<b>terraria</b>' : 'pipes'}`;
   requestAnimationFrame(frame);
 }
 
@@ -440,9 +450,8 @@ Object.assign(window, {
       liquid.add(row * cols + column, Math.round(cells * UNIT)),
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
-    tiles: (value: boolean) => (tiles = value),
-    gridSim: (value: boolean) => {
-      gridSim = value;
+    terraria: (value: boolean) => {
+      terraria = value;
       loadScene(sceneIndex);
     },
     /** Cells in a rectangle, for probes: [column, row, fill, down velocity, right velocity, solid]. */
