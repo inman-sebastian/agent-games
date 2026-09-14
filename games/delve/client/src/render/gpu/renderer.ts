@@ -28,7 +28,7 @@ const WORKGROUP = 8;
  * 32 is enough: nothing past ~36 px from an opening changes a pixel (the top light has clamped to 0). */
 const JFA_STEPS: readonly number[] = [32, 16, 8, 4, 2, 1, 1];
 const BAND_UNIFORM_BYTES = 256;
-const PRESENT_UNIFORM_BYTES = 72;
+const PRESENT_UNIFORM_BYTES = 88;
 const FRAME_FORMAT: GPUTextureFormat = 'rgba8unorm';
 
 /** One frame to draw. */
@@ -48,7 +48,20 @@ export interface GpuFrame {
   scrim?: boolean;
   /** What the game draws over the rock (particles, the player, …), screen-sized and transparent. */
   overlay?: HTMLCanvasElement | OffscreenCanvas;
+  /**
+   * The two 2D layers that sit between the rock and the overlay, as the Canvas 2D frame draws them:
+   * damage cracks (composited source-over) and twinkle glints (drawn `lighter` onto transparent pixels,
+   * and ADDED). Screen-sized canvases, but only `box` — the lamp's reach, in screen pixels — is uploaded
+   * and read, because nothing else can be on them.
+   */
+  layers?: {
+    under: HTMLCanvasElement | OffscreenCanvas;
+    glint: HTMLCanvasElement | OffscreenCanvas;
+    box: { x: number; y: number; width: number; height: number };
+  };
 }
+
+type LayerSource = HTMLCanvasElement | OffscreenCanvas;
 
 /** The world pixel at the screen's top-left, rounded exactly as the game's `ctx.translate` rounds it. */
 const screenOrigin = (camera: number): number => -Math.round(-camera);
@@ -206,13 +219,24 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     writeBand(band, world);
     device.queue.writeBuffer(r.glowBuffer, 0, light.glow);
     device.queue.writeBuffer(r.brightBuffer, 0, light.bright);
-    writePresent(frame, band, world, light);
+    writePresent(frame, band, world, light, clampBox(frame.layers?.box, frame.width, frame.height));
     if (frame.overlay) {
       device.queue.copyExternalImageToTexture(
         { source: frame.overlay },
         { texture: r.overlay, premultipliedAlpha: true },
         [frame.width, frame.height],
       );
+    }
+    const box = clampBox(frame.layers?.box, frame.width, frame.height);
+    if (frame.layers && box.width > 0 && box.height > 0) {
+      const copyBox = (source: LayerSource, texture: GPUTexture): void =>
+        device.queue.copyExternalImageToTexture(
+          { source, origin: [box.x, box.y] },
+          { texture, origin: [box.x, box.y], premultipliedAlpha: true },
+          [box.width, box.height],
+        );
+      copyBox(frame.layers.under, r.under);
+      copyBox(frame.layers.glint, r.glint);
     }
     const prepared = performance.now();
 
@@ -305,7 +329,13 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     device.queue.writeBuffer(bandBuffer, 0, bytes);
   }
 
-  function writePresent(frame: GpuFrame, band: Band, world: WorldWindow, light: LightField): void {
+  function writePresent(
+    frame: GpuFrame,
+    band: Band,
+    world: WorldWindow,
+    light: LightField,
+    box: { x: number; y: number; width: number; height: number },
+  ): void {
     const bytes = new ArrayBuffer(PRESENT_UNIFORM_BYTES);
     const u32 = new Uint32Array(bytes);
     const i32 = new Int32Array(bytes);
@@ -327,6 +357,11 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     u32[14] = frame.lighting === false ? 0 : 1;
     u32[15] = frame.scrim === false ? 0 : 1;
     u32[16] = frame.overlay ? 1 : 0;
+    u32[17] = frame.layers && box.width > 0 && box.height > 0 ? 1 : 0;
+    i32[18] = box.x;
+    i32[19] = box.y;
+    i32[20] = box.width;
+    i32[21] = box.height;
     device.queue.writeBuffer(presentBuffer, 0, bytes);
   }
 
@@ -350,6 +385,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
     glowBuffer: GPUBuffer;
     brightBuffer: GPUBuffer;
     overlay: GPUTexture;
+    under: GPUTexture;
+    glint: GPUTexture;
     frame: GPUTexture;
     bindGroups: {
       mask: GPUBindGroup;
@@ -387,6 +424,12 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
         GPUTextureUsage.COPY_DST |
         GPUTextureUsage.RENDER_ATTACHMENT,
     );
+    const layerUsage =
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.RENDER_ATTACHMENT;
+    const under = texture('under', shape.width, shape.height, layerUsage);
+    const glint = texture('glint', shape.width, shape.height, layerUsage);
     const frame = texture(
       'frame',
       shape.width,
@@ -436,6 +479,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       glowBuffer,
       brightBuffer,
       overlay,
+      under,
+      glint,
       frame,
       bindGroups: {
         mask: group(maskPipeline, {
@@ -465,6 +510,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
           4: buffer(brightBuffer),
           5: buffer(surfaceBuffer),
           6: buffer(alphaBuffer),
+          7: under.createView(),
+          8: glint.createView(),
         }),
         blit: group(blitPipeline, { 0: frame.createView() }),
       },
@@ -472,6 +519,8 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
         buffers.forEach((b) => b.destroy());
         scene.destroy();
         overlay.destroy();
+        under.destroy();
+        glint.destroy();
         frame.destroy();
       },
     };
@@ -517,6 +566,20 @@ export async function createGpuRenderer(canvas: HTMLCanvasElement): Promise<GpuR
       [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') ||
       'unknown adapter',
   };
+}
+
+/** A layer box clipped to the screen, in whole pixels; an empty box when there are no layers. */
+function clampBox(
+  box: { x: number; y: number; width: number; height: number } | undefined,
+  width: number,
+  height: number,
+): { x: number; y: number; width: number; height: number } {
+  if (!box) return { x: 0, y: 0, width: 0, height: 0 };
+  const x0 = Math.max(0, Math.floor(box.x));
+  const y0 = Math.max(0, Math.floor(box.y));
+  const x1 = Math.min(width, Math.ceil(box.x + box.width));
+  const y1 = Math.min(height, Math.ceil(box.y + box.height));
+  return { x: x0, y: y0, width: Math.max(0, x1 - x0), height: Math.max(0, y1 - y0) };
 }
 
 function storageBuffer(device: GPUDevice, bytes: number): GPUBuffer {

@@ -1,6 +1,7 @@
 // present.wgsl — the screen-space composite, in the order the Canvas 2D frame draws (client/src/index.ts
-// `render`): the rock scene, the 2D overlay, then lighting.ts's per-pixel half — additive glow, the
-// dithered darkness scrim, the vignette. Everything here is in SCREEN pixels at art resolution, with the
+// `render`): the rock scene; the three 2D layers — damage cracks (source-over), twinkle glints (ADDED,
+// as Canvas 2D's `lighter` adds them), everything else (source-over); then lighting.ts's per-pixel half —
+// additive glow, the dithered darkness scrim, the vignette. Everything here is in SCREEN pixels at art resolution, with the
 // camera's fractional position, exactly as the Canvas 2D lighting samples it.
 //
 // It renders into the `frame` texture, which blit.wgsl copies to the canvas and readback can read.
@@ -19,7 +20,13 @@ struct Present {
   lighting_on: u32,
   scrim_on: u32,
   overlay_on: u32,
-  _pad: u32,
+  layers_on: u32,
+  // the screen rectangle the under and glint layers hold this frame (plain i32s: every field here is a
+  // 4-byte scalar, so the byte layout renderer.ts writes is exactly the declaration order)
+  box_x: i32,
+  box_y: i32,
+  box_width: i32,
+  box_height: i32,
 }
 
 @group(0) @binding(0) var<uniform> present: Present;
@@ -29,6 +36,8 @@ struct Present {
 @group(0) @binding(4) var<storage, read> bright: array<f32>;     // per cell, 0..1
 @group(0) @binding(5) var<storage, read> surface: array<f32>;    // the world window's surface row per column
 @group(0) @binding(6) var<storage, read> alpha_steps: array<f32>; // 8-bit alpha for each darkness level
+@group(0) @binding(7) var under: texture_2d<f32>;                // damage cracks, premultiplied
+@group(0) @binding(8) var glint: texture_2d<f32>;                // twinkle glints: premultiplied = the light they add
 
 @vertex
 fn composite_vertex(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
@@ -102,6 +111,16 @@ fn composite_fragment(@builtin(position) position: vec4f) -> @location(0) vec4f 
 
   let scene_texel = vec2i(px, py) + present.origin - present.scene_origin;
   var colour = floor(textureLoad(scene, scene_texel, 0).rgb * 255.0 + 0.5);
+
+  // The under and glint layers only hold the lamp's box this frame; outside it they're stale.
+  let in_box = px >= present.box_x && py >= present.box_y &&
+    px < present.box_x + present.box_width && py < present.box_y + present.box_height;
+  if (present.layers_on == 1u && in_box) {
+    let cracks = textureLoad(under, vec2i(px, py), 0);
+    colour = floor(cracks.rgb * 255.0 + colour * (1.0 - cracks.a) + 0.5);
+    let light = textureLoad(glint, vec2i(px, py), 0);
+    colour = min(vec3f(255.0), colour + floor(light.rgb * 255.0 + 0.5));
+  }
 
   if (present.overlay_on == 1u) {
     let layer = textureLoad(overlay, vec2i(px, py), 0);

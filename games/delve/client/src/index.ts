@@ -56,6 +56,14 @@ const ctx = canvas.getContext('2d')!;
 // twinkle, particles, the player, floaties, the reticle) is uploaded each frame and composited under
 // the lighting, in the same order as the Canvas 2D frame. See docs/RENDERING.md.
 const gpuCanvas = document.getElementById('cgpu') as HTMLCanvasElement;
+// In GPU mode the 2D drawing that sits between the rock and the overlay gets its own layers, in the
+// Canvas 2D frame's order: damage cracks (source-over), then twinkle glints (added). See RENDERING.md.
+const underCanvas = document.createElement('canvas');
+const underCtx = underCanvas.getContext('2d')!;
+const glintCanvas = document.createElement('canvas');
+const glintCtx = glintCanvas.getContext('2d')!;
+/** Slack around the lamp's box for a crack or a glint's arm reaching past its cell. */
+const LAYER_BOX_PAD_PX = 8;
 let gpu: GpuRenderer | null = null;
 let rendererNote = 'canvas 2d';
 // While WebGPU is starting, draw no rock at all rather than baking chunks nobody will look at again —
@@ -300,6 +308,28 @@ function render(t: number): void {
     return Math.max(0.14, 1 - Math.max(0, dist - LAMP_CORE_CELLS) / (st.lamp + LAMP_EASE_CELLS));
   };
 
+  // The lamp's box, in cells. `lightAt` falls to its floor by LAMP_CORE_CELLS + st.lamp +
+  // LAMP_EASE_CELLS, so every damage crack (drawn only where lit ≥ 0.16) and every twinkle (lit ≥ 0.2)
+  // lies inside it; one extra cell of slack for the floor/ceil at the edges. The twinkle scan walks it,
+  // and in GPU mode it's the only part of the under and glint layers that gets uploaded.
+  const lampReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
+  const lampLeft = Math.max(colL, Math.floor(px) - lampReach);
+  const lampRight = Math.min(colR, Math.floor(px) + lampReach);
+  const lampTop = Math.max(rowT, Math.floor(py) - lampReach);
+  const lampBottom = Math.min(rowB, Math.floor(py) + lampReach);
+  const screenX = Math.round(shx - camX); // world pixel → screen pixel, as ctx.translate has it
+  const screenY = Math.round(shy - camY);
+  // Where damage and twinkle draw: the frame itself in Canvas 2D; their own layers in GPU mode.
+  const underG = gpu ? underCtx : ctx;
+  const glintG = gpu ? glintCtx : ctx;
+  if (gpu) {
+    for (const layer of [underCtx, glintCtx]) {
+      layer.clearRect(0, 0, LW, LH);
+      layer.save();
+      layer.translate(screenX, screenY);
+    }
+  }
+
   // (Ore no longer emits its own light — veins read purely by their baked surface + sparkle/twinkle,
   // lit by the lamp like any other rock. The lighting system still supports coloured emitters via
   // addLight(r>0) for future light sources; ore just doesn't use it.)
@@ -326,7 +356,7 @@ function render(t: number): void {
       const dirX = Math.abs(towardX) >= Math.abs(towardY) ? Math.sign(towardX) : 0;
       const dirY = dirX === 0 ? Math.sign(towardY) : 0;
       const damageCtx = {
-        g: ctx,
+        g: underG,
         x: dc * T,
         y: dr * T,
         scale: 1,
@@ -349,14 +379,10 @@ function render(t: number): void {
     // plus an oreAt on all four faces, and `lit` already rejects everything past the lamp anyway —
     // so the old full-screen band paid for ~19k cells to keep a couple of hundred. The 2x2 split
     // (#44) made that the second-biggest cost in the frame (9.3ms of a 25ms frame at 160x120).
-    // `lightAt` floors at LAMP_MIN_LIT, so beyond this radius no cell can clear `minLit`.
-    // lightAt falls to its floor by LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS, so nothing past that
-    // can clear minLit; one extra cell of slack for the floor/ceil at the edges.
-    const twinkleReach = Math.ceil(LAMP_CORE_CELLS + st.lamp + LAMP_EASE_CELLS) + 1;
-    const tL = Math.max(colL, Math.floor(px) - twinkleReach);
-    const tR = Math.min(colR, Math.floor(px) + twinkleReach);
-    const tT = Math.max(rowT, Math.floor(py) - twinkleReach);
-    const tB = Math.min(rowB, Math.floor(py) + twinkleReach);
+    const tL = lampLeft;
+    const tR = lampRight;
+    const tT = lampTop;
+    const tB = lampBottom;
     const twinkleEdges = collectTwinkleEdges({
       bandLeft: tL,
       bandTop: tT,
@@ -369,13 +395,13 @@ function render(t: number): void {
       minLit: 0.2,
     });
     if (twinkleEdges.length) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
+      glintG.save();
+      glintG.globalCompositeOperation = 'lighter';
       const offX = tL * T;
       const offY = tT * T;
       for (const edge of twinkleEdges) {
         edge.material.twinkle!({
-          g: ctx,
+          g: glintG,
           x0: edge.x0 + offX,
           y0: edge.y0 + offY,
           x1: edge.x1 + offX,
@@ -386,8 +412,12 @@ function render(t: number): void {
           litAt: edge.litAt,
         });
       }
-      ctx.restore();
+      glintG.restore();
     }
+  }
+  if (gpu) {
+    underCtx.restore();
+    glintCtx.restore();
   }
 
   endPhase('twinkle');
@@ -481,6 +511,16 @@ function render(t: number): void {
       lighting: debugFlags.lighting,
       scrim: debugFlags.fog,
       overlay: canvas,
+      layers: {
+        under: underCanvas,
+        glint: glintCanvas,
+        box: {
+          x: lampLeft * T + screenX - LAYER_BOX_PAD_PX,
+          y: lampTop * T + screenY - LAYER_BOX_PAD_PX,
+          width: (lampRight - lampLeft + 1) * T + 2 * LAYER_BOX_PAD_PX,
+          height: (lampBottom - lampTop + 1) * T + 2 * LAYER_BOX_PAD_PX,
+        },
+      },
     });
     endPhase('gpu');
     return;
@@ -1048,6 +1088,10 @@ function fit(): void {
   LH = VIEW_ROWS * T;
   canvas.width = LW;
   canvas.height = LH;
+  for (const layer of [underCanvas, glintCanvas]) {
+    layer.width = LW;
+    layer.height = LH;
+  }
   ctx.imageSmoothingEnabled = false; // (resetting width clears ctx state)
   const cssW = VIEW_COLS * TILE_PX;
   const cssH = VIEW_ROWS * TILE_PX;
