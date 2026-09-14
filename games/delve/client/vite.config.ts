@@ -34,6 +34,7 @@ export default defineConfig({
         uiIron: resolve(__dirname, 'labs/ui-iron.html'),
         charLab: resolve(__dirname, 'labs/char-lab.html'),
         gpuLab: resolve(__dirname, 'labs/gpu-lab.html'),
+        fluidLab: resolve(__dirname, 'labs/fluid-lab.html'),
       },
     },
   },

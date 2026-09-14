@@ -138,6 +138,32 @@ climb, which is none. As in the whole-cell model, liquid never moves upward.
   compared pixel for pixel over hundreds of passes. It must be **exact**: the rule is integers and
   hashes, so any difference is a porting bug.
 
+## Lab findings (#87, open)
+
+`client/labs/fluid-lab.html` runs the rule on WebGPU over `composeBand` rock, with three scenes
+(reservoir, cascade, lava meets water), pour/dig/build brushes, and `fluidLab.parity()`.
+
+- **The GPU port is exact.** Every scene stepped 400 passes through the twin and the GPU agrees
+  pixel for pixel. An off-by-one planted in the shader's turn-to-drop rule made 192 and 715 pixels
+  differ.
+- **It's cheap.** 32 passes over a 960×540 art-pixel grid (a 1920×1080 window) take ~2.7 ms to GPU done.
+- **Open, the blocking one: bulk flow is too slow.** Dig away a settled reservoir's wall and the face
+  stands vertical. Each face pixel steps out one pixel and falls straight, so the whole face drains
+  through a one-pixel falling curtain at about half a pixel per pass, however tall it is.
+  - An experiment gave pushed-out and sliding liquid **momentum** (a thrown flag that keeps it
+    drifting outward while it falls). The face then collapsed into a slope within 100 passes.
+  - But a 45° slope then drains only through its thin surface film, again about half a pixel per
+    pass, because liquid under the surface can't move while its neighbours are liquid.
+  - The experiment also broke basin settling, and was set aside.
+  - This is the granular "angle of repose" behaviour of block automata. A breached cave-sized
+    reservoir would take minutes to level, and would read as sand. The approach needs a decision
+    before more tuning. See the options in #87.
+- **The look, for the author:**
+  - streams fall as dotted columns;
+  - liquid running over a surface travels in one-pixel runners spaced two apart (a block moves one
+    pixel per pass);
+  - what reads as a tower under a pool's drain is the dense head of its stream.
+
 ## History — four whole-cell models
 
 Recorded so the next change starts from the right place. All four ran on the grid the player digs: the
