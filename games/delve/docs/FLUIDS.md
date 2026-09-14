@@ -5,9 +5,9 @@ highest-risk system in the design and the highest-value one**: simulated fluid i
 strongest generator of emergent situations, and it's moved by the core verb, since digging is what
 opens a path for it.
 
-> **Prototype stage** ([#89](https://github.com/inman-sebastian/agent-games/issues/89)). Interactive
-> surface water: `client/src/fluid/surface.ts` and `client/labs/fluid-lab.html`. It isn't in the game.
-> The numbers here are lab defaults to tune, not decisions.
+> **Prototype stage** ([#90](https://github.com/inman-sebastian/agent-games/issues/90)). The cell-pipe
+> liquid (`shared/src/liquid.ts`) and its lab (`client/labs/liquid-lab.html`). It isn't in the game yet.
+> The numbers are lab defaults to tune, not decisions.
 
 ## Two kinds of body
 
@@ -20,192 +20,237 @@ The distinction is load-bearing (see the epic):
 
 Everything below is about the simulated kind. Static bodies aren't built yet.
 
-## Decisions (2026-09-14)
+## Decisions (2026-09-14, #90)
 
-- **The target is a look and a feel, not water physics.** The reference is Cainos' _Interactive Pixel
-  Water_ for Unity. Simple water bodies with a surface that ripples when anything disturbs it, small
-  splashes, and a shader that makes it read as water. Seven simulated models came before this (see
-  _History_). The last, a full FLIP liquid, surged and splashed correctly but read as jelly, and full
-  physics was never the goal.
-- **A body is a volume with one flat level.** Nothing simulates the water inside it. What's alive is the
-  **surface**: a row of springs along the top edge.
-- **Digging still moves water**, which the design needs (see the epic):
-  - when a dig connects bodies or opens a hole under one, volume moves at a set rate until the levels
-    settle or the space below fills;
-  - the pour is drawn as an animated stream that disturbs the surface it lands in.
-  - This is step 2; step 1 is the surface and the look.
-- **Pixel style.** Drawn at art resolution with a bright surface line, a see-through tint, wave
-  distortion of what's behind it, and shimmer, on the Resurrect-64 palette.
-- **Single-player first**, as before.
+Five attempts came before this one, and each ended buggy, ugly or both (see _History_). The last,
+surface water (#89), was patched one review at a time until the author asked for a reset: research how
+shipped games and papers actually do it, then choose. These decisions come from that research
+(_Research_ below, with sources).
 
-## What the earlier models taught
+- **Simulate on the dig grid, draw at art resolution.** The liquid lives on the same 8 px cells the
+  player digs, as an integer volume per cell. Every shipped side-view dig game does this (Terraria's
+  16 px tiles, Starbound's 8 px, Oxygen Not Included's cells); only Noita simulates per pixel, and its
+  water reads as water mostly because of its renderer. **All the smoothness is the renderer's job.**
+  DELVE's first cell model failed on its picture (1 px films), not its grid: Terraria's renderer exists to
+  hide exactly that.
+- **The model is cell pipes**: a velocity per cell face, driven by the difference in hydraulic head, with
+  slightly compressible full cells to carry pressure (virtual pipes, after O'Brien & Hodgins and Mei et
+  al., on a vertical grid). It's the one candidate that covers every failure the reviews found: water
+  falls, levels with momentum, fills U-bends, pours out of every opening at its own rate, and keeps a
+  falling stream connected. Measured in a headless bench before any code went into the game (see
+  _Verification_).
+- **Pressure is not optional.** Without it (Terraria), water beside a side opening stands as a wall and
+  a U-bend never levels. Those are the author's reported bugs.
+- **Exact conservation.** Volumes are integers; every transfer is computed from start-of-step state and
+  moved as a whole number of units, so update order doesn't matter and nothing is created or lost.
+  Every shipped level-based system in the survey rounds or deletes fluid instead, and players find the
+  duplication.
+- **Deterministic, in shared, on the CPU.** The server runs the same step. Plain arithmetic, `floor`,
+  `min`, `max` and `sqrt` are bit-identical across JavaScript engines; `pow` and `exp` aren't, so
+  constants are baked.
+- **Draw it like pixel art.** Every reference that looks right (Terraria, Celeste, Noita, Cainos,
+  Saint11, Slynyrd) draws liquid on the art grid, in 3–5 tones, with an opaque surface line. The
+  smooth, device-resolution surface of #89 is exactly what clashed. Sub-pixel motion is shown by tone,
+  not by position ("move light, not shapes"), which answers the "low frame rate" reading that pushed
+  #89 off the grid.
+- **Falls are drawn as columns, not cells.** A waterfall is a whole-pixel column with vertical streaks, a
+  bright mouth and a splash of crown, foam and droplets, sized by the flow the sim reports. Horizontal
+  bands at a fixed spacing read as ladder rungs.
+- **Single-player first.** When it's networked, clients never run the liquid step (no shipped game's
+  client does): the server sends changed cells, quantised, to the clients that can see them.
 
-The whole-cell prototypes ([#66](https://github.com/inman-sebastian/agent-games/issues/66), closed PR
-[#67](https://github.com/inman-sebastian/agent-games/pull/67)), the pixel automaton
-([#87](https://github.com/inman-sebastian/agent-games/issues/87)) and the FLIP liquid
-([#88](https://github.com/inman-sebastian/agent-games/issues/88)) each left lessons. Those that still
-apply to a flat body with a surface:
+## Research (September 2026)
 
-1. **Water settles flat.** A body's level is one row, whatever shape holds it: no slopes, piles or
-   plateaus (the whole-cell and pixel models' hardest problem, answered by construction here).
-2. **Viscosity is slowness in time, never shorter reach.** Lava is the same model: a slower flow rate
-   and stiffer, slower ripples. It never heaps.
-3. **Volume is conserved exactly** when it moves between bodies (step 2): a count of pixels, not a float
-   that drifts.
-4. **Test behaviour in motion,** not only at rest: ripples spread and die, flows settle.
-5. **Local pixel rules can't level a body,** and **full physics isn't the look.** A cellular automaton
-   drained a breach through a one-pixel film. FLIP moved the whole body but read as jelly. What sells
-   water in a 2D game is the surface and the shader, so that's what's simulated.
+Five parallel surveys: grid liquids in shipped games (with headless ports), falling-sand liquids (with a
+leveling experiment), flux and pressure models (with a prototype), pixel-art liquid rendering (with
+frames and a mock-up), and the engineering around them. Tags: **[S]** read in source, **[M]** measured,
+**[V]** seen in frames.
 
-## The model — surface water
+**Simulation.**
 
-**A water body** is a region of open pixels below a flat **level** row. It spans the columns of the open
-run that holds the level, and in each column it reaches down to the rock below. Its volume is the count
-of those pixels. (Step 1 has fixed bodies. Step 2 moves volume between them.)
+- **Terraria** [S]: a byte per 16 px tile at 30 Hz. A tile drops everything that fits straight down
+  (so nothing hangs), then sets up to 7 cells of its row to their rounded average (so surfaces stay
+  flat). No pressure: side holes leave standing walls and U-bends never level [M]. Rounding, bumps and
+  film deletion don't conserve (+1% in a port [M]; the wiki documents duplication).
+- **Starbound** [S]: a float level and a pressure per 8 px cell. Pressure pushes overfill sideways and
+  up, so U-bends level (8.7 s in a port [M]), but a draining tank slopes by up to 8 cells [M].
+- **W-Shadow, jgallant** [S]: compressible diffusion. Slow, and piles at 45° (DELVE's first failure).
+- **Noita** [S]: down, diagonal, sideways; no pressure found in the talk, data or shaders. Its water reads
+  as water because of flat translucent colour and a refraction shader. Local rules alone can never
+  fill a basin connected under the surface [M].
+- **Virtual pipes** (O'Brien & Hodgins 1995; Mei, Decaudin & Hu 2007; Dagenais et al. 2018; lisyarus)
+  [S]: flux accelerated by head difference, scaled so no cell goes negative. Levels at wave speed, with
+  momentum. Nobody found ships momentum pipes on a vertical cell grid; the bench below is DELVE's own
+  evidence.
+- **Scale** [S]: nobody simulates everything every tick. Terraria keeps an active-cell list that sleeps
+  after 8 unchanged updates, with a per-tick budget and watchdogs; Starbound caps background cells per
+  update; Noita keeps a dirty rect per 64×64 chunk.
+- **Netcode** [S]: Terraria, Starbound and Minecraft clients never simulate liquid. The server sends the
+  current value of each changed cell (3–6 bytes) to clients that have the area loaded.
 
-**The surface** is one spring per pixel column across the body, the standard 2D interactive-water model
-(see _Prior art_):
+**Rendering.**
 
-- each column has a vertical offset from the level, in art pixels (down is positive), and a velocity;
-- **tension** pulls each column back toward the level, and **damping** bleeds its speed, so disturbances
-  die out;
-- **the wave**: neighbours pull on each other (a damped 1D wave equation, substepped for stability), so a
-  disturbance travels outward as ripples at `waveSpeed`;
-- **viscosity** diffuses velocity between neighbours. It damps the shortest ripples and leaves long waves:
-  without it, a breach's big step rang at the grid frequency as a sawtooth trailing the surge;
-- **drag** grows with a column's speed: a fast bulk surge (a breach levelling) is braked hard, a slow ripple
-  barely. With linear damping alone, a levelling surge overshot past level and sloshed back and forth; the
-  author called it a rubber band snapping;
-- **disturb** adds velocity to the columns under an impact, scaled by the impact's speed, falling off
-  with distance.
+- **Terraria** [S]: fills a dry cell between two wet ones, anchors partial cells toward wet neighbours,
+  smooths edge heights `(2·self + left + right)/4`, never draws water thinner than a quarter tile,
+  trails a fading fall under wet cells over air, and draws waterfalls as decorative sprites.
+- **Celeste** [S, V]: renders into a 320×180 buffer. A 1 px surface; big falls built from 1 px vertical
+  lines offset by `round(sin(y/6 − 8t)·2)` in 3 px rows; ripples ±2 px at 80 px/s.
+- **Cainos, Interactive Pixel Water** [V]: a pixel-stepped two-line surface, a tinted body, outlined
+  flip-book splashes. No waterfalls.
+- **Saint11, Slynyrd** [V]: 3-colour falls with random-length vertical streaks, a bright mouth, a jagged
+  crown and a foam row wider than the fall. "Never move stuff more than 1 pixel."
 
-It's pure, deterministic TypeScript, and cheap: a few thousand springs for a screen of water.
+## The model — cell pipes
 
-**Splashes** are small ballistic droplets thrown up where something breaks the surface. They're
-decoration: they fall back, and vanish in water or on rock without adding to it.
+`shared/src/liquid.ts`. Side view, rows grow downward, one cell is 8 art px.
 
-## Flow — how digging moves water (step 2)
+**State.** `volume` per cell (an integer, `UNIT` = one full cell), and a velocity on each cell's right
+and bottom face.
 
-`client/src/fluid/bodies.ts`. Pure, deterministic, and volumes are whole pixels.
+**Head.** Up is positive: a cell's floor is at `−row`. A cell filled to `a` (volume ÷ `UNIT`) has head
+`−row + a`. A cell holding more than a full cell carries pressure: `−row + 1 + (a − 1)/ε`, so water
+compressed by the weight above pushes back.
 
-- **A basin fills lowest pixel first** from the body's seeds (where its liquid came to rest). The level
-  is the highest row filled. The body's liquid is the first `volume` pixels of that order, sorted lowest
-  row first, so any volume stands flat.
-- **Pits are part of the basin.** A pixel reached below the level is a pit if everything connected
-  below the level lies within `PIT_DEPTH` (3) rows of it. The eroded rock leaves such pits all along a
-  floor, and treating each as a way down kept a pool trickling into itself.
-- **Deeper, it's a way down: the basin spills.**
-  - Its capacity stops below the rim's own row, since water standing that high is already over it.
-  - The spill point is the top of the column that actually goes down. The search can meet the drop
-    through a notch beside it (the rock mask chips wall corners); a spill at the notch drew a zero-length
-    stream.
-  - The excess leaves as a **stream** and joins the body whose water it lands in, or starts a new body.
-  - **The higher the water stands over the opening, the faster it leaves** (Torricelli). Through an
-    opening `a` px high under a head `h`, the jet leaves at √(2g·(h − a/2)), contracted to 0.6 of the
-    opening (the discharge coefficient): flow = 0.6·a·√(2g·(h − a/2)), plus a `streamRate` trickle of
-    900 px/s. Over an open lip the opening is the whole head, and that's the weir law, ~h^1.5.
-    - At a fixed 900 px/s, a breached reservoir's water stood over the lip as a wall for 15+ seconds, then
-      merged all at once into a huge surge. Now a deep breach empties in about a second.
-    - The opening is the open rows over the lip up to rock: a gap dug under the waterline jets out as
-      thick as the gap, fast, while an open lip pours a sheet ⅔ of the head deep (the critical depth).
-    - A lip with open space beside its drop pours off sideways; in a shaft or through a hole in a floor, it
-      falls straight.
-  - **Ledges don't pool.** A landing on a basin smaller than `LEDGE_CAPACITY` (24 px), such as a knob on a
-    wall face, runs off that ledge's own spill and keeps falling, as another stream segment. The lab showed
-    a stepped cascade of tiny pools down a waterfall. A dry landing inside a larger basin (below where
-    that pool could rise) is also still a ledge until the pool reaches it. A basin whose overflow runs
-    back into the source isn't a ledge: it fills.
-- **Bodies merge** when their liquid touches, and when a body spills into one that's connected to it:
-  - the other is full too (both stand above a shared rim), or
-  - the other's liquid has risen back up to the spill point (a pool draining down a shaft into water
-    that has filled up to meet it). Kept apart, the lab showed two stacked surfaces while one drained into
-    the other.
+- **Across a side face,** water only pushes if it's held up: its head counts in proportion to how full
+  the cell below is (rock counts as full). Water resting on air falls; it doesn't spread sideways from
+  mid-air.
 
-  A merged body keeps both sets of seeds, so it fills both basins at once.
+**Each substep** (`HZ` per second):
 
-- **A pool that drains still shows its water.** A body holding more than its basin (the floor was dug
-  out from under it) shows the excess in its **view**: rows stacked on its own water above the rim, each
-  spreading sideways only over rock or water below it. It never shows water past the lip, over the drop.
-  The first view flooded past the rim and drew a slab of water standing in the air.
-- **Nothing teleports — the surface carries it.** A dig can change the true state at once: a pool joined
-  to an empty basin levels immediately. The lab carries each column's _drawn_ surface height across the
-  change, as the spring surface's offset from the new true top.
-  - Where the rock was, the high side and the low side start as one big displacement. The wave carries
-    it as a surge that settles at the true level.
-  - A column new to water rises from its floor.
-  - A column carries only its own body's surface, or one merged into it, never the pool above it.
-  - Open air over a body's water is marked in the liquid mask, so a surface raised above the level draws
-    there.
-  - The first version moved _shown pixels_ toward the true state at the stream rate, top first. It left
-    walls of water standing where the rock had been (the author's report).
-- **Over an open lip, the drawn surface bends down to the top of the sheet leaving it** (smoothstep, reach
-  2 sheet thicknesses, within 6–24 px). Without it, a draining pool ended in a cliff of water at the edge;
-  with a reach proportional to the head, a tall pool bent across its whole width (the author: too extreme).
-  A jet from a gap under water leaves the surface alone. Lab only.
-- **Tests** (`bodies.test.ts`, each red-checked):
-  - fills flat;
-  - overflows a rim as a stream into the next basin, conserving every pixel;
-  - drains through a hole dug in its floor;
-  - merges pools joined below their surfaces;
-  - one flat pool over a bumpy floor (fails without pits);
-  - two full basins join over their rim (fails without the rim merge);
-  - pours past little ledges on a wall face instead of pooling on each (fails without ledge running);
-  - in motion, no two bodies' shown water ever stacks in a column (fails without merging on a risen
-    spill);
-  - a draining pool stays drawn until drained;
-  - never draws water standing on air over a breached wall; its stream runs from the real lip, past a dry
-    knob, to the floor (fails with the old view, spill point or landing);
-  - never counts a pixel twice in a basin, over any rough floor (property; fails when pit pixels were
-    queued twice, which inflated capacity);
-  - pours a tall head out fast: no wall of water over the lip of a deep breach (fails at a fixed rate);
-  - jets out of a gap under the waterline as thick as the gap, at √(2g·h) (fails when a gap pours like
-    an open lip);
-  - deterministic.
+1. For every open face: `u ← (u + Δt·g·(headA − headB))·keep`, clamped to half a cell per substep.
+2. The volume that face wants to move: `u·Δt` across a bottom face, `u·Δt·min(1, a_upwind)` across a
+   side face (a shallow cell pours through a shallow window). Below a film threshold nothing moves
+   sideways.
+3. **Limiter**: each source cell scales everything it would send by
+   `K = min(1, volume ÷ outflow)`, from start-of-step volumes, so no cell goes negative. A limited face's
+   velocity is scaled by `K` too.
+4. Every transfer moves `floor(|T|·K·UNIT)` units from one cell to the other. Order-independent and
+   exact.
 
-**Lab: digging patches the rock.** A dig used to re-render the whole screen of rock and its mask on the
-CPU: 115–215 ms, a lag spike on every cell. The lab now re-renders a strip of columns around the cell.
+**Parameters (water).** `g = 92` cells/s² (the player's 736 art px/s²), `HZ = 240`, `ε = 0.01`,
+`keep` = 20% retained per second, film threshold 2% of a cell. Stable while `Δt·√(g/ε) ≤ 0.6`.
 
-- The strip is full height, so the strata colours match.
-- Only its middle, where the shading can change, is copied back, and the mask is rebuilt for a few cells.
-- A dig now costs 10–21 ms, and the water update ~2 ms.
-- `fluidLab.verifyRock()` confirms the patched rock and mask match a full recompose exactly.
-- The game draws rock on the GPU and doesn't have this cost.
+- **Pressure ringing is damped separately.** Across a floor between two full cells, water only moves to
+  compress or relax, and at the gentle damping a pool at rest rang for seconds, which would never let it
+  sleep. Those faces keep 90% per substep. Side faces keep the gentle damping even when full: damping them
+  too turned a breach's bulk flow to syrup (three tests failed).
+
+**What this doesn't model.** Trapped air. Currents pushing the player. Mixing liquids. Evaporation.
+
+**Compression is hidden from the picture.** A 20-cell-deep column holds about 2 cells of extra volume
+compressed in its bottom cells. Drawn cell by cell, a deep pool's surface would sink by that much and rise
+as it drains. The renderer draws each column of connected water from its total volume instead.
 
 ## Rendering
 
-- **Where water is:** in each body column, from the level plus that column's offset down to the rock.
-- **Smooth surface, pixel rock.** The water is drawn at screen resolution: the surface height blends
-  between neighbouring columns and moves in sub-pixel steps, while the rock inside and behind it is
-  sampled per art pixel.
-  - The first version snapped the water to whole art pixels. A 1–3 px ripple then stepped a pixel at a
-    time, cut square notches, and the author read it as a low frame rate.
-  - The lab's **P** key restores the snapped version for comparison.
-- **One surface line and one body tint.**
-  - The surface is a line one art pixel thick: water `#8fd3ff`, lava `#fbff86`.
-  - Below it, one see-through tint over the rock behind: water `#4d65b4` at 55%, lava `#e83b3b` at 92%.
-  - The first version stepped through shallow, deep and deepest tints; the author found the bands odd.
-- **Streams are falling sheets.** Off a lip, the sheet crosses it `thickness` deep at its `speed`, and its
-  upper and lower faces fall as parabolas: a vertical cut through a falling sheet keeps its thickness,
-  because the same flow crosses it. Its upper face carries the surface line; a few streaks run along the
-  flow. Down a shaft or through a hole in a floor, a column that thins as it speeds up. A sheet stops where
-  it enters water. A fall run off ledges draws as one sheet from the first lip.
-  - The first streams were 3 px lines at any flow. The first sheets had stripes across the flow, which
-    read as rungs, and an open-lip sheet from a gap under water, as deep as the whole pool (the author:
-    way off).
-- **Life:** short glints glide continuously along just under the surface, fading in and out.
-  - Everything that moves moves every frame. The first shimmer stepped 6 times a second, and the rock
-    behind wavered a whole art pixel at a time. At a measured steady 60 fps the author still read the
-    surface as choppy.
-  - Wavering is off by default: pixel art can only waver in whole-pixel jumps.
+The style spec. Everything is drawn into the art-resolution layer and snaps to whole art pixels.
+
+**Palette (Resurrect 64).**
+
+| Role     | Water     | Lava      |
+| -------- | --------- | --------- |
+| Deep     | `#323353` | `#6e2727` |
+| Body     | `#484a77` | `#ae2334` |
+| Mid      | `#4d65b4` | `#e83b3b` |
+| Light    | `#4d9be6` | `#fb6b1d` |
+| Surface  | `#8fd3ff` | `#f9c22b` |
+| Foam     | `#c7dcd0` | `#fbff86` |
+| Specular | `#ffffff` | `#ffffff` |
+
+The Deep Stone stratum's ramp is this same blue, so water may vanish against it. The lab compares it
+with the teal ramp `#0b5e65 #0b8a8f #0eaf9b #30e1b9 #8ff8e2` before this is final.
+
+**From cells to pixels.**
+
+- **A column's surface** comes from the total volume of its connected water, not its cells (see
+  compression above).
+- Surface heights are joined between cell centres and **quantised to whole art pixels.**
+- **Eroded rock is wet.** The rock mask opens pixels of solid cells along their edges; water fills those
+  below its surface, so there's no dry gap between water and rock.
+- **Gap fill and minimum thickness** (after Terraria): a dry cell between two wet ones is drawn wet, and
+  a sliver under 2 px isn't drawn at all; a flowing film isn't worth a line.
+
+**Still water.**
+
+- **Surface:** an opaque 1 px line of Surface over a row of Light.
+- **Body:** a see-through tint over what's behind; darker with depth by world-anchored Bayer dithering.
+- **Life:** glints are short horizontal dashes that grow and shrink in place and drift a few px/s.
+  Ripples from the spring surface, rounded to whole pixels.
+
+**Falls and pours.** A cell whose water is moving down through air is a fall.
+
+- **A whole-pixel column**, at least 3 px wide (Light edges, Mid core), wider as more flows.
+- **Streaks** from noise stretched vertically and scrolled down at the fall's speed, sampled per art
+  pixel. Never bands across the flow.
+- **Edge wobble** of ±1 px in 3 px rows, travelling down.
+- **Mouth:** Surface and a few Specular pixels where water turns over a lip.
+- **Splash:** a crown of light spikes, a foam row wider than the fall, droplets.
+
+**Lava** follows the same rules: opaque, 0.3× the speed, a bright band against rock and surface,
+bubbles.
 
 ## Verification
 
-`client/src/fluid/surface.test.ts`:
+**Bench** (September 2026, headless, before the model was chosen). Eight scenarios built from the
+reviews:
 
-- a surface at rest stays at rest;
-- a disturbance spreads to neighbouring columns;
-- ripples die out;
-- stepping is deterministic and stays bounded under repeated hard impacts.
+- a full breach and a partial breach of a wall;
+- a wall with three gaps;
+- a gap below the waterline;
+- a pool drained through a hole in its floor;
+- a U-bend;
+- a shallow dam break;
+- a pour down terraces.
+
+Each run checked conservation, water resting on air, films left behind and time to go quiet, and wrote
+frame strips.
+
+- Conservation was exact in every scenario, and each went quiet in 6–8 s.
+- All three gaps poured at once; a floor hole kept a connected stream.
+- 0.03–0.05 ms per substep over 1,000 cells.
+
+**Tests** (`shared/src/liquid.test.ts`), each red-checked against a broken rule:
+
+- conserves every unit and never goes negative, through random caves, pours and digs (property);
+- deterministic;
+- water falls: nothing rests on air, and a dropped block lands;
+- a heap levels flat to within a pixel;
+- both legs of a U-bend level (fails without pressure);
+- every gap in a breached wall pours at once (fails when only a surface can spread);
+- no wall of water beside a breach: the step is under two cells in 1.5 s, flat in 7.5;
+- a pool drains through a floor hole as a connected stream, at most one dry cell in it;
+- a settled pool stops moving (fails without the pressure damping);
+- a deep pool's surface is drawn from its volume (fails when drawn from cells).
+
+## Not built yet
+
+- **Active sets.** Cells sleep when nothing changes, and wake when a neighbour or a dig touches them
+  (Terraria's list, Noita's dirty chunks). Needed before world scale.
+- **World integration.** The step on the server's tick, around players; digging wakes it.
+- **Netcode.** Changed cells, quantised, to the clients that can see them.
+- **Reactions.** Water meeting lava makes rock.
+- **The GPU renderer.** The lab draws with the TypeScript renderer; the game gets a WGSL port of it,
+  gated against it, once the look is approved.
+- **Static bodies, breath, running to completion on resume** (the epic).
+
+## History — surface water (#89, replaced)
+
+Flat bodies with one level each, spring-ripple surfaces, streams between bodies and a device-resolution
+water shader, on branch `delve/fluid-surface`. The author's target was Cainos' _Interactive Pixel Water_.
+
+- **What worked:** the spring surface (a damped wave per pixel column) and splashes read well on a
+  still pool.
+- **What didn't:** every way water moves was a special case bolted onto "a body with a level". Each
+  review found the next hole, and each fix was a patch:
+  - shown pixels catching up to the true level left walls of water standing where rock had been;
+  - two bodies stacked in one shaft; waterfalls cascading over little ledges;
+  - a draining pool drawn as a slab past its rim, then as a cliff, then bent across its whole width;
+  - fixed-rate spills held reservoirs up as walls for 15 s, then merged into a rubber-band surge;
+  - **one spill point per body**, so a wall with three gaps poured from one, while water stood beside
+    the other two;
+  - sheet-shaped streams that matched neither their openings nor the art.
+- **Lessons carried forward:** don't model water as special cases of a static body; don't patch a model
+  report by report when a report shows a structural limit; draw on the art grid.
 
 ## History — the FLIP liquid (#88, set aside)
 
