@@ -5,11 +5,11 @@
 # exactly the rendered crop. The pages are ES modules bundled by Vite, so point at a running
 # dev server via SHOT_BASE (start `pnpm dev`) — `page` is a path under the Vite root (the client/ folder)
 # It defaults to the render harness, labs/render.html; pass labs/style-lab.html,
-# labs/light-lab.html, or index.html (the game) to shoot those instead. Examples:
+# labs/light-lab.html or labs/material-lab.html to shoot those instead. Not the game: this Chrome runs
+# with --disable-gpu and the game renders only through WebGPU, so index.html shows its WebGPU required
+# screen — capture the game with `pnpm probe index.html --play --shot out.png`. Examples:
 #   SHOT_BASE=http://localhost:5199 tools/shot.sh 'c=41&r=100&w=16&h=12&scale=3&cave=shaft'
 #   SHOT_BASE=http://localhost:5199 tools/shot.sh 'w=40&h=24&scale=2' /tmp/lights.png labs/light-lab.html
-#   SHOT_BASE=http://localhost:5199 tools/shot.sh 'renderer=2d&w=30&h=18&scale=2' /tmp/game.png index.html
-#   (the game needs renderer=2d here: this Chrome has no GPU, so WebGPU mode shows its required screen)
 set -e
 q="${1:?usage: shot.sh 'QUERY' [out.png] [page]}"
 out="${2:-/tmp/delve-shot.png}"

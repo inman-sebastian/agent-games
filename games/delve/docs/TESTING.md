@@ -86,14 +86,14 @@ two projects by environment (`@delve/shared` is aliased to source in both, so th
   down outright when it was written. (Slowest suite; isolated port + temp dir keep it hermetic.)
 - **Save store** (`server/src/store.test.ts`) — hostile player ids can't read or write outside
   `DATA_DIR`; a corrupt file loads as null. Goes red when the id sanitizing is removed.
-- **Rock chunks** (`client/src/render/chunks.test.ts`) — a rendering invariant, in the gate: every
-  chunk baked the way the Worker bakes it matches the same chunk baked with unlimited context
-  EXACTLY, and digs re-baking only what `chunksReading` names leave nothing stale. Plus the cache: a
-  bake that lands after a world reset is dropped (the stale-world bug), a dig re-bakes the chunk under
-  the pick at once and sends neighbours to the Worker, and a dig during an in-flight bake bakes once
-  more. Node has no 2D canvas, so it renders through `soft-canvas.ts` — a test double that only has
-  to be deterministic, since both sides of every comparison go through it; `labs/patch-lab.html`
-  repeats the check through Chrome's real canvas.
+- **World window** (`client/src/render/gpu/world-window.test.ts`) — the GPU renderer's CPU mirror
+  of the world, property-tested: under any mix of scrolling and digging it always matches the world
+  exactly, so rock can't go stale after a dig. It replaced the chunk-cache tests when #80 retired
+  that pipeline.
+- **The render gate** (`pnpm render-gate`) — **not** in `pnpm test`, because Node has no WebGPU. It
+  diffs the GPU renderer against `composeBand` in real Chrome through probe, needs `pnpm dev`, and
+  exits 1 on failure. Run it before handing over any change to `render/`, a material or a WGSL file.
+  What it checks and why: [RENDERING.md](RENDERING.md#the-render-gate-80).
 - **Prediction** (`client/src/prediction.test.ts`) — the client half of the authoritative contract,
   against the real engine: replaying un-acked inputs lands exactly on the prediction, a correction
   never pops the avatar and settles, world deltas apply once, the buffer is bounded.
@@ -180,8 +180,8 @@ discovered ahead of its fix.
 ## Not covered here
 
 - **How it looks** — canvas rendering isn't pixel-asserted in Vitest. Use `tools/shot.sh` for tight
-  cropped renders (see [tools/README.md](../tools/README.md)). The exception is a rendering
-  _invariant_ — see the chunk pipeline above, which is in the gate through a software canvas.
+  cropped renders (see [tools/README.md](../tools/README.md)). The exceptions are the world
+  window's invariant above, and the render gate, which diffs the GPU against the TypeScript reference.
   Real-browser end-to-end testing is intentionally out of scope for the gate. For questions about the
   running game, `pnpm probe` answers in text; which tool to use when is the
   [`delve-testing`](../../../.claude/skills/delve-testing/SKILL.md) skill.

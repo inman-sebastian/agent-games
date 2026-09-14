@@ -11,7 +11,7 @@
 //
 //   pnpm probe index.html --play --wait 3000 --overlay
 //   pnpm probe index.html --play --do "key:ArrowRight:1200 wait:400" --overlay
-//   pnpm probe labs/patch-lab.html --wait 5000 --eval "document.title"
+//   pnpm probe labs/gpu-lab.html --wait 3000 --eval "gpuLab.gate()" --assert "document.title === 'PASS'"   (= pnpm render-gate)
 //   pnpm probe index.html --size 3400x1900 --play --wait 4000 --grep "fps|phase|light field"
 //
 // Needs `pnpm dev` running (PROBE_BASE, default http://localhost:5173). Prints JSON on stdout.
@@ -21,9 +21,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WebSocket } from 'ws';
 
-const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js] [--shot out.png] [--no-gpu]
+const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "steps"] [--overlay] [--grep regex] [--eval js] [--shot out.png] [--assert js] [--no-gpu]
 
-  <page>       path under the Vite root, e.g. index.html, labs/patch-lab.html
+  <page>       path under the Vite root, e.g. index.html, labs/gpu-lab.html
   --play       skip the title screen (adds ?play=1)
   --debug      open the debug panel (adds ?debug; implied by --overlay/--grep)
   --size WxH   viewport in CSS px (default 1280x800)
@@ -37,6 +37,7 @@ const USAGE = `probe <page> [--play] [--debug] [--size WxH] [--wait ms] [--do "s
   --eval js    an expression evaluated in the page; its JSON value is printed
   --shot file  write a PNG of the viewport after everything else — the capture route for WebGPU
                pages, which shot.sh can't take (it launches Chrome with --disable-gpu)
+  --assert js  an expression evaluated after the evals; probe exits 1 unless it is exactly true
   --no-gpu     launch Chrome without WebGPU, to see what a player without it sees`;
 
 interface Options {
@@ -52,6 +53,7 @@ interface Options {
   evals: string[];
   shot: string | null;
   noGpu: boolean;
+  assert: string | null;
 }
 
 function parseArgs(argv: string[]): Options {
@@ -72,6 +74,7 @@ function parseArgs(argv: string[]): Options {
     evals: [],
     shot: null,
     noGpu: false,
+    assert: null,
   };
   for (let i = 1; i < argv.length; i++) {
     const flag = argv[i];
@@ -89,6 +92,7 @@ function parseArgs(argv: string[]): Options {
     else if (flag === '--eval') options.evals.push(value());
     else if (flag === '--shot') options.shot = value();
     else if (flag === '--no-gpu') options.noGpu = true;
+    else if (flag === '--assert') options.assert = value();
     else if (flag === '--size') {
       const [w, h] = value().split('x').map(Number);
       options.width = w;
@@ -366,6 +370,10 @@ async function main(): Promise<void> {
         session,
         expression,
       );
+    }
+    if (options.assert) {
+      output.assert = await evaluate(session, options.assert);
+      if (output.assert !== true) process.exitCode = 1;
     }
     if (options.shot) {
       const { data } = (await session.send('Page.captureScreenshot', { format: 'png' })) as {

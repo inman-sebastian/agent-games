@@ -42,7 +42,9 @@ Light is **occluded by rock** — Terraria's technique:
    (`ROCK_ATTEN`). So light pools down the tunnels you've carved and fades ~3 blocks into
    rock — the lit region takes the **shape of the dug space, not a circle**, and it bends
    around corners (an L-shaped tunnel lights as an L). One round converges because each
-   sweep chains through already-updated neighbours in its direction.
+   sweep chains through already-updated neighbours in its direction. **In the game this step
+   runs on the GPU** (#82) as parallel relaxation steps that reach the same field; `lighting.ts`
+   keeps the sweeps as the reference. See [RENDERING.md](RENDERING.md#light-propagation-on-the-gpu-82).
 3. The tile field is **bilinear-sampled per pixel** (smooth across tiles, no grid) and
    composited in two passes: a **smooth additive colour glow** (warm lamp + coloured
    ore, drawn with `'lighter'`) + a **dithered darkness scrim** derived from the _same

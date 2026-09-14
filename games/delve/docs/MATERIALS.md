@@ -27,18 +27,19 @@ This doc is the reference it (and you) build against.
 
 ## GPU twins (#73)
 
-While both renderers exist (Canvas 2D is still the default, see [RENDERING.md](RENDERING.md#direction-webgpu)),
-every material has both shaders. Two rules keep them from drifting:
+The game renders only through WebGPU ([RENDERING.md](RENDERING.md#direction-webgpu)), but every
+material keeps both shaders: the TypeScript one is the reference its WGSL twin is gated against, and
+the labs draw with it. Two rules keep them from drifting:
 
 - **Colours have one home: the TypeScript registration.** A material registers its six-stop `palette`
   ramp and its named `accents` (sheen, glint, mortar, …). The JavaScript shader reads them through
   `colorsFor`/`hexRgb` as always. The WGSL shader reads generated constants, `<NAME>_BANDS` (the six
   quantiser bands, dark → light), `<NAME>_RIM_B`, `<NAME>_RIM_ROCK` and `<NAME>_<ACCENT>`, emitted by
   `render/gpu/materials.ts`. Retuning a colour never touches the `.wgsl` file.
-- **Parity is measured, not assumed.** `gpu-lab` renders ores on both paths, and its pixel diff is the
-  check after any change to a material. The shader parameters (a sheen threshold, a blotch amount) do
-  still live in both files during the transition. The diff is what catches them disagreeing, and the
-  JavaScript twin goes away when Canvas 2D is retired.
+- **Parity is measured, not assumed.** The shader parameters (a sheen threshold, a blotch amount)
+  live in both files, and the [render gate](RENDERING.md#the-render-gate-80) (`pnpm render-gate`) is
+  what catches them disagreeing: it diffs a pocket of every registered ore on both paths. Run it after
+  any change to a material.
 
 Exactness notes for writing a twin:
 
