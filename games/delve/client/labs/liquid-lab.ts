@@ -1,11 +1,11 @@
-// liquid-lab.ts — the tile liquid (#90) in a carved screen of the real world. The sim runs on the dig cells
-// (shared/src/tile-liquid.ts) and is drawn on the art grid over the real rock
-// (client/src/fluid/tile-liquid-render.ts); S switches to the cell pipes for comparison. The scenes are the cases the earlier models' reviews found broken.
+// liquid-lab.ts — the cell-pipe liquid (#90) in a carved screen of the real world. The sim runs on the dig
+// cells (shared/src/liquid.ts) and is drawn at art resolution over the real rock
+// (client/src/fluid/liquid-render.ts). The scenes are the cases the earlier models' reviews found broken.
 // The plan is in docs/FLUIDS.md.
 //
 // Mouse: right-drag digs · shift-drag builds · hold W to pour water at the cursor.
 // Keys: N next scene · R reset · space pause · T teal water
-//       S the tile liquid or the cell pipes · 1–9 jump to a scene. `?sim=pipes` starts on the pipes.
+//       S Terraria's liquid or the cell pipes · 1–9 jump to a scene. `?sim=pipes` starts on the pipes.
 // `window.liquidLab` exposes controls and stats for `pnpm probe`.
 import {
   STRATA,
@@ -16,10 +16,11 @@ import {
   UNIT,
   WATER_PARAMS,
   LAVA_PARAMS,
-  createTileLiquid,
+  createTerrariaLiquid,
   LIQUID_WATER,
   LIQUID_LAVA,
-  type TileLiquid,
+  TERRARIA_LIQUID_UPDATES_PER_SECOND,
+  type TerrariaLiquid,
   type Liquid,
 } from '@delve/shared';
 import {
@@ -31,7 +32,7 @@ import {
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
-import { drawTileLiquid } from '../src/fluid/tile-liquid-render';
+import { drawTerrariaLiquid } from '../src/fluid/terraria-liquid-render';
 
 /** Lava's idle surface moves at this fraction of water's speed. */
 const LAVA_IDLE = 0.3;
@@ -261,8 +262,8 @@ function refreshRockAround(column: number, row: number): void {
 // ---- the liquid -------------------------------------------------------------------------------------------------
 
 let liquid: Liquid = createLiquid(cols, rows, new Uint8Array(cols * rows));
-/** The tile liquid (tile-liquid.ts), or the cell pipes (liquid.ts) for comparison. */
-let useTiles = new URLSearchParams(location.search).get('sim') !== 'pipes';
+/** Terraria's liquid, ported (terraria-liquid.ts), or the cell pipes (liquid.ts) for comparison. */
+let terraria = new URLSearchParams(location.search).get('sim') !== 'pipes';
 /** Steps per second of whichever sim is running. */
 let stepsPerSecond = WATER_PARAMS.substepsPerSecond;
 let sceneIndex = 0;
@@ -287,17 +288,28 @@ function loadScene(index: number): void {
   const setup = SCENES[sceneIndex].setup();
   refreshRock();
   lava = setup.lava === true;
-  if (useTiles) {
-    const tiles = createTileLiquid(cols, rows, cellSolidity(), lava ? LIQUID_LAVA : LIQUID_WATER);
-    liquid = tiles;
-    stepsPerSecond = tiles.updatesPerSecond;
+  if (terraria) {
+    liquid = createTerrariaLiquid(cols, rows, cellSolidity(), lava ? LIQUID_LAVA : LIQUID_WATER);
+    stepsPerSecond = TERRARIA_LIQUID_UPDATES_PER_SECOND;
   } else {
     const params = lava ? LAVA_PARAMS : WATER_PARAMS;
     liquid = createLiquid(cols, rows, cellSolidity(), params);
     stepsPerSecond = params.substepsPerSecond;
   }
-  for (const [c0, r0, c1, r1] of setup.water) {
-    for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) liquid.add(r * cols + c, UNIT);
+  if (terraria) {
+    // as the oracle starts a scene: the tiles filled, then every wet tile on the list, column by column
+    const tiles = liquid as TerrariaLiquid;
+    for (const [c0, r0, c1, r1] of setup.water) {
+      for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) tiles.level[r * cols + c] = 255;
+    }
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++)
+        if (tiles.level[r * cols + c] > 0) tiles.addWater(r * cols + c);
+    }
+  } else {
+    for (const [c0, r0, c1, r1] of setup.water) {
+      for (let r = r0; r < r1; r++) for (let c = c0; c < c1; c++) liquid.add(r * cols + c, UNIT);
+    }
   }
   pendingBreach = setup.breach ?? [];
   breachAt = elapsed + BREACH_DELAY;
@@ -357,7 +369,7 @@ addEventListener('keydown', (event: KeyboardEvent) => {
   else if (event.code === 'Space') paused = !paused;
   else if (event.code === 'KeyT') teal = !teal;
   else if (event.code === 'KeyS') {
-    useTiles = !useTiles;
+    terraria = !terraria;
     loadScene(sceneIndex);
   } else if (/^Digit[1-9]$/.test(event.code)) loadScene(Number(event.code.slice(5)) - 1);
   else return;
@@ -414,7 +426,8 @@ function frame(now: number): void {
     originY: bandTop * T,
     time: elapsed,
   };
-  if (useTiles) drawTileLiquid({ ...view, liquid: liquid as TileLiquid }, image.data, style);
+  if (terraria)
+    drawTerrariaLiquid({ ...view, liquid: liquid as TerrariaLiquid }, image.data, style);
   else
     drawLiquid(
       {
@@ -436,7 +449,7 @@ function frame(now: number): void {
   hud.innerHTML =
     `<b>DELVE · liquid lab</b> — ${sceneIndex + 1}. ${SCENES[sceneIndex].name}: ${SCENES[sceneIndex].hint}\n` +
     `water ${(liquid.total() / UNIT).toFixed(2)} cells   sim ${simMs.toFixed(1)} ms   draw ${drawMs.toFixed(1)} ms\n` +
-    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · S ${useTiles ? '<b>tiles</b>' : 'pipes'}`;
+    `right-drag dig · shift-drag build · hold W pour · N scene · R reset · space pause · T ${teal ? '<b>teal</b>' : 'blue'} · S ${terraria ? '<b>terraria</b>' : 'pipes'}`;
   requestAnimationFrame(frame);
 }
 
@@ -449,8 +462,8 @@ Object.assign(window, {
       liquid.add(row * cols + column, Math.round(cells * UNIT)),
     pause: (value: boolean) => (paused = value),
     teal: (value: boolean) => (teal = value),
-    useTiles: (value: boolean) => {
-      useTiles = value;
+    terraria: (value: boolean) => {
+      terraria = value;
       loadScene(sceneIndex);
     },
     /** Cells in a rectangle, for probes: [column, row, fill, down velocity, right velocity, solid]. */
