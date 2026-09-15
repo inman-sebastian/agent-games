@@ -306,6 +306,9 @@ platinum, obsidian, quartz, stonebricks). A subtle change to copper's noise weig
 fails. For the light (#82), halving the propagation steps and making rock conduct like open space
 each fail every lit view.
 
+**Liquid** has its own gate in the liquid lab, run by the same command after this one
+([FLUIDS.md](FLUIDS.md#on-the-gpu-96--clientsrcrendergpuliquidts-liquidwgsl)).
+
 Run it with `pnpm render-gate` while `pnpm dev` is running; it exits 1 on failure. It isn't part of
 `pnpm test`, because Node has no WebGPU, so run it before handing over any change to `render/`, a
 material or a WGSL file. How to read its output: [tools/README.md](../tools/README.md#pnpm-render-gate--the-gpu-against-its-reference).

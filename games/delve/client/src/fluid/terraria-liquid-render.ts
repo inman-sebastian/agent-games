@@ -12,7 +12,7 @@ const WATERFALL_LENGTH = [10, 3];
 /** LiquidRenderer.MIN_LIQUID_SIZE: a drawn tile is never smaller than this much of a tile. */
 const MIN_LIQUID_SIZE = 0.25;
 /** Terraria's tile size: every wall and frame offset is in these units. */
-const TILE = 16;
+export const TILE = 16;
 
 export interface TerrariaLiquidFrame {
   readonly liquid: TerrariaLiquid;
@@ -333,9 +333,9 @@ export const enum Texel {
 const ANIMATION_FRAMES = 16;
 const ANIMATION_FRAMES_PER_SECOND = 6;
 /** The texture's surface frame sits under the animation: IsSurfaceLiquid tiles draw from here, unanimated. */
-const SURFACE_FRAME_Y = 1280;
+export const SURFACE_FRAME_Y = 1280;
 /** Terraria's liquid texture is pixel art drawn at 2×: one of its pixels is two units, one DELVE art pixel. */
-const UNITS_PER_PIXEL = 2;
+export const UNITS_PER_PIXEL = 2;
 
 const hashPixel = (x: number, y: number): number => {
   let h = Math.imul(x * 374761393 + y * 668265263, 1274126177);
@@ -591,10 +591,13 @@ const waterTargets = new WeakMap<TerrariaLiquid, WaterTarget>();
  * Brightness (0–255) of what's behind a water pixel, below which it shows the ramp's Deep, then Body, then Mid.
  * Tuned to the Stone background, whose wall has two tones (brightness 48 and 59); other strata will want theirs.
  */
-const SEE_THROUGH_DEEP = 54;
-const SEE_THROUGH_BODY = 100;
+export const SEE_THROUGH_DEEP = 54;
+export const SEE_THROUGH_BODY = 100;
 /** Art px under its surface over which lava cools from its hottest to its dark centre. */
-const LAVA_COOLING_DEPTH = 56;
+export const LAVA_COOLING_DEPTH = 56;
+/** The cooling depth wanders with world noise, between these fractions of it: base, and base + range. */
+export const LAVA_COOLING_BASE = 0.7;
+export const LAVA_COOLING_RANGE = 0.6;
 /** Lava's molten ramp, dark → hot (Resurrect 64). */
 export const LAVA_BANDS = ['#6e2727', '#ae2334', '#e83b3b', '#fb6b1d', '#f79617', '#f9c22b'].map(
   hexRgb,
@@ -654,7 +657,9 @@ export function drawTerrariaLiquid(
       const worldX = originX + x;
       const worldY = originY + (pixel - x) / width;
       // the cooling depth wanders, so hot and cool lava meet along an organic line, not a straight band
-      const cooling = LAVA_COOLING_DEPTH * (0.7 + vnoise(worldX * 0.05, worldY * 0.03, 7) * 0.6);
+      const cooling =
+        LAVA_COOLING_DEPTH *
+        (LAVA_COOLING_BASE + vnoise(worldX * 0.05, worldY * 0.03, 7) * LAVA_COOLING_RANGE);
       const heat = Math.max(0, 1 - distance[pixel] / cooling);
       // the brightest rim only on the real surface, not on the inner edges between partly filled tiles
       colour =
@@ -721,10 +726,10 @@ function settleKind(
 }
 
 /**
- * Every pixel's distance to open air, in 4-connected steps, into `out` (a two-pass chamfer distance transform: down
- * the rows then back up, each row swept both ways). Rock is a barrier: its pixels stay far and are never
- * updated, so distance never passes through them. Lava's heat is measured from it, so hot and cool lava blend smoothly around every step
- * and corner of the surface, and air behind a wall doesn't warm the lava in front of it.
+ * Every pixel's distance to open air, in 4-connected steps through pixels that aren't rock, into `out`: breadth
+ * first from every air pixel. Rock and pixels no path reaches stay far (width + height). Lava's heat is measured
+ * from it, so hot and cool lava blend smoothly around every step and corner of the surface, and air behind a wall
+ * doesn't warm the lava in front of it. The GPU relaxes the same distance (docs/FLUIDS.md, "On the GPU").
  */
 export function surfaceDistance(
   air: Uint8Array,
@@ -734,33 +739,30 @@ export function surfaceDistance(
   out: Int32Array,
 ): Int32Array {
   const far = width + height;
-  const sweepRow = (row: number): void => {
-    for (let x = 1; x < width; x++) {
-      const pixel = row + x;
-      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel - 1] + 1);
+  const queue = new Int32Array(width * height);
+  let tail = 0;
+  for (let pixel = 0; pixel < width * height; pixel++) {
+    if (air[pixel] && !rock[pixel]) {
+      out[pixel] = 0;
+      queue[tail++] = pixel;
+    } else {
+      out[pixel] = far;
     }
-    for (let x = width - 2; x >= 0; x--) {
-      const pixel = row + x;
-      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel + 1] + 1);
-    }
-  };
-  for (let y = 0; y < height; y++) {
-    const row = y * width;
-    for (let x = 0; x < width; x++) {
-      const pixel = row + x;
-      if (rock[pixel]) out[pixel] = far;
-      else if (air[pixel]) out[pixel] = 0;
-      else out[pixel] = y > 0 ? Math.min(far, out[pixel - width] + 1) : far;
-    }
-    sweepRow(row);
   }
-  for (let y = height - 2; y >= 0; y--) {
-    const row = y * width;
-    for (let x = 0; x < width; x++) {
-      const pixel = row + x;
-      if (!rock[pixel]) out[pixel] = Math.min(out[pixel], out[pixel + width] + 1);
-    }
-    sweepRow(row);
+  for (let head = 0; head < tail; head++) {
+    const pixel = queue[head];
+    const next = out[pixel] + 1;
+    if (next >= far) continue;
+    const x = pixel % width;
+    const visit = (neighbour: number): void => {
+      if (rock[neighbour] || out[neighbour] <= next) return;
+      out[neighbour] = next;
+      queue[tail++] = neighbour;
+    };
+    if (x > 0) visit(pixel - 1);
+    if (x < width - 1) visit(pixel + 1);
+    if (pixel >= width) visit(pixel - width);
+    if (pixel + width < width * height) visit(pixel + width);
   }
   return out;
 }
@@ -774,12 +776,122 @@ function seeThrough(pixels: Uint8ClampedArray, offset: number, style: LiquidStyl
   return style.mid;
 }
 
-/** Main.RenderWater: prepare the draw and lay every tile's source rectangle into the target. */
-function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined): WaterTarget {
-  const { liquid, cell, width, height, originY } = frame;
+/** The per-cell plan's fields, `PLAN_STRIDE` 32-bit integers a cell, in this order (row by row). */
+export const enum Plan {
+  /** PLAN_DRAWN | PLAN_SOLID | PLAN_BEHIND */
+  Flags = 0,
+  /** The tile's source rectangle in the texture, in Terraria units, this animation frame's row included. */
+  SourceX = 1,
+  SourceY = 2,
+  SourceWidth = 3,
+  SourceHeight = 4,
+  OffsetX = 5,
+  OffsetY = 6,
+  /** Liquid behind a slope: where in the tile, its source row, its size, and the slope. */
+  BehindX = 7,
+  BehindY = 8,
+  BehindSourceY = 9,
+  BehindWidth = 10,
+  BehindHeight = 11,
+  Shape = 12,
+}
+export const PLAN_STRIDE = 13;
+/** Drawn: liquid, or a trail that bridges a gap (the tail rule). */
+export const PLAN_DRAWN = 1;
+export const PLAN_SOLID = 2;
+/** A slope with liquid shown behind it. */
+export const PLAN_BEHIND = 4;
+
+/**
+ * What each cell draws this refresh (docs/FLUIDS.md, "On the GPU"): the CPU's part of the liquid picture, which
+ * the TypeScript and the WGSL renderers both lay pixels from. Terraria's draw cache, the tail rule and the
+ * rectangles behind slopes are order-dependent per-cell passes; everything per pixel is the renderers'.
+ */
+export function planLiquid(frame: TerrariaLiquidFrame): Int32Array<ArrayBuffer> {
+  const { liquid, cell, originY, shapeAt } = frame;
   const draw = prepareLiquidDraw(liquid, Math.floor(originY / cell));
+  const frameNumber = animationFrame(frame.time);
+  const plan = new Int32Array(liquid.width * liquid.height * PLAN_STRIDE);
+  // hard edges: the waterfall trail's faded tiles are drawn only where they bridge a gap to liquid further down
+  // the stream; a trail that only fades into the air (a tail) isn't drawn
+  for (let column = 0; column < liquid.width; column++) {
+    let liquidBelow = false;
+    for (let row = liquid.height - 1; row >= 0; row--) {
+      const index = row * liquid.width + column;
+      if (!draw.visible[index]) {
+        liquidBelow = false;
+        continue;
+      }
+      if (draw.opacity[index] >= 1) liquidBelow = true;
+      if (!liquidBelow) continue;
+      const at = index * PLAN_STRIDE;
+      plan[at + Plan.Flags] |= PLAN_DRAWN;
+      plan[at + Plan.SourceX] = draw.sourceX[index];
+      // InternalDraw: surface liquid draws from the surface frame, everything else from this animation frame
+      plan[at + Plan.SourceY] = draw.surface[index]
+        ? SURFACE_FRAME_Y
+        : draw.sourceY[index] + frameNumber * 80;
+      plan[at + Plan.SourceWidth] = draw.sourceWidth[index];
+      plan[at + Plan.SourceHeight] = draw.sourceHeight[index];
+      plan[at + Plan.OffsetX] = draw.offsetX[index];
+      plan[at + Plan.OffsetY] = draw.offsetY[index];
+    }
+  }
+  const neighbour = (column: number, row: number): { shape: number; liquid: number } => {
+    if (column < 0 || row < 0 || column >= liquid.width || row >= liquid.height) {
+      return { shape: FULL, liquid: 0 };
+    }
+    const index = row * liquid.width + column;
+    return {
+      shape: liquid.isSolid(index) ? (shapeAt?.(column, row) ?? FULL) : OPEN,
+      liquid: liquid.level[index],
+    };
+  };
+  for (let row = 0; row < liquid.height; row++) {
+    for (let column = 0; column < liquid.width; column++) {
+      const index = row * liquid.width + column;
+      if (!liquid.isSolid(index)) continue;
+      const at = index * PLAN_STRIDE;
+      plan[at + Plan.Flags] |= PLAN_SOLID;
+      const shape = shapeAt?.(column, row) ?? FULL;
+      plan[at + Plan.Shape] = shape;
+      if (shape === FULL || shape === OPEN) continue;
+      // liquid behind slopes (#95)
+      const rect = liquidBehindTile({
+        shape,
+        liquid: liquid.level[index],
+        left: neighbour(column - 1, row),
+        right: neighbour(column + 1, row),
+        above: neighbour(column, row - 1),
+        below: neighbour(column, row + 1),
+      });
+      if (!rect || rect.hidden) continue;
+      plan[at + Plan.Flags] |= PLAN_BEHIND;
+      plan[at + Plan.BehindX] = rect.x;
+      plan[at + Plan.BehindY] = rect.y;
+      plan[at + Plan.BehindSourceY] = rect.sourceY;
+      plan[at + Plan.BehindWidth] = rect.width;
+      plan[at + Plan.BehindHeight] = rect.height;
+    }
+  }
+  return plan;
+}
+
+/** The animation frame a plan was made for, which the texture's shimmer also reads. */
+export const animationFrame = (time: number): number =>
+  Math.floor(time * ANIMATION_FRAMES_PER_SECOND) % ANIMATION_FRAMES;
+
+/**
+ * Main.RenderWater: lay every cell's plan into the target. A drawn tile's texels from its source rectangle; behind
+ * a slope (#95), Terraria's rectangle inside the slope's open half only — a full cell has none, and the rock's
+ * eroded edge stays dry — as body, with the surface line where the rectangle starts at the texture's top edge, and
+ * no side edges, which DELVE draws only toward air.
+ */
+function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined): WaterTarget {
+  const { liquid, cell, width, height } = frame;
+  const plan = planLiquid(frame);
   const scale = TILE / cell; // Terraria units per art px
-  const frameNumber = Math.floor(frame.time * ANIMATION_FRAMES_PER_SECOND) % ANIMATION_FRAMES;
+  const frameNumber = animationFrame(frame.time);
   const target: WaterTarget =
     reuse && reuse.shown.length === width * height
       ? reuse
@@ -792,101 +904,44 @@ function renderWater(frame: TerrariaLiquidFrame, reuse: WaterTarget | undefined)
     target.cells = new Uint8Array(liquid.width * liquid.height);
   }
   target.shown.fill(Texel.Clear);
-  // hard edges: the waterfall trail's faded tiles are drawn only where they bridge a gap to liquid further down
-  // the stream; a trail that only fades into the air (a tail) isn't drawn
-  const drawn = target.cells;
-  drawn.fill(0);
-  for (let column = 0; column < liquid.width; column++) {
-    let liquidBelow = false;
-    for (let row = liquid.height - 1; row >= 0; row--) {
-      const index = row * liquid.width + column;
-      if (!draw.visible[index]) {
-        liquidBelow = false;
-        continue;
-      }
-      if (draw.opacity[index] >= 1) liquidBelow = true;
-      if (liquidBelow) drawn[index] = 1;
-    }
-  }
   for (let row = 0; row < liquid.height; row++) {
     for (let column = 0; column < liquid.width; column++) {
       const index = row * liquid.width + column;
-      if (!drawn[index]) continue;
-      const sourceX = draw.sourceX[index];
-      // InternalDraw: surface liquid draws from the surface frame, everything else from this animation frame
-      const sourceY = draw.surface[index]
-        ? SURFACE_FRAME_Y
-        : draw.sourceY[index] + frameNumber * 80;
+      const at = index * PLAN_STRIDE;
+      const flags = plan[at + Plan.Flags];
+      target.cells[index] = flags & PLAN_DRAWN ? 1 : 0;
+      if (!(flags & (PLAN_DRAWN | PLAN_BEHIND))) continue;
       for (let py = 0; py < cell; py++) {
-        const unitY = py * scale - draw.offsetY[index];
-        if (unitY < 0 || unitY >= draw.sourceHeight[index]) continue;
         for (let px = 0; px < cell; px++) {
-          const unitX = px * scale - draw.offsetX[index];
-          if (unitX < 0 || unitX >= draw.sourceWidth[index]) continue;
-          const kind = texel(
-            Math.floor((sourceX + unitX) / UNITS_PER_PIXEL),
-            Math.floor((sourceY + unitY) / UNITS_PER_PIXEL),
-            frameNumber,
-          );
-          if (kind === Texel.Clear) continue;
           const x = column * cell + px;
           const y = row * cell + py;
           if (x >= width || y >= height) continue;
-          target.shown[y * width + x] = kind;
+          let kind: Texel = Texel.Clear;
+          if (flags & PLAN_DRAWN) {
+            const unitX = px * scale - plan[at + Plan.OffsetX];
+            const unitY = py * scale - plan[at + Plan.OffsetY];
+            if (unitX < 0 || unitX >= plan[at + Plan.SourceWidth]) continue;
+            if (unitY < 0 || unitY >= plan[at + Plan.SourceHeight]) continue;
+            kind = texel(
+              Math.floor((plan[at + Plan.SourceX] + unitX) / UNITS_PER_PIXEL),
+              Math.floor((plan[at + Plan.SourceY] + unitY) / UNITS_PER_PIXEL),
+              frameNumber,
+            );
+          } else {
+            const unitX = px * scale - plan[at + Plan.BehindX];
+            const unitY = py * scale - plan[at + Plan.BehindY];
+            if (unitX < 0 || unitX >= plan[at + Plan.BehindWidth]) continue;
+            if (unitY < 0 || unitY >= plan[at + Plan.BehindHeight]) continue;
+            if (insideShape(plan[at + Plan.Shape], px, py, cell)) continue;
+            kind = edge(
+              Math.floor((plan[at + Plan.BehindSourceY] + unitY) / UNITS_PER_PIXEL),
+              true,
+            );
+          }
+          if (kind !== Texel.Clear) target.shown[y * width + x] = kind;
         }
       }
     }
   }
-  drawBehindSlopes(frame, target.shown);
   return target;
-}
-
-/**
- * Liquid behind slopes (#95): Terraria's rectangle behind each solid tile (liquidBehindTile), inside the slope's
- * open half only — a full cell has none, and the rock's eroded edge stays dry. Body, with the surface line where
- * the rectangle starts at the texture's top edge; no side edges, which DELVE draws only toward air.
- */
-function drawBehindSlopes(frame: TerrariaLiquidFrame, shown: Uint8Array): void {
-  const { liquid, cell, width, height, shapeAt } = frame;
-  if (!shapeAt) return;
-  const scale = TILE / cell; // Terraria units per art px
-  const neighbour = (column: number, row: number): { shape: number; liquid: number } => {
-    if (column < 0 || row < 0 || column >= liquid.width || row >= liquid.height) {
-      return { shape: FULL, liquid: 0 };
-    }
-    const index = row * liquid.width + column;
-    return {
-      shape: liquid.isSolid(index) ? shapeAt(column, row) : OPEN,
-      liquid: liquid.level[index],
-    };
-  };
-  for (let row = 0; row < liquid.height; row++) {
-    for (let column = 0; column < liquid.width; column++) {
-      const index = row * liquid.width + column;
-      if (!liquid.isSolid(index)) continue;
-      const shape = shapeAt(column, row);
-      if (shape === FULL || shape === OPEN) continue;
-      const rect = liquidBehindTile({
-        shape,
-        liquid: liquid.level[index],
-        left: neighbour(column - 1, row),
-        right: neighbour(column + 1, row),
-        above: neighbour(column, row - 1),
-        below: neighbour(column, row + 1),
-      });
-      if (!rect || rect.hidden) continue;
-      for (let py = 0; py < cell; py++) {
-        const unitY = py * scale - rect.y;
-        if (unitY < 0 || unitY >= rect.height) continue;
-        for (let px = 0; px < cell; px++) {
-          const unitX = px * scale - rect.x;
-          if (unitX < 0 || unitX >= rect.width || insideShape(shape, px, py, cell)) continue;
-          const x = column * cell + px;
-          const y = row * cell + py;
-          if (x >= width || y >= height) continue;
-          shown[y * width + x] = edge(Math.floor((rect.sourceY + unitY) / UNITS_PER_PIXEL), true);
-        }
-      }
-    }
-  }
 }

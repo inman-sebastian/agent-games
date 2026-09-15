@@ -107,7 +107,7 @@ pnpm probe index.html --play --grep "^(fps|phase|light field)"
 pnpm probe index.html --size 3400x1900 --play --wait 4000 --grep "^(fps|phase)"
 pnpm probe index.html --play --do "key:ArrowRight:1200 wait:300" --grep "^pos"
 pnpm probe index.html --play --do "aim:0,2:400 aim:-1,2:400 wait:500" --grep "^(pos|save)"
-pnpm render-gate   # = probe labs/gpu-lab.html --eval "gpuLab.gate()" --assert "document.title === 'PASS'"
+pnpm render-gate   # = probe labs/gpu-lab.html --eval "gpuLab.gate()", then labs/liquid-lab.html "liquidLab.gate()"
 ```
 
 | Flag                      |                                                                                                                                                              |
@@ -187,6 +187,9 @@ pnpm probe index.html --no-gpu --eval "document.body.dataset.app"   # 'unsupport
 `gpuLab.gate()` diffs the WebGPU renderer against `composeBand` over a fixed set of strata views and
 one view per registered ore material, and fails on drift past measured tolerances. What it checks,
 its thresholds and why they are fractions: [RENDERING.md](../docs/RENDERING.md#the-render-gate-80).
+Then `liquidLab.gate()` diffs the liquid's WGSL against the TypeScript renderer; its views and bars:
+[FLUIDS.md](../docs/FLUIDS.md#on-the-gpu-96--clientsrcrendergpuliquidts-liquidwgsl). Each view reports
+`identical`, `off`, `worst`, and GPU timings `refreshMs` and `colourMs`.
 
 ```sh
 pnpm dev            # in another terminal

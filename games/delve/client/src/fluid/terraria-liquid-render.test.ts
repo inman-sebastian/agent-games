@@ -354,6 +354,33 @@ describe('the liquid picture', () => {
     expect(at(7, 6)).toBeGreaterThan(2);
   });
 
+  it('measures heat along any path round rock: up over a wall and down behind it', () => {
+    // 'a' air, '#' rock, '.' lava: the pocket right of the wall is reached only by going up, over and down
+    const rows = [
+      '............',
+      '............',
+      '...#........',
+      '...#........',
+      '...#........',
+      '...#........',
+      '...#........',
+      'a..#........',
+    ];
+    const width = rows[0].length;
+    const height = rows.length;
+    const air = new Uint8Array(width * height);
+    const rock = new Uint8Array(width * height);
+    rows.forEach((line, y) =>
+      [...line].forEach((c, x) => {
+        air[y * width + x] = c === 'a' ? 1 : 0;
+        rock[y * width + x] = c === '#' ? 1 : 0;
+      }),
+    );
+    const distance = surfaceDistance(air, rock, width, height, new Int32Array(width * height));
+    // up 6 to row 1, right 5, down 6
+    expect(distance[7 * width + 5]).toBe(6 + 5 + 6);
+  });
+
   it('edges a face toward open air even where Terraria left none for its trail', () => {
     // after one update the water has spread into a sheet (rows 1–2) over a gap-filled tile (3,3); the sheet's trail
     // falls either side of that tile, so Terraria gives it no side edges — and the trail isn't drawn

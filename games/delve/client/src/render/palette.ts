@@ -298,7 +298,7 @@ export function moltenSurface(
 }
 
 /** How fast lava's molten field drifts, in noise units per second: slow, thick. */
-const MOLTEN_FLOW = 0.9;
+export const MOLTEN_FLOW = 0.9;
 
 /**
  * A glossy GLASS surface — even smoother than metal and slightly deepened (glass reads dark + wet),

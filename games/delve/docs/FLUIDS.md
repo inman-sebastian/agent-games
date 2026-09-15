@@ -71,6 +71,39 @@ and where it lands in the next. The renderer keeps a water target per liquid, re
 count reaches a new even number, and paints it every frame (`client/src/fluid/terraria-liquid-render.test.ts`
 fails if the picture changes on an odd update).
 
+### On the GPU (#96) — `client/src/render/gpu/liquid.ts`, `liquid.wgsl`
+
+Everything drawn is on the GPU ([RENDERING.md](RENDERING.md#direction-webgpu)); the TypeScript renderer
+stays the reference it's gated against, and the labs' renderer.
+
+- **The per-cell plan stays on the CPU**, as the light field's plan does. Terraria's draw cache is a run of
+  order-dependent passes (the waterfall trail's last writer wins, the corner fixes read neighbours the same
+  pass just changed) that the oracle checks exactly, and it costs a fraction of a millisecond on a screen of
+  cells. So `planLiquid` builds, per cell, what's drawn there: the tile's source rectangle and offset in
+  this animation frame, whether the tail rule draws it, and the rectangle behind a slope. Both renderers read
+  that one plan. It's rebuilt when the picture refreshes (every second liquid update).
+- **Every pixel is WGSL**, in three compute stages: **kinds** (the texel from the tile's rectangle, the gap
+  and side-edge settling, liquid behind slopes), **heat** for lava, and **colour** (see-through water from
+  the brightness of the scene under it; lava's molten surface), which runs every frame because both move.
+- **Heat is a relaxation, not jump flooding.** Heat is the distance to open air **through** the lava, with
+  rock a barrier, which jump flooding (nearest seed, ignoring what's between) can't respect. Each step, every
+  non-rock pixel takes the least of itself and its four neighbours plus one, as the light field relaxes. The
+  steps stop at the deepest cooling depth (73 px): past it heat is zero whatever the distance. The reference
+  measures the same distance, breadth first (`surfaceDistance`).
+- **Gated** (`liquidLab.gate()` in `client/labs/liquid-lab.ts`, run by `pnpm render-gate` after the rock's gate).
+  Ten views — the reservoir, the breaches mid-flow and later, a U-bend, three gaps, a pool over a cave, the
+  slopes scene, and lava twice — are stepped to a set update, drawn by both renderers, and diffed. A view fails
+  past 0.1% of pixels off by more than 3 levels or under 99.9% identical, and a **water** view fails if more
+  than 2 pixels differ at all: water is integer logic but for one brightness threshold, and its rarest features
+  (the shimmer, a gap filled inside a moving body) are a handful of pixels a frame, which the fractions can't
+  see. Measured: every water view identical, lava 99.997–100% (noise on float thresholds). Red-checked: 20 fewer
+  heat steps, no liquid behind slopes, the see-through threshold moved, lava's noise weight changed, the
+  shimmer's hash changed and the gap fill removed each fail it.
+- **Cost**, at a 3400×1900 window (1696×944 art px), gate timings: a refresh (plan upload, kinds, 73 heat steps)
+  8–19 ms of GPU, once per refresh; a colour 15–34 ms including a 6 MB readback the game won't do. The heat steps
+  cover the whole picture; confining them to the lava's box plus the cooling depth is the next saving, when
+  liquid is in the game.
+
 ## The look
 
 Everything is whole pixels of the [Resurrect 64](PALETTE.md) ramps below: no translucent blends and no smooth
@@ -95,7 +128,7 @@ gradients. Water and edges are flat palette colours; lava's transitions use the 
   (`LAVA_BANDS`: `#6e2727 #ae2334 #e83b3b #fb6b1d #f79617 #f9c22b`) with the shared Bayer dither, and moves: the
   molten blobs drift, and a crust of darker plates floats on the hot top, split by glowing seams. **Heat** is
   the geometry's say, like rock's top-light: hottest at the surface line (`#f9c22b`), cooling with each pixel's
-  **distance to open air** (`surfaceDistance`, a two-pass 2D distance transform). Open air is judged by pixel:
+  **distance to open air** (`surfaceDistance`: breadth first, in 4-connected steps). Open air is judged by pixel:
   nothing drawn and not rock, so the empty top of a partly filled tile counts and heat starts where the lava
   does, while a cell the sim briefly empties inside moving lava (drawn filled) doesn't. Rock is a barrier, so air
   behind a wall never warms the lava in front of it. Measured in 2D, heat changes by at most a step between
@@ -183,10 +216,8 @@ lava's light.
 
 ## Not built yet
 
-- **The renderer in WGSL.** Everything drawn is on the GPU in the game (RENDERING.md; the author,
-  2026-09-14): the draw cache, the texture, see-through water, the molten surface and its heat (jump flooding
-  in place of `surfaceDistance`), gated against the TypeScript renderer, which stays the reference.
-- **World integration.** The step on the server's tick; digging frames the tiles around it.
+- **World integration.** The step on the server's tick; digging frames the tiles around it; the GPU pass in
+  the game's renderer, reading the rock mask and the composed scene it already has.
 - **Netcode.** Terraria sends changed tiles by chunk (`NetLiquidModule`); the same, to the clients that see
   them.
 - **Reactions.** Water meeting lava makes obsidian (`LavaCheck`).

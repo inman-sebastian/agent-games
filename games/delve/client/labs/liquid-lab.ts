@@ -35,7 +35,14 @@ import {
 } from '../src/render/cave-render';
 import { UPSCALE } from '../src/render/palette';
 import { drawLiquid, WATER_STYLE, TEAL_WATER_STYLE, LAVA_STYLE } from '../src/fluid/liquid-render';
-import { drawTerrariaLiquid, liquidLights, LAVA_LIGHT } from '../src/fluid/terraria-liquid-render';
+import {
+  animationFrame,
+  drawTerrariaLiquid,
+  liquidLights,
+  planLiquid,
+  LAVA_LIGHT,
+} from '../src/fluid/terraria-liquid-render';
+import { createLiquidGpu } from '../src/render/gpu/liquid';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 
 /** Lava's idle surface moves at this fraction of water's speed. */
@@ -480,7 +487,14 @@ let owedSubsteps = 0;
 let simMs = 0;
 let drawMs = 0;
 
+/** Set while the render gate runs: the lab stops drawing, so the gate's GPU timings are the GPU's. */
+let gating = false;
+
 function frame(now: number): void {
+  if (gating) {
+    requestAnimationFrame(frame);
+    return;
+  }
   const dt = Math.min(1 / 20, (now - last) / 1000);
   last = now;
   if (!paused) {
@@ -566,8 +580,146 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
+// ---- the render gate (#96) --------------------------------------------------------------------------------------
+
+/** A gate view: a scene, run this many liquid updates (its breach dug at `breachAt`), drawn at `time`. */
+interface GateView {
+  scene: string;
+  updates: number;
+  breachAt?: number;
+  time: number;
+}
+
+const GATE_VIEWS: GateView[] = [
+  { scene: 'reservoir', updates: 0, time: 0.4 },
+  { scene: 'partial breach', updates: 70, breachAt: 4, time: 1.7 },
+  { scene: 'full breach', updates: 24, breachAt: 4, time: 0.2 },
+  { scene: 'full breach', updates: 46, breachAt: 4, time: 2.9 },
+  { scene: 'u-bend', updates: 36, time: 1.1 },
+  { scene: 'three gaps', updates: 120, breachAt: 4, time: 2.3 },
+  { scene: 'pool over a cave', updates: 90, breachAt: 4, time: 5.1 },
+  { scene: 'slopes', updates: 30, time: 0.9 },
+  { scene: 'lava breach', updates: 60, breachAt: 4, time: 3.3 },
+  { scene: 'lava breach', updates: 200, breachAt: 4, time: 11.8 },
+];
+/** The bars, as the rock's render gate has them: few pixels past 3 levels, and nearly all identical. */
+const GATE_MAX_OFF = 0.001;
+const GATE_MIN_IDENTICAL = 0.999;
+/**
+ * Water is integer logic end to end but for one brightness threshold, and measures identical; its rarest
+ * features (the shimmer, a gap filled inside a moving body) are a handful of pixels a frame, which the fractions
+ * can't see. So a water view may differ in this many pixels at all.
+ */
+const GATE_WATER_MAX_DIFFERENT = 2;
+
+/**
+ * The liquid picture on the GPU against the TypeScript renderer: each view's scene is stepped to its update, then
+ * drawn both ways and diffed. Sets `document.title` to PASS or FAIL (`pnpm render-gate` runs it).
+ */
+async function gate(): Promise<{ pass: boolean; failures: string[]; views: unknown[] }> {
+  paused = true;
+  terraria = true;
+  gating = true;
+  const adapter = await navigator.gpu?.requestAdapter();
+  const device = await adapter?.requestDevice();
+  if (!device) throw new Error('liquid gate: no WebGPU');
+  let gpuError: string | null = null;
+  device.addEventListener('uncapturederror', (event) => {
+    gpuError ??= (event as GPUUncapturedErrorEvent).error.message;
+  });
+  const gpu = createLiquidGpu(device);
+  const failures: string[] = [];
+  const views: unknown[] = [];
+  for (const view of GATE_VIEWS) {
+    loadScene(SCENES.findIndex((scene) => scene.name === view.scene));
+    const breach = pendingBreach.splice(0);
+    for (let update = 0; update < view.updates; update++) {
+      if (update === view.breachAt) {
+        pendingBreach = breach;
+        breachNow();
+      }
+      liquid.step();
+    }
+    const tiles = liquid as TerrariaLiquid;
+    const style = lava ? LAVA_STYLE : WATER_STYLE;
+    const frame = {
+      liquid: tiles,
+      cell: T,
+      open,
+      width,
+      height,
+      originX: bandLeft * T,
+      originY: bandTop * T,
+      time: view.time,
+      shapeAt: (column: number, row: number) => shapeOf(bandLeft + column, bandTop + row),
+    };
+    const scene = lava ? new Uint8ClampedArray(width * height * 4) : rockPixels.slice();
+    const cpu = scene.slice();
+    drawTerrariaLiquid(frame, cpu, style);
+    const refreshStart = performance.now();
+    gpu.refresh({
+      plan: planLiquid(frame),
+      open,
+      width,
+      height,
+      cols,
+      rows,
+      cell: T,
+      frame: animationFrame(view.time),
+      lava,
+    });
+    await device.queue.onSubmittedWorkDone();
+    const colourStart = performance.now();
+    const refreshMs = colourStart - refreshStart;
+    const gpuPixels = await gpu.colour({
+      scene,
+      originX: frame.originX,
+      originY: frame.originY,
+      time: view.time,
+      style,
+    });
+    let identical = 0;
+    let off = 0;
+    let worst = 0;
+    for (let pixel = 0; pixel < width * height; pixel++) {
+      let difference = 0;
+      for (let channel = 0; channel < 4; channel++) {
+        const at = pixel * 4 + channel;
+        difference = Math.max(difference, Math.abs(cpu[at] - gpuPixels[at]));
+      }
+      if (difference === 0) identical++;
+      if (difference > 3) off++;
+      worst = Math.max(worst, difference);
+    }
+    const count = width * height;
+    const result = {
+      view: `${view.scene} @${view.updates}`,
+      identical: +((identical / count) * 100).toFixed(3),
+      off: +((off / count) * 100).toFixed(3),
+      worst,
+      /** GPU milliseconds: a refresh (plan upload, kinds, heat), and a colour with its readback. */
+      refreshMs: +refreshMs.toFixed(1),
+      colourMs: +(performance.now() - colourStart).toFixed(1),
+    };
+    views.push(result);
+    if (off / count > GATE_MAX_OFF) failures.push(`${result.view}: ${result.off}% past 3 levels`);
+    if (!lava && count - identical > GATE_WATER_MAX_DIFFERENT) {
+      failures.push(`${result.view}: ${count - identical} pixels differ`);
+    }
+    if (identical / count < GATE_MIN_IDENTICAL) {
+      failures.push(`${result.view}: only ${result.identical}% identical`);
+    }
+  }
+  if (gpuError) failures.push(`GPU error: ${gpuError}`);
+  gating = false;
+  const pass = failures.length === 0;
+  document.title = pass ? 'PASS' : 'FAIL';
+  return { pass, failures, views };
+}
+
 Object.assign(window, {
   liquidLab: {
+    gate,
     scene: loadScene,
     digCell: (column: number, row: number) => dig(column, row, false),
     buildCell: (column: number, row: number) => dig(column, row, true),
