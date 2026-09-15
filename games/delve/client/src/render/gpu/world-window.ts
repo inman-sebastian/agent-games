@@ -75,7 +75,8 @@ export function createWorldWindow(source: WorldSource): WorldWindow {
   function place(nextLeft: number, nextTop: number, nextCols: number, nextRows: number): void {
     const nextCells = new Uint32Array(nextCols * nextRows);
     const nextSurface = new Float32Array(nextCols);
-    const reuse = built && nextCols === cols && nextRows === rows;
+    // cells are matched by world position, so a window of a different size reuses whatever overlaps
+    const reuse = built;
     for (let row = 0; row < nextRows; row++) {
       const worldRow = nextTop + row;
       const oldRow = worldRow - top;

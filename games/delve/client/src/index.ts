@@ -169,8 +169,10 @@ const materialAt = (column: number, row: number) =>
 const worldWindow = createWorldWindow({
   solid: solidTile,
   // a cell's material id: its ore, where that ore has a registered material, else 0 for the strata stone
-  material: (column, row) =>
-    materialAt(column, row) ? engine.oreAt(s.world.seed, column, row) : 0,
+  material: (column, row) => {
+    const ore = engine.oreAt(s.world.seed, column, row);
+    return oreMaterial(ore) ? ore : 0;
+  },
   // a cell's static shape: full or a slope (#94)
   shape: (column, row) => engine.shapeAt(s.world.seed, column, row),
   surface: (column) => surfaceOf(column),

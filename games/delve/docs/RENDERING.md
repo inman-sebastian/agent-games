@@ -118,6 +118,12 @@ of kilobytes and costs nothing. The spike's 3.7 ms was the _world queries_, and 
 them:
 
 - **Scrolling shifts the mirror** and queries only the strips entering it.
+- **The band under the screen keeps one size** (`bandFor`): the most cells a screen of that size can
+  touch, wherever the camera is. Sized to the cells actually touched, it flickered by a cell as the camera
+  crossed cell boundaries, and every flicker reallocated the renderer's buffers, textures and bind groups and
+  rebuilt the window from world queries: 156 times in six seconds of walking, 1.4 ms of an average frame. The
+  window also reuses what overlaps when its size does change. gpu-lab composes its reference over the same
+  band. Walking at a 3400×1900 window went from 2.2 ms a frame on the main thread to 0.7–1.1 ms.
 - **Digs, including the server's, update single cells** (`worldWindow.dig`).
 - **A new world resets it.**
 

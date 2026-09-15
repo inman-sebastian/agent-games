@@ -20,7 +20,7 @@ import { createQuadBatch } from '../src/render/gpu/quads';
 import { hexRgb } from '../src/render/palette';
 import { create as createLighting, LAMP_COLOR } from '../src/render/lighting';
 import type { FieldPlan } from '../src/render/lighting';
-import { createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
+import { bandFor, createGpuRenderer, GpuUnavailable } from '../src/render/gpu/renderer';
 import { createWorldWindow } from '../src/render/gpu/world-window';
 import type { GpuRenderer } from '../src/render/gpu/renderer';
 
@@ -251,7 +251,19 @@ function addLamp(): void {
 function renderCpu(): number {
   const started = performance.now();
   const { bandLeft, bandTop } = band();
-  composeBand(cpu, isSolid, bandLeft, bandTop, cols, rows, surfaceOf, materialAt, shapeOf);
+  // composed over the band the GPU shades (bandFor), which reaches a cell past the screen; the canvas crops it
+  const shaded = bandFor(bandLeft * T, bandTop * T, cols * T, rows * T);
+  composeBand(
+    cpu,
+    isSolid,
+    bandLeft,
+    bandTop,
+    shaded.cols,
+    shaded.rows,
+    surfaceOf,
+    materialAt,
+    shapeOf,
+  );
   drawTwinkle(cpu);
   drawEntitiesCpu(cpu);
   if (lightingOn) {

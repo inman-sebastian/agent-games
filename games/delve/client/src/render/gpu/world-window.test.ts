@@ -155,6 +155,18 @@ describe('the GPU world window', () => {
     expect(after.solid - before.solid).toBeLessThan(fullWindow);
   });
 
+  it('a view whose size flickers by a cell as it scrolls never re-queries the whole window', () => {
+    // The band under a screen is one cell wider or not depending on where the camera's pixel falls in a cell,
+    // and every flicker used to rebuild the window from world queries: 156 times in six seconds of walking.
+    const world = fakeWorld(11);
+    const window = createWorldWindow(world.source);
+    window.follow(1000, 50, 200, 110);
+    const before = world.queries();
+    for (let step = 1; step <= 40; step++) window.follow(1000 + step, 50, 200 + (step % 2), 110);
+    const fullWindow = window.cols * window.rows;
+    expect(world.queries().solid - before.solid).toBeLessThan(fullWindow);
+  });
+
   it('a dig outside the window is ignored, and one inside changes the version', () => {
     const world = fakeWorld(3);
     const window = createWorldWindow(world.source);

@@ -84,7 +84,12 @@ type LayerSource = HTMLCanvasElement | OffscreenCanvas;
 /** The world pixel at the screen's top-left, rounded exactly as the game's `ctx.translate` rounds it. */
 const screenOrigin = (camera: number): number => -Math.round(-camera);
 
-/** The world cell band under a screen: every cell any screen pixel touches. */
+/**
+ * The world cell band under a screen: every cell any screen pixel touches. Its size is the most cells a screen of
+ * this size can touch, wherever the camera is, so it doesn't change while the screen doesn't: sized to the cells
+ * actually touched, it was a cell wider or not as the camera crossed a cell, and each change reallocated the
+ * renderer's buffers and textures and rebuilt the world window from world queries.
+ */
 export function bandFor(
   camX: number,
   camY: number,
@@ -100,8 +105,8 @@ export function bandFor(
     originY,
     left,
     top,
-    cols: Math.floor((originX + width - 1) / T) - left + 1,
-    rows: Math.floor((originY + height - 1) / T) - top + 1,
+    cols: Math.floor((width + T - 2) / T) + 1,
+    rows: Math.floor((height + T - 2) / T) + 1,
   };
 }
 
